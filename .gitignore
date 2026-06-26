@@ -1,0 +1,14 @@
+# Compiled binaries / build artifacts
+*.exe
+*.dll
+*.lib
+*.obj
+*.pdb
+*.ilk
+vc140.pdb
+
+# IDE configurations
+.vscode/
+
+# PyTorch / Model files
+best.pt
