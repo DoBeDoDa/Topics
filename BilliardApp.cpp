@@ -309,9 +309,6 @@ bool BilliardApp::processVisionData(char* dataString) {
 }
 
 void BilliardApp::runContourAlignment() {
-    cout << "\n[視覺伺服] 啟動 align.py 進行相機微調對齊..." << endl;
-    system("start cmd /k C:\\Users\\10003\\miniconda3\\envs\\yolo-env1\\python.exe align.py"); 
-    
     SocketClient alignClient;
     cout << "[視覺伺服] 正在連線至對齊伺服器" << flush;
     bool align_connected = false;
