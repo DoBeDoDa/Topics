@@ -143,17 +143,18 @@ bool BilliardApp::processVisionData(char* dataString) {
             cout << "\r[狀態] 尋找母球中...                  " << flush; 
             return false; 
         }
-        Point bw = { bwx, bwy };
+        Point bw = BilliardMath::applyCameraCompensation({ bwx, bwy });
 
-        Point target_arm = {-9999.0, -9999.0}, destination = {-9999.0, -9999.0};
+        Point target_arm = {-9999.0, -9999.0};
         string target_name = "";
 
-        if (b1x > -9000.0) { target_arm = {b1x, b1y}; target_name = "1號球"; }
-        else if (b2x > -9000.0) { target_arm = {b2x, b2y}; target_name = "2號球"; }
-        else if (b3x > -9000.0) { target_arm = {b3x, b3y}; target_name = "3號球"; }
+        if (b1x > -9000.0) { target_arm = BilliardMath::applyCameraCompensation({b1x, b1y}); target_name = "1號球"; }
+        else if (b2x > -9000.0) { target_arm = BilliardMath::applyCameraCompensation({b2x, b2y}); target_name = "2號球"; }
+        else if (b3x > -9000.0) { target_arm = BilliardMath::applyCameraCompensation({b3x, b3y}); target_name = "3號球"; }
 
+        Point destination = {-9999.0, -9999.0};
         if (p1x > -9000.0) {
-            destination = { p1x, p1y };
+            destination = BilliardMath::applyCameraCompensation({ p1x, p1y });
         } else {
             cout << "\r[錯誤] 核心錯誤：缺少 1 號球袋 (p1) 座標，拒絕執行擊打...  " << flush;
             return false;
@@ -163,13 +164,13 @@ bool BilliardApp::processVisionData(char* dataString) {
             cout << "\r[錯誤] 核心錯誤：缺少 2 號或 3 號球袋座標，無法建立顆星牆壁...  " << flush;
             return false;
         }
-        Point rail_A = { p2x, p2y };
-        Point rail_B = { p3x, p3y };
+        Point rail_A = BilliardMath::applyCameraCompensation({ p2x, p2y });
+        Point rail_B = BilliardMath::applyCameraCompensation({ p3x, p3y });
 
         vector<Point> obs_list;
-        if (b1x > -9000.0 && target_name != "1號球") obs_list.push_back({b1x, b1y});
-        if (b2x > -9000.0 && target_name != "2號球") obs_list.push_back({b2x, b2y});
-        if (b3x > -9000.0 && target_name != "3號球") obs_list.push_back({b3x, b3y});
+        if (b1x > -9000.0 && target_name != "1號球") obs_list.push_back(BilliardMath::applyCameraCompensation({b1x, b1y}));
+        if (b2x > -9000.0 && target_name != "2號球") obs_list.push_back(BilliardMath::applyCameraCompensation({b2x, b2y}));
+        if (b3x > -9000.0 && target_name != "3號球") obs_list.push_back(BilliardMath::applyCameraCompensation({b3x, b3y}));
 
         Point ghost_direct = BilliardPhysics::getGhostBall(destination, target_arm, BALL_D);
         bool direct_path_blocked = false;
@@ -284,9 +285,6 @@ bool BilliardApp::processVisionData(char* dataString) {
         cout << "[動作] 直線下降至傾斜擊球高度..." << endl;
         robot.moveLinearTo(down);
         
-        // 執行對齊微調
-        runContourAlignment();
-
         robot.setOverrideRatio(50); 
         robot.setToolNumber(0);
         

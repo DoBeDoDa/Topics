@@ -1,10 +1,13 @@
 #pragma once
 #include <cmath>
 
-struct Point; // 向前宣告 Point 結構
+#include "Point.h"
 
 namespace BilliardMath {
     const double PI = 3.14159265358979323846;
+
+    // 相機角度與位置畸變補償函數
+    Point applyCameraCompensation(Point raw_pt);
 
     // 計算兩點間的距離
     double getDistance(double x1, double y1, double x2, double y2);
