@@ -9,6 +9,7 @@ vc140.pdb
 
 # IDE configurations
 .vscode/
+.venv/
 
 # PyTorch / Model files
 best.pt
