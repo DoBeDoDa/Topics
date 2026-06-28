@@ -11,5 +11,9 @@ vc140.pdb
 .vscode/
 .venv/
 
+# Python cache
+__pycache__/
+*.pyc
+
 # PyTorch / Model files
 best.pt
