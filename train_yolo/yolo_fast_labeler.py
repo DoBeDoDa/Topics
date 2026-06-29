@@ -574,6 +574,11 @@ names:
 
         cv2.destroyAllWindows()
         print("[系統] 標註驗證程式已正常關閉。")
+        print("\n=======================================================")
+        print(" 💡 標註資料已成功儲存！")
+        print(" 💡 您可以執行以下指令將已檢查的影像與標籤上傳到 Roboflow：")
+        print("    python upload_to_roboflow.py")
+        print("=======================================================\n")
 
 if __name__ == "__main__":
     labeler = YoloFastLabeler()
