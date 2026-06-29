@@ -5,6 +5,7 @@
 #include <iostream>
 #include <string>
 #include <winsock2.h>
+#include <conio.h>
 #include "RobotController.h"
 #include "SocketClient.h"
 #include "HRSDK.h"
@@ -12,6 +13,35 @@
 #pragma comment(lib, "ws2_32.lib")
 
 using namespace std;
+
+// 拍照點位關節角度 (A1 ~ A6)
+const double CAM_JOINT[6] = {0.0, -32.319, 51.653, 0.0, -18.813, -90.0};
+
+// 回傳 true 表示確認，false 表示重新記錄 (按 Delete/Backspace/D)
+bool askConfirmation() {
+    cout << "  --> [Enter] 確認此點並前往下一球 | [Delete] 或 [D] 鍵刪除並重新量測..." << endl;
+    while (true) {
+        if (_kbhit()) {
+            int ch = _getch();
+            if (ch == 13 || ch == 10) { // Enter 鍵
+                return true;
+            }
+            if (ch == 'd' || ch == 'D') {
+                return false;
+            }
+            if (ch == 224 || ch == 0) { // 擴充鍵 (如 Delete, 方向鍵)
+                int next_ch = _getch();
+                if (next_ch == 83) { // Delete 鍵的掃描碼
+                    return false;
+                }
+            }
+            if (ch == 8) { // Backspace 鍵
+                return false;
+            }
+        }
+        Sleep(10);
+    }
+}
 
 int main() {
     // 支援繁體中文輸出
@@ -48,6 +78,15 @@ int main() {
     string balls[] = { "bw", "b1", "b2", "b3" };
     string ball_names[] = { "母球 (bw)", "1號球 (b1)", "2號球 (b2)", "3號球 (b3)" };
 
+    // 1. 首次啟動：移動到拍照點，等待按 Enter 才拍照
+    cout << "\n[系統] 正在自動移動至拍照位置 (CAM_JOINT)..." << endl;
+    robot.moveToAxis(CAM_JOINT, true);
+    cout << "[系統] 已到達拍照位置。請在球桌上擺放好球。" << endl;
+    cout << "準備就緒後，請在【此視窗】按下 [Enter] 鍵開始拍照辨識..." << endl;
+    string init_dummy;
+    getline(cin, init_dummy);
+    pythonClient.sendData("START_DETECTION\n");
+
     while (true) {
         cout << "\n[相機] 等待影像偵測端鎖定所有球點像素位置..." << endl;
         
@@ -66,38 +105,58 @@ int main() {
             cout << "  標定回合開始！請依提示移動手臂末端" << endl;
             cout << "=========================================" << endl;
 
-            // 清理 C++ 輸入緩衝區，確保不會直接讀取到先前的殘留輸入
-            cin.clear();
-            fflush(stdin);
-
             for (int i = 0; i < 4; i++) {
-                cout << "\n-----------------------------------------" << endl;
-                cout << "  步驟 " << (i + 1) << "/4：請對準【" << ball_names[i] << "】" << endl;
-                cout << "  --> 請手動將手臂末端移動到該球的實體中心位置。" << endl;
-                cout << "  對準後，請在【此視窗】按下 [Enter] 鍵繼續..." << endl;
+                bool point_confirmed = false;
+                while (!point_confirmed) {
+                    cout << "\n-----------------------------------------" << endl;
+                    cout << "  步驟 " << (i + 1) << "/4：請對準【" << ball_names[i] << "】" << endl;
+                    cout << "  --> 請手動將手臂末端移動到該球的實體中心位置。" << endl;
+                    cout << "  對準後，請在【此視窗】按下 [Enter] 鍵記錄座標..." << endl;
 
-                // 等待 Enter 按下
-                string dummy;
-                getline(cin, dummy);
+                    // 清理緩衝區並等待 Enter
+                    cin.clear();
+                    fflush(stdin);
+                    string dummy;
+                    getline(cin, dummy);
 
-                // 取得目前手臂末端座標
-                double cart[6] = {0.0};
-                if (get_current_position(robot.getId(), cart) == 0) {
-                    double x = cart[0];
-                    double y = cart[1];
-                    cout << "[記錄] 手臂目前座標：X = " << x << " mm, Y = " << y << " mm" << endl;
+                    // 取得目前手臂座標
+                    double cart[6] = {0.0};
+                    if (get_current_position(robot.getId(), cart) == 0) {
+                        double x = cart[0];
+                        double y = cart[1];
+                        cout << "[記錄] 手臂目前座標：X = " << x << " mm, Y = " << y << " mm" << endl;
 
-                    // 發送給 Python 格式為 "ball_name,X,Y\n"
-                    string send_msg = balls[i] + "," + to_string(x) + "," + to_string(y) + "\n";
-                    pythonClient.sendData(send_msg);
-                } else {
-                    cout << "[錯誤] 無法取得手臂座標，發送 0,0 代替。" << endl;
-                    string send_msg = balls[i] + ",0.0,0.0\n";
-                    pythonClient.sendData(send_msg);
+                        // 進行點位確認 (支援 Enter 確認，Delete/Backspace/D 重新記錄)
+                        if (askConfirmation()) {
+                            cout << "[系統] 已確認此點座標。" << endl;
+                            string send_msg = balls[i] + "," + to_string(x) + "," + to_string(y) + "\n";
+                            pythonClient.sendData(send_msg);
+                            point_confirmed = true;
+                        } else {
+                            cout << "[系統] 刪除此點，請重新調整位置後再次記錄..." << endl;
+                        }
+                    } else {
+                        cout << "[錯誤] 無法取得手臂座標，發送 0,0 代替。" << endl;
+                        string send_msg = balls[i] + ",0.0,0.0\n";
+                        pythonClient.sendData(send_msg);
+                        point_confirmed = true;
+                    }
                 }
             }
 
-            cout << "\n[系統] 四點座標量測完畢，等待影像端計算透視變換矩陣..." << endl;
+            cout << "\n[系統] 四點座標量測完畢。" << endl;
+            
+            // 2. 標定完成後，移動回拍照位置，並等待使用者按下 Enter
+            cout << "[手臂] 正在自動移動回拍照位置 (CAM_JOINT)..." << endl;
+            robot.moveToAxis(CAM_JOINT, true);
+            cout << "[手臂] 已到達拍照位置。請重新擺放球點。" << endl;
+            cout << "準備就緒後，請在【此視窗】按下 [Enter] 開始下一輪拍照與標定..." << endl;
+            
+            cin.clear();
+            fflush(stdin);
+            string next_dummy;
+            getline(cin, next_dummy);
+            pythonClient.sendData("START_DETECTION\n");
         }
     }
 

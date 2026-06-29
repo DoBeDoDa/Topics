@@ -53,6 +53,37 @@ def start_calibration_service(model_path="best.pt", port=12347):
     try:
         round_count = 1
         while True:
+            # 1. 等待 C++ 端發送 START_DETECTION 指令才啟動辨識
+            print("\n[相機] 等待 C++ 端發送 START_DETECTION 指令 (請在 C++ 按下 Enter)...")
+            socket_buffer = ""
+            start_detection_received = False
+            
+            while not start_detection_received:
+                ret, frame = cap.read()
+                if ret:
+                    overlay = frame.copy()
+                    cv2.rectangle(overlay, (0, 0), (1280, 70), (0, 0, 0), -1)
+                    cv2.addWeighted(overlay, 0.6, frame, 0.4, 0, frame)
+                    cv2.putText(frame, "Waiting for C++ to start detection...", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+                    cv2.imshow("Calibration Tool (Orbbec Camera)", frame)
+                
+                key = cv2.waitKey(1) & 0xFF
+                if key == ord('q') or key == ord('Q') or key == 27:
+                    print("\n[系統] 使用者結束程式。")
+                    return
+                
+                try:
+                    data = conn.recv(1024).decode('utf-8')
+                    if data:
+                        socket_buffer += data
+                        if "START_DETECTION" in socket_buffer:
+                            start_detection_received = True
+                except BlockingIOError:
+                    pass
+                except ConnectionResetError:
+                    print("[網路錯誤] C++ 斷開連線。")
+                    return
+
             print(f"\n=========================================")
             print(f"  開始第 {round_count} 輪標定偵測...")
             print(f"  請確保母球 (bw)、1號球 (b1)、2號球 (b2)、3號球 (b3) 都在鏡頭視野內")
@@ -101,7 +132,8 @@ def start_calibration_service(model_path="best.pt", port=12347):
                     break
 
                 cv2.imshow("Calibration Tool (Orbbec Camera)", annotated_frame)
-                if cv2.waitKey(1) & 0xFF == ord('q'):
+                key = cv2.waitKey(1) & 0xFF
+                if key == ord('q') or key == ord('Q') or key == 27:
                     print("\n[系統] 使用者結束程式。")
                     return
 
@@ -206,16 +238,6 @@ def start_calibration_service(model_path="best.pt", port=12347):
                 f.write(f"table_points = np.float32({table_points_list})\n")
             print("\n[系統] 標定點位已寫入檔案 'calibrated_points.txt'")
 
-            # 提示並等待 5 秒（期間持續重新整理視窗，防止凍結）
-            print("\n5 秒後將回到初始狀態，開始新的一輪標定...")
-            start_time = time.time()
-            while time.time() - start_time < 5:
-                ret, frame = cap.read()
-                if ret:
-                    cv2.putText(frame, f"Calibration Complete. Restarting in {int(5 - (time.time() - start_time))}s...", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-                    cv2.imshow("Calibration Tool (Orbbec Camera)", frame)
-                cv2.waitKey(1)
-                
             round_count += 1
 
     finally:
