@@ -65,6 +65,7 @@ int main() {
         return -1;
     }
     robot.setMotorState(1);
+    robot.setOverrideRatio(40);
     cout << "[系統] 機械手臂連線成功，馬達已啟動。" << endl;
 
     // 在連線至 Python 之前，先將手臂移到拍照點位以避免相機視野受阻

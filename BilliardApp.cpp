@@ -17,7 +17,7 @@ bool BilliardApp::initialize() {
     }
     
     robot.setMotorState(1);
-    robot.setOverrideRatio(50);
+    robot.setOverrideRatio(40);
 
     // 在連線至 Python 之前，先將手臂移到拍照位置以避免相機視野受阻
     moveToCameraPosition();
@@ -280,7 +280,7 @@ bool BilliardApp::processVisionData(char* dataString) {
         cout << "[動作] 直線下降至傾斜擊球高度..." << endl;
         robot.moveLinearTo(down);
         
-        robot.setOverrideRatio(50); 
+        robot.setOverrideRatio(40); 
         robot.setToolNumber(0);
         
         char strike_confirm = 'n';
