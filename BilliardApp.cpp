@@ -192,7 +192,7 @@ bool BilliardApp::processVisionData(char* dataString) {
 
         if (angle_deg > 90.0 || direct_path_blocked) {
             if (direct_path_blocked) {
-                cout << "\n[防撞提示] 偵測到直擊路徑受阻，自動切換至顆星解球模式。" << endl;
+                cout << "\n[防撞提示] 偵測到直擊    路徑受阻，自動切換至顆星解球模式。" << endl;
             }
             
             Point mirrored_pocket = BilliardPhysics::getSlantedBankTarget(destination, rail_A, rail_B);

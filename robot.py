@@ -9,6 +9,12 @@ except ImportError:
     rs = None
 from ultralytics import YOLO
 
+# ==========================================
+# [相機設定] 設定您所使用的相機 USB Index
+# ==========================================
+CAMERA_INDEX = 2  # 如果讀取不到相機，請嘗試修改為 0, 1, 2...
+# ==========================================
+
 try:
     import torch
     import torch.nn as nn
@@ -151,39 +157,41 @@ class BilliardDetector:
         return annotated_frame, coords, display_data
 
 
-class RealSenseCamera:
-    """處理 Intel RealSense D435i 相機的啟動與影像讀取"""
-    def __init__(self, width=1280, height=720, fps=30):
-        if rs is None:
-            raise ImportError("[嚴重錯誤] 未安裝 pyrealsense2 模組，無法啟動 RealSense 相機！")
+class USBCamera:
+    """處理 USB 相機（如 Orbbec Gemini 2 XL）的啟動與影像讀取"""
+    def __init__(self, camera_index=2, width=1280, height=720):
+        self.camera_index = camera_index
         self.width = width
         self.height = height
-        self.fps = fps
-        self.pipeline = rs.pipeline()
-        self.config = rs.config()
-        self.config.enable_stream(rs.stream.color, self.width, self.height, rs.format.bgr8, self.fps)
+        self.cap = None
         self.is_started = False
 
     def start(self):
         if not self.is_started:
-            print("[硬體狀態] 正在啟動 Intel RealSense D435i 模組...")
-            self.pipeline.start(self.config)
+            print(f"[硬體狀態] 正在啟動 USB 相機 (Index: {self.camera_index})...")
+            self.cap = cv2.VideoCapture(self.camera_index, cv2.CAP_DSHOW)
+            if not self.cap.isOpened():
+                raise RuntimeError(f"[錯誤] 無法開啟相機索引 {self.camera_index}！")
+            
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
             self.is_started = True
-            print("[系統狀態] D435i 硬體啟動成功。")
+            print(f"[系統狀態] USB 相機 (Index: {self.camera_index}) 啟動成功。")
 
     def get_frame(self):
-        if not self.is_started:
+        if not self.is_started or self.cap is None:
             return None
-        frames = self.pipeline.wait_for_frames()
-        color_frame = frames.get_color_frame()
-        if not color_frame:
+        ret, frame = self.cap.read()
+        if not ret:
             return None
-        return np.asanyarray(color_frame.get_data())
+        return frame
 
     def stop(self):
         if self.is_started:
-            print("[硬體狀態] 正在關閉 RealSense 相機...")
-            self.pipeline.stop()
+            print("[硬體狀態] 正在關閉 USB 相機...")
+            if self.cap:
+                self.cap.release()
+                self.cap = None
             self.is_started = False
 
 
@@ -228,13 +236,13 @@ class BilliardVisionApp:
     """整合相機、辨識與通訊的主應用程式"""
     def __init__(self, model_path="best.pt", port=12345, use_nn=False):
         self.detector = BilliardDetector(model_path, use_nn=use_nn)
-        self.camera = RealSenseCamera()
+        self.camera = USBCamera(camera_index=CAMERA_INDEX)
         self.server = BilliardVisionServer(port=port)
 
     def print_dashboard(self, display_data):
         os.system('cls' if os.name == 'nt' else 'clear')
         print("=====================================================")
-        print(" [D435i] 機器人視覺絕對座標面板 (單位: mm, 原點: p1)")
+        print(" [相機端] 機器人視覺絕對座標面板 (單位: mm, 原點: p1)")
         print("=====================================================")
         print(f" [1號球 b1] {display_data['b1']}   |   [左上 p1] {display_data['p1']}")
         print(f" [2號球 b2] {display_data['b2']}   |   [中上 p2] {display_data['p2']}")
@@ -268,7 +276,7 @@ class BilliardVisionApp:
                 if not self.server.send_coords(coords):
                     break
 
-                cv2.imshow("Direct Arm Vision (Intel RealSense)", annotated_frame)
+                cv2.imshow("Direct Arm Vision (Orbbec/USB Camera)", annotated_frame)
                 key = cv2.waitKey(1) & 0xFF
                 if key == ord('q') or key == ord('Q') or key == 27:
                     break

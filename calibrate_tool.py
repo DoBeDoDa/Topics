@@ -1,10 +1,15 @@
 import cv2
 import socket
 import numpy as np
-import pyrealsense2 as rs
 from ultralytics import YOLO
 import os
 import time
+
+# ==========================================
+# [相機設定] 設定您所使用的相機 USB Index
+# ==========================================
+CAMERA_INDEX = 2  # 如果讀取不到相機，請嘗試修改為 0, 1, 2...
+# ==========================================
 
 def start_calibration_service(model_path="best.pt", port=12347):
     # 載入 YOLO 模型
@@ -23,20 +28,19 @@ def start_calibration_service(model_path="best.pt", port=12347):
     conn, addr = server_socket.accept()
     print(f"[網路狀態] 連線成功！來源 IP: {addr}")
 
-    # 啟動 RealSense 相機
-    print("[硬體狀態] 正在啟動 Intel RealSense D435i...")
-    pipeline = rs.pipeline()
-    config = rs.config()
-    config.enable_stream(rs.stream.color, 1280, 720, rs.format.bgr8, 30)
-    
-    try:
-        pipeline.start(config)
-        print("[硬體狀態] RealSense 啟動成功，進入標定工作流。")
-    except Exception as e:
-        print(f"[硬體錯誤] 無法啟動相機: {e}")
+    # 啟動 USB 相機 (例如 Orbbec Gemini 2 XL)
+    print(f"[硬體狀態] 正在啟動 USB 相機 (Index: {CAMERA_INDEX})...")
+    cap = cv2.VideoCapture(CAMERA_INDEX, cv2.CAP_DSHOW)
+    if not cap.isOpened():
+        print(f"[硬體錯誤] 無法開啟相機索引 {CAMERA_INDEX}！")
         conn.close()
         server_socket.close()
         return
+    
+    # 設定解析度
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+    print(f"[硬體狀態] 相機啟動成功，進入標定工作流。")
 
     label_map = {0: "b1", 1: "b2", 2: "b3", 3: "bw"}
     required_labels = [0, 1, 2, 3] # b1, b2, b3, bw
@@ -53,11 +57,8 @@ def start_calibration_service(model_path="best.pt", port=12347):
             
             # 1. 偵測階段：必須同時偵測到母球、1、2、3號球的中心像素座標
             while True:
-                frames = pipeline.wait_for_frames()
-                color_frame = frames.get_color_frame()
-                if not color_frame: continue
-
-                frame = np.asanyarray(color_frame.get_data())
+                ret, frame = cap.read()
+                if not ret: continue
                 annotated_frame = frame.copy()
 
                 results = model(frame, conf=0.3, verbose=False)
@@ -166,7 +167,8 @@ def start_calibration_service(model_path="best.pt", port=12347):
 
     finally:
         print("[系統狀態] 正在釋放資源與關閉連線...")
-        pipeline.stop()
+        if 'cap' in locals() and cap is not None:
+            cap.release()
         cv2.destroyAllWindows()
         conn.close()
         server_socket.close()
