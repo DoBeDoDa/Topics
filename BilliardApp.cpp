@@ -19,6 +19,9 @@ bool BilliardApp::initialize() {
     robot.setMotorState(1);
     robot.setOverrideRatio(50);
 
+    // 在連線至 Python 之前，先將手臂移到拍照位置以避免相機視野受阻
+    moveToCameraPosition();
+
     cout << "[系統] 等待 Python 連線..." << endl;
     while (!yoloClient.connectToServer("127.0.0.1", PYTHON_PORT)) {
         Sleep(1000);

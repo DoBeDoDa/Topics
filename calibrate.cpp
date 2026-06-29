@@ -67,6 +67,11 @@ int main() {
     robot.setMotorState(1);
     cout << "[系統] 機械手臂連線成功，馬達已啟動。" << endl;
 
+    // 在連線至 Python 之前，先將手臂移到拍照點位以避免相機視野受阻
+    cout << "\n[系統] 正在自動移動至拍照位置 (CAM_JOINT)..." << endl;
+    robot.moveToAxis(CAM_JOINT, true);
+    cout << "[系統] 已到達拍照位置。請在球桌上擺放好球。" << endl;
+
     SocketClient pythonClient;
     cout << "[系統] 正在連線至 Python 影像偵測端 (Port: 12347)..." << endl;
     while (!pythonClient.connectToServer("127.0.0.1", 12347)) {
@@ -78,11 +83,8 @@ int main() {
     string balls[] = { "bw", "b1", "b2", "b3" };
     string ball_names[] = { "母球 (bw)", "1號球 (b1)", "2號球 (b2)", "3號球 (b3)" };
 
-    // 1. 首次啟動：移動到拍照點，等待按 Enter 才拍照
-    cout << "\n[系統] 正在自動移動至拍照位置 (CAM_JOINT)..." << endl;
-    robot.moveToAxis(CAM_JOINT, true);
-    cout << "[系統] 已到達拍照位置。請在球桌上擺放好球。" << endl;
-    cout << "準備就緒後，請在【此視窗】按下 [Enter] 鍵開始拍照辨識..." << endl;
+    // 1. 首次啟動：已到達拍照點，直接等待按 Enter 才拍照
+    cout << "\n準備就緒後，請在【此視窗】按下 [Enter] 鍵開始拍照辨識..." << endl;
     string init_dummy;
     getline(cin, init_dummy);
     pythonClient.sendData("START_DETECTION\n");
