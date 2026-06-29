@@ -21,7 +21,7 @@ private:
     const double MOVE_BACK_MM = 20.0;
     
     // 預設關節點位
-    const double CAM_JOINT[6] = {2.173, -19.536, 74.059, 0.0, -44.365, 88.147};
+    const double CAM_JOINT[6] = {0.0, -32.319, 51.653, 0.0, -18.813, -90.0};
     const double BREAK_JOINT[6] = {-2.599, -87.736, 48.629, 3.794, -50.23, 103.847};
     const double SECOND_JOINT[6] = {63.243, -93.544, 63.324, 0.000, -67.246, 36.322};
     
