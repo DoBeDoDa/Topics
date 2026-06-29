@@ -11,3 +11,14 @@ struct Rail {
     Point pB;
     std::string name;
 };
+
+struct Vector2D {
+    double x;
+    double y;
+};
+
+struct Offset3D {
+    double x;
+    double y;
+    double z;
+};

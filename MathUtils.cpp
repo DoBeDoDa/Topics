@@ -59,4 +59,18 @@ namespace BilliardMath {
     double getVectorAngle(double dx, double dy) {
         return atan2(dy, dx) * 180.0 / PI;
     }
+
+    Vector2D getVector(Point start, Point end) {
+        return { end.x - start.x, end.y - start.y };
+    }
+
+    Offset3D getTiltOffset(double arm_rz, double tilt_ry_deg, double move_back_mm) {
+        double rad_rz = arm_rz * PI / 180.0;
+        double rad_tilt = tilt_ry_deg * PI / 180.0;
+
+        double dx = -move_back_mm * cos(rad_tilt) * cos(rad_rz);
+        double dy = -move_back_mm * cos(rad_tilt) * sin(rad_rz);
+        double dz =  move_back_mm * sin(rad_tilt);
+        return { dx, dy, dz };
+    }
 }

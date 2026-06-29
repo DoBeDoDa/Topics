@@ -21,4 +21,10 @@ namespace BilliardMath {
 
     // 計算向量相對於 X 軸的角度（度數，等同 RZ，範圍為 -180 到 180）
     double getVectorAngle(double dx, double dy);
+
+    // 計算起點到終點的二維方向向量
+    Vector2D getVector(Point start, Point end);
+
+    // 計算傾斜擊球時的三維座標增量微量（物理補償與回退）
+    Offset3D getTiltOffset(double arm_rz, double tilt_ry_deg, double move_back_mm);
 }

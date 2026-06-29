@@ -181,13 +181,11 @@ bool BilliardApp::processVisionData(char* dataString) {
         }
         if (BilliardPhysics::isPathBlocked(target_arm, destination, bw, BALL_D)) direct_path_blocked = true;      
 
-        double vec1_x = destination.x - target_arm.x; 
-        double vec1_y = destination.y - target_arm.y;
-        double vec2_x = target_arm.x - bw.x;          
-        double vec2_y = target_arm.y - bw.y;
+        Vector2D vec1 = BilliardMath::getVector(target_arm, destination);
+        Vector2D vec2 = BilliardMath::getVector(bw, target_arm);
 
         // 使用 MathUtils 函式庫計算向量夾角
-        double angle_deg = BilliardMath::getAngleBetweenVectors(vec1_x, vec1_y, vec2_x, vec2_y);
+        double angle_deg = BilliardMath::getAngleBetweenVectors(vec1.x, vec1.y, vec2.x, vec2.y);
 
         Point best_aim_target;
         string strategy_name = "";
@@ -242,28 +240,22 @@ bool BilliardApp::processVisionData(char* dataString) {
             strategy_name = "[降級] 強制直線直擊";
         }
 
-        double v_dx = best_aim_target.x - bw.x;
-        double v_dy = best_aim_target.y - bw.y;
+        Vector2D v_dir = BilliardMath::getVector(bw, best_aim_target);
         
         // 使用 MathUtils 函式庫計算母球到最佳擊球點的距離
-        double v_dist = BilliardMath::getDistance(bw, best_aim_target);
+        double v_dist = BilliardMath::getLength(v_dir.x, v_dir.y);
         if (v_dist < 5.0) return false; 
         
         // 使用 MathUtils 函式庫計算向量平面角度
-        double arm_rz = BilliardMath::getVectorAngle(v_dx, v_dy) + YAW_OFFSET;
+        double arm_rz = BilliardMath::getVectorAngle(v_dir.x, v_dir.y) + YAW_OFFSET;
         double standoff = (BALL_D / 2.0) + 10.0; 
-        double strike_x = bw.x - (v_dx / v_dist) * standoff;
-        double strike_y = bw.y - (v_dy / v_dist) * standoff;
+        double strike_x = bw.x - (v_dir.x / v_dist) * standoff;
+        double strike_y = bw.y - (v_dir.y / v_dist) * standoff;
 
-        double rad_rz = arm_rz * BilliardMath::PI / 180.0;
-        double rad_tilt = TILT_RY_DEG * BilliardMath::PI / 180.0;
+        Offset3D offset = BilliardMath::getTiltOffset(arm_rz, TILT_RY_DEG, MOVE_BACK_MM);
 
-        double delta_x = -MOVE_BACK_MM * cos(rad_tilt) * cos(rad_rz);
-        double delta_y = -MOVE_BACK_MM * cos(rad_tilt) * sin(rad_rz);
-        double delta_z =  MOVE_BACK_MM * sin(rad_tilt); 
-
-        double ready[6] = { strike_x + delta_x, strike_y + delta_y, SAFE_Z, 180, TILT_RY_DEG, arm_rz };
-        double down[6]  = { strike_x + delta_x, strike_y + delta_y, STRIKE_Z + delta_z, 180, TILT_RY_DEG, arm_rz };
+        double ready[6] = { strike_x + offset.x, strike_y + offset.y, SAFE_Z, 180, TILT_RY_DEG, arm_rz };
+        double down[6]  = { strike_x + offset.x, strike_y + offset.y, STRIKE_Z + offset.z, 180, TILT_RY_DEG, arm_rz };
 
         cout << "\n\n--- 幾何決策面板 (核心鎖定 p1) ---" << endl;
         cout << "[分析] 軌跡夾角: " << angle_deg << " 度" << endl;
