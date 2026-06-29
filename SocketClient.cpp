@@ -40,6 +40,11 @@ int SocketClient::receiveData(char* buf, int max_len) {
     return recv(clientSocket, buf, max_len, 0);
 }
 
+int SocketClient::sendData(const std::string& data) {
+    if (!connected) return -1;
+    return send(clientSocket, data.c_str(), static_cast<int>(data.length()), 0);
+}
+
 void SocketClient::flushBuffer() {
     if (!connected) return;
     char dummy[1024];

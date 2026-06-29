@@ -15,7 +15,8 @@ public:
     void closeConnection();
     bool isConnected() const;
 
-    // 接收資料與清除緩衝區
+    // 接收與發送資料與清除緩衝區
     int receiveData(char* buf, int max_len);
+    int sendData(const std::string& data);
     void flushBuffer();
 };
