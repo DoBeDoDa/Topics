@@ -3,9 +3,19 @@ import os
 import glob
 import numpy as np
 from ultralytics import YOLO
+import threading
 
 # ==========================================
-# [設定參數]
+# [Roboflow 設定參數]
+# 填入您的 Roboflow 專案憑證後，每次在標註介面按 Space 儲存時，
+# 程式會自動在背景將影像與標籤同步上傳到 Roboflow 專案中。
+# ==========================================
+ROBOFLOW_API_KEY = "YOUR_API_KEY"      # 填入您的 Roboflow Private API Key
+WORKSPACE_ID = "YOUR_WORKSPACE_ID"      # 填入您的 Workspace ID
+PROJECT_ID = "YOUR_PROJECT_ID"          # 填入您的 Project ID
+
+# ==========================================
+# [基本設定參數]
 # ==========================================
 DATA_DIR = "yolo_data"
 MODEL_PATH = "best.pt"
@@ -64,6 +74,30 @@ class YoloFastLabeler:
 
         # 產生 dataset.yaml
         self.generate_dataset_yaml()
+
+        # 初始化 Roboflow 同步上傳
+        self.rf_project = None
+        if ROBOFLOW_API_KEY != "YOUR_API_KEY" and WORKSPACE_ID != "YOUR_WORKSPACE_ID" and PROJECT_ID != "YOUR_PROJECT_ID":
+            try:
+                print("[系統] 偵測到 Roboflow 配置，正在連線...")
+                from roboflow import Roboflow
+                rf = Roboflow(api_key=ROBOFLOW_API_KEY)
+                self.rf_project = rf.workspace(WORKSPACE_ID).project(PROJECT_ID)
+                print("[系統] Roboflow 連線成功！按 Space 儲存時將自動背景同步。")
+            except ImportError:
+                print("[系統提示] 未安裝 roboflow SDK。嘗試自動安裝...")
+                try:
+                    import subprocess
+                    import sys
+                    subprocess.check_call([sys.executable, "-m", "pip", "install", "roboflow"])
+                    from roboflow import Roboflow
+                    rf = Roboflow(api_key=ROBOFLOW_API_KEY)
+                    self.rf_project = rf.workspace(WORKSPACE_ID).project(PROJECT_ID)
+                    print("[系統] Roboflow 套件安裝並連線成功！")
+                except Exception as e:
+                    print(f"[警告] 自動安裝 roboflow 失敗 ({e})，同步上傳已停用。")
+            except Exception as e:
+                print(f"[警告] 連線 Roboflow 失敗 ({e})，同步上傳已停用。")
 
     def generate_dataset_yaml(self):
         """自動生成 dataset.yaml 供後續快速訓練 YOLO"""
@@ -157,8 +191,31 @@ names:
         try:
             with open(txt_path, "w", encoding="utf-8") as f:
                 f.writelines(lines)
+            # 儲存後觸發背景上傳至 Roboflow
+            self.upload_to_roboflow(img_path, txt_path)
         except Exception as e:
             print(f"[錯誤] 無法儲存標註檔 {txt_path}: {e}")
+
+    def upload_to_roboflow(self, img_path, txt_path):
+        """背景執行緒：上傳影像與標籤至 Roboflow"""
+        if self.rf_project is None:
+            return
+
+        def _worker():
+            try:
+                filename = os.path.basename(img_path)
+                print(f"\n[Roboflow 同步] 正在背景上傳 {filename}...")
+                self.rf_project.single_upload(
+                    image_path=img_path,
+                    annotation_path=txt_path,
+                    split="train",
+                    is_prediction=False
+                )
+                print(f"\n[Roboflow 同步] 成功上傳 {filename}！")
+            except Exception as e:
+                print(f"\n[Roboflow 同步] 上傳 {os.path.basename(img_path)} 失敗: {e}")
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     def auto_detect(self, img):
         """自動偵測：整合 YOLO (如果存在) 與 OpenCV 霍夫圓 + 顏色特徵分析"""
