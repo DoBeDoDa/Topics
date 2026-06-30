@@ -19,11 +19,17 @@ HISTORY_FILE = os.path.join(SCRIPT_DIR, "uploaded_history.txt")
 
 # 類別定義
 CLASSES = {
-    0: "b1",      # 黃色 1 號球
-    1: "b2",      # 藍色 2 號球
-    2: "b3",      # 紅色 3 號球
-    3: "bw",      # 白色母球
-    4: "pocket"   # 球洞
+    0: "Ball_cue",   # 白色母球 (1號前，所以排第0位)
+    1: "Ball_1",     # 1 號球
+    2: "Ball_2",     # 2 號球
+    3: "Ball_3",     # 3 號球
+    4: "Ball_4",     # 4 號球
+    5: "Ball_5",     # 5 號球
+    6: "Ball_6",     # 6 號球
+    7: "Ball_7",     # 7 號球
+    8: "Ball_8",     # 8 號球
+    9: "Ball_9",     # 9 號球
+    10: "hole"       # 球洞 (最後一個)
 }
 
 def install_and_import_roboflow():
@@ -103,12 +109,12 @@ class AutoAnnotator:
         h_mean = np.mean(hsv[:, :, 0])
         s_mean = np.mean(hsv[:, :, 1])
         v_mean = np.mean(hsv[:, :, 2])
-        if v_mean < 45: return 4  # pocket
-        if v_mean > 160 and s_mean < 75: return 3  # bw
-        if 12 <= h_mean <= 40: return 0  # b1
-        elif 85 <= h_mean <= 135: return 1  # b2
-        elif h_mean <= 12 or h_mean >= 155: return 2  # b3
-        return 3
+        if v_mean < 45: return 10  # hole
+        if v_mean > 160 and s_mean < 75: return 0  # Ball_cue
+        if 12 <= h_mean <= 40: return 1  # Ball_1 (黃)
+        elif 85 <= h_mean <= 135: return 2  # Ball_2 (藍)
+        elif h_mean <= 12 or h_mean >= 155: return 3  # Ball_3 (紅)
+        return 0
 
     def auto_detect(self, img):
         h, w = img.shape[:2]
@@ -120,7 +126,13 @@ class AutoAnnotator:
                 results = self.model(img, conf=0.25, verbose=False)
                 for box in results[0].boxes:
                     cls_id = int(box.cls[0])
-                    if cls_id >= 4: cls_id = 4
+                    # 舊模型對照：0:b1, 1:b2, 2:b3, 3:bw, 4..9:p1..p6
+                    # 映射至新格式：0->Ball_1(1), 1->Ball_2(2), 2->Ball_3(3), 3->Ball_cue(0), 4-9->hole(10)
+                    old_to_new = {0: 1, 1: 2, 2: 3, 3: 0}
+                    if cls_id in old_to_new:
+                        cls_id = old_to_new[cls_id]
+                    else:
+                        cls_id = 10
                     x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
                     detected_boxes.append({'class': cls_id, 'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2})
             except Exception as e:
@@ -152,7 +164,7 @@ class AutoAnnotator:
                 x, y, cw, ch = cv2.boundingRect(cnt)
                 if 0.7 < float(cw)/ch < 1.3:
                     rx = int(r)
-                    opencv_proposals.append({'class': 4, 'x1': max(0, int(cx - rx)), 'y1': max(0, int(cy - rx)), 'x2': min(w, int(cx + rx)), 'y2': min(h, int(cy + rx))})
+                    opencv_proposals.append({'class': 10, 'x1': max(0, int(cx - rx)), 'y1': max(0, int(cy - rx)), 'x2': min(w, int(cx + rx)), 'y2': min(h, int(cy + rx))})
 
         # NMS 融合
         final_boxes = list(detected_boxes)
@@ -186,6 +198,37 @@ class AutoAnnotator:
             f.writelines(lines)
         return txt_path
 
+    def migrate_label_file_if_needed(self, txt_path):
+        """自動遷移舊格式標記檔案至新 11 類別架構"""
+        try:
+            with open(txt_path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+            
+            file_classes = []
+            for line in lines:
+                parts = line.strip().split()
+                if parts:
+                    file_classes.append(int(parts[0]))
+            
+            # 判斷是否為舊版 5 類別格式 (最大類別 <= 4 且包含 3 或 4)
+            is_old_format = len(file_classes) > 0 and max(file_classes) <= 4 and (3 in file_classes or 4 in file_classes)
+            if is_old_format:
+                print(f"   [遷移] 偵測到舊標註格式，自動轉換至新 11 類別架構...")
+                old_to_new = {0: 1, 1: 2, 2: 3, 3: 0, 4: 10}
+                new_lines = []
+                for line in lines:
+                    parts = line.strip().split()
+                    if len(parts) == 5:
+                        cls_id = int(parts[0])
+                        cls_id = old_to_new.get(cls_id, cls_id)
+                        new_lines.append(f"{cls_id} {parts[1]} {parts[2]} {parts[3]} {parts[4]}\n")
+                
+                with open(txt_path, "w", encoding="utf-8") as f:
+                    f.writelines(new_lines)
+                print("   [遷移] 標籤檔案遷移成功！")
+        except Exception as e:
+            print(f"   [警告] 遷移檢查失敗: {e}")
+
     def run_pipeline(self):
         jpg_paths = sorted(glob.glob(os.path.join(DATA_DIR, "*.jpg")))
         if not jpg_paths:
@@ -217,7 +260,8 @@ class AutoAnnotator:
                 # 1. 檢查是否已有手動/本地標註檔，無則自動預測
                 txt_path = os.path.splitext(img_path)[0] + ".txt"
                 if os.path.exists(txt_path):
-                    print("   [標記] 偵測到現有標籤檔，直接使用本地標籤。")
+                    print("   [標記] 偵測到現有標籤檔，載入並檢查格式遷移...")
+                    self.migrate_label_file_if_needed(txt_path)
                 else:
                     print("   [辨識] 正在自動偵測撞球與球洞...")
                     boxes = self.auto_detect(img)

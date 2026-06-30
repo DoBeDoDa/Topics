@@ -24,19 +24,31 @@ WINDOW_NAME = "YOLO Fast Labeler & Inspector"
 
 # 類別定義與色彩
 CLASSES = {
-    0: "b1",      # 黃色 1 號球
-    1: "b2",      # 藍色 2 號球
-    2: "b3",      # 紅色 3 號球
-    3: "bw",      # 白色母球
-    4: "pocket"   # 球洞 (統一為同一類別)
+    0: "Ball_cue",   # 白色母球 (1號前，所以排第0位)
+    1: "Ball_1",     # 1 號球
+    2: "Ball_2",     # 2 號球
+    3: "Ball_3",     # 3 號球
+    4: "Ball_4",     # 4 號球
+    5: "Ball_5",     # 5 號球
+    6: "Ball_6",     # 6 號球
+    7: "Ball_7",     # 7 號球
+    8: "Ball_8",     # 8 號球
+    9: "Ball_9",     # 9 號球
+    10: "hole"       # 球洞 (最後一個)
 }
 
 COLOR_MAP = {
-    0: (0, 255, 255),    # b1: 黃色
-    1: (255, 0, 0),      # b2: 藍色
-    2: (0, 0, 255),      # b3: 紅色
-    3: (255, 255, 255),  # bw: 白色
-    4: (255, 0, 255)     # pocket: 紫色
+    0: (255, 255, 255),  # Ball_cue: 白色
+    1: (0, 255, 255),    # Ball_1: 黃色
+    2: (255, 0, 0),      # Ball_2: 藍色
+    3: (0, 0, 255),      # Ball_3: 紅色
+    4: (0, 165, 255),    # Ball_4: 橘色
+    5: (128, 0, 128),    # Ball_5: 紫色
+    6: (0, 128, 0),      # Ball_6: 綠色
+    7: (0, 0, 128),      # Ball_7: 暗紅
+    8: (0, 0, 0),        # Ball_8: 黑色
+    9: (128, 128, 128),  # Ball_9: 灰色
+    10: (255, 0, 255)    # hole: 洋紅色
 }
 
 class YoloFastLabeler:
@@ -103,16 +115,13 @@ class YoloFastLabeler:
     def generate_dataset_yaml(self):
         """自動生成 dataset.yaml 供後續快速訓練 YOLO"""
         abs_path = os.path.abspath(self.data_dir).replace('\\', '/')
+        names_str = "\n".join([f"  {k}: {v}" for k, v in CLASSES.items()])
         yaml_content = f"""path: {abs_path}
 train: .
 val: .
 
 names:
-  0: b1
-  1: b2
-  2: b3
-  3: bw
-  4: pocket
+{names_str}
 """
         yaml_path = os.path.join(self.data_dir, "dataset.yaml")
         try:
@@ -132,21 +141,39 @@ names:
         if os.path.exists(txt_path):
             boxes = []
             try:
+                # 讀取全部類別做相容性檢查
+                temp_lines = []
                 with open(txt_path, "r", encoding="utf-8") as f:
-                    for line in f:
-                        parts = line.strip().split()
-                        if len(parts) == 5:
-                            cls_id = int(parts[0])
-                            # 防止類別越界 (將舊模型的 4-9 映射至 4: pocket)
-                            if cls_id > 4:
-                                cls_id = 4
-                            cx, cy, bw, bh = map(float, parts[1:])
-                            # 轉換回像素座標
-                            x1 = int((cx - bw/2) * w)
-                            y1 = int((cy - bh/2) * h)
-                            x2 = int((cx + bw/2) * w)
-                            y2 = int((cy + bh/2) * h)
-                            boxes.append({'class': cls_id, 'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2})
+                    temp_lines = f.readlines()
+                
+                file_classes = []
+                for line in temp_lines:
+                    parts = line.strip().split()
+                    if parts:
+                        file_classes.append(int(parts[0]))
+                
+                # 自動移轉舊的 5 類別格式標記：
+                # 舊格式: 0:b1 -> 1:Ball_1, 1:b2 -> 2:Ball_2, 2:b3 -> 3:Ball_3, 3:bw -> 0:Ball_cue, 4:pocket -> 10:hole
+                # 若最大類別 <= 4 且包含了 3 或 4，很高機率是舊版
+                is_old_format = len(file_classes) > 0 and max(file_classes) <= 4 and (3 in file_classes or 4 in file_classes)
+                old_to_new = {0: 1, 1: 2, 2: 3, 3: 0, 4: 10}
+
+                for line in temp_lines:
+                    parts = line.strip().split()
+                    if len(parts) == 5:
+                        cls_id = int(parts[0])
+                        if is_old_format and cls_id in old_to_new:
+                            cls_id = old_to_new[cls_id]
+                        elif cls_id > 10:
+                            cls_id = 10
+                            
+                        cx, cy, bw, bh = map(float, parts[1:])
+                        # 轉換回像素座標
+                        x1 = int((cx - bw/2) * w)
+                        y1 = int((cy - bh/2) * h)
+                        x2 = int((cx + bw/2) * w)
+                        y2 = int((cy + bh/2) * h)
+                        boxes.append({'class': cls_id, 'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2})
                 return boxes
             except Exception as e:
                 print(f"[錯誤] 讀取標註檔 {txt_path} 失敗 ({e})，將重新自動辨識。")
@@ -229,9 +256,13 @@ names:
                 results = self.model(img, conf=0.25, verbose=False)
                 for box in results[0].boxes:
                     cls_id = int(box.cls[0])
-                    # 將 4-9 (p1-p6) 統一映射至 4 (pocket)
-                    if cls_id >= 4:
-                        cls_id = 4
+                    # 舊模型對照：0:b1, 1:b2, 2:b3, 3:bw, 4..9:p1..p6
+                    # 映射至新格式：0->Ball_1(1), 1->Ball_2(2), 2->Ball_3(3), 3->Ball_cue(0), 4-9->hole(10)
+                    old_to_new = {0: 1, 1: 2, 2: 3, 3: 0}
+                    if cls_id in old_to_new:
+                        cls_id = old_to_new[cls_id]
+                    else:
+                        cls_id = 10  # 4-9 映射至 hole (10)
                     x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
                     detected_boxes.append({'class': cls_id, 'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2})
             except Exception as e:
@@ -301,7 +332,7 @@ names:
                     y1 = max(0, int(cy - rx))
                     x2 = min(w, int(cx + rx))
                     y2 = min(h, int(cy + rx))
-                    opencv_proposals.append({'class': 4, 'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2})
+                    opencv_proposals.append({'class': 10, 'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2})
 
         # 4. 融合 YOLO 與 OpenCV 預測框 (利用重疊面積 NMS 避免重複)
         final_boxes = list(detected_boxes)  # 以 YOLO 優先
@@ -320,7 +351,7 @@ names:
         return final_boxes
 
     def classify_color(self, crop):
-        """根據 HSV 顏色空間快速將球分類 (0:b1黃, 1:b2藍, 2:b3紅, 3:bw白, 4:pocket洞)"""
+        """根據 HSV 顏色空間快速將球分類 (0:Ball_cue, 1:Ball_1, 2:Ball_2, 3:Ball_3, 10:hole)"""
         hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
         h_mean = np.mean(hsv[:, :, 0])
         s_mean = np.mean(hsv[:, :, 1])
@@ -328,25 +359,22 @@ names:
 
         # 洞：極暗
         if v_mean < 45:
-            return 4
+            return 10
         
         # 白母球：亮度高，飽和度低
         if v_mean > 160 and s_mean < 75:
-            return 3
+            return 0  # Ball_cue
 
         # 根據 Hue 值判斷黃、藍、紅
-        # 黃色 Hue 約 15 ~ 35
-        # 藍色 Hue 約 95 ~ 130
-        # 紅色 Hue 約 0~10 或 165~180
         if 12 <= h_mean <= 40:
-            return 0  # b1: 黃
+            return 1  # Ball_1: 黃
         elif 85 <= h_mean <= 135:
-            return 1  # b2: 藍
+            return 2  # Ball_2: 藍
         elif h_mean <= 12 or h_mean >= 155:
-            return 2  # b3: 紅
+            return 3  # Ball_3: 紅
         
         # 預設白色
-        return 3
+        return 0
 
     def calculate_iou(self, box1, box2):
         """計算兩矩形框的重疊程度 (Intersection over Union)"""
@@ -499,8 +527,9 @@ names:
         print("   - [C] 或 [c]         : 「清空」當前影像的所有標註")
         print("   - [D] 或 [d]         : 刪除當前「選中」的標註框")
         print("   - [R] 或 [r]         : 「重設」當前影像為系統自動預標註結果")
-        print("   - [0], [1], [2], [3] : 切換選中框為 撞球 0:b1, 1:b2, 2:b3, 3:bw")
-        print("   - [4]                : 切換選中框為 4:pocket (球洞)")
+        print("   - [0]                : 切換選中框為 Ball_cue (白色母球)")
+        print("   - [1] ~ [9]          : 切換選中框為 Ball_1 ~ Ball_9 (號碼球)")
+        print("   - [H] 或 [h]         : 切換選中框為 hole (球洞)")
         print("   - [Esc] 或 [Q]/[q]    : 儲存當前標註並「關閉程式」")
         print("=======================================================")
 
@@ -562,13 +591,13 @@ names:
             cv2.putText(display_frame, guide_text, (20, 48), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
 
             # 顯示右側分類提示
-            class_legend = "0:b1 1:b2 2:b3 3:bw 4:pocket"
+            class_legend = "0:cue | 1-9:Ball_1-9 | H:hole"
             cv2.putText(display_frame, class_legend, (w - 280, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
             
             if self.selected_idx is not None:
                 sel_box = self.boxes[self.selected_idx]
                 sel_label = CLASSES[sel_box['class']]
-                sel_info = f"Selected: [{sel_label}] (Press 0-4 to change)"
+                sel_info = f"Selected: [{sel_label}] (Press 0-9 or H to change)"
                 cv2.putText(display_frame, sel_info, (w - 380, 48), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
 
             cv2.imshow(WINDOW_NAME, display_frame)
@@ -617,12 +646,18 @@ names:
                 self.selected_idx = None
                 print("[重設] 已重新載入自動標註結果。")
 
-            elif key in [ord('0'), ord('1'), ord('2'), ord('3'), ord('4')]:
-                # 切換選中標註框的類別
+            elif key in [ord(str(i)) for i in range(10)]:
+                # 切換選中標註框的類別 (0-9)
                 if self.selected_idx is not None:
                     cls_id = int(chr(key))
                     self.boxes[self.selected_idx]['class'] = cls_id
                     print(f"[類別切換] 已將選中框切換為 {CLASSES[cls_id]}")
+
+            elif key == ord('h') or key == ord('H'):
+                # 切換選中標註框的類別為 10 (hole)
+                if self.selected_idx is not None:
+                    self.boxes[self.selected_idx]['class'] = 10
+                    print(f"[類別切換] 已將選中框切換為 {CLASSES[10]}")
 
             elif key == 27 or key == ord('q') or key == ord('Q'):  # Esc 鍵 或 Q 鍵
                 # 儲存當前並退出
