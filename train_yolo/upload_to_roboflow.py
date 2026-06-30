@@ -9,8 +9,10 @@ import sys
 ROBOFLOW_API_KEY = "X5MTlOXmKVar8oAXkaKr"      # 填入您的 Roboflow Private API Key
 WORKSPACE_ID = "s-workspace-jwrhi"      # 填入您的 Workspace ID
 PROJECT_ID = "nineball-jbejf"          # 填入您的 Project ID
-DATA_DIR = "yolo_data"                  # 資料夾路徑
-HISTORY_FILE = "uploaded_history.txt"   # 上傳紀錄檔，避免重複上傳
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(SCRIPT_DIR, "yolo_data")                  # 資料夾路徑
+HISTORY_FILE = os.path.join(SCRIPT_DIR, "uploaded_history.txt")   # 上傳紀錄檔，避免重複上傳
 
 def install_and_import():
     try:

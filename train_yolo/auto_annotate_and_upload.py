@@ -12,9 +12,10 @@ ROBOFLOW_API_KEY = "X5MTlOXmKVar8oAXkaKr"         # 請在此填入您的 Robofl
 WORKSPACE_ID = "s-workspace-jwrhi"       # 已根據您的網址自動填入
 PROJECT_ID = "nineball-jbejf"           # 已根據您的網址自動填入
 
-DATA_DIR = "yolo_data"
-MODEL_PATH = "best.pt"
-HISTORY_FILE = "uploaded_history.txt"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(SCRIPT_DIR, "yolo_data")
+MODEL_PATH = os.path.join(SCRIPT_DIR, "best.pt")
+HISTORY_FILE = os.path.join(SCRIPT_DIR, "uploaded_history.txt")
 
 # 類別定義
 CLASSES = {

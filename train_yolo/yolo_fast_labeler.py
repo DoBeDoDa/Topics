@@ -17,8 +17,9 @@ PROJECT_ID = "nineball-jbejf"          # 填入您的 Project ID
 # ==========================================
 # [基本設定參數]
 # ==========================================
-DATA_DIR = "yolo_data"
-MODEL_PATH = "best.pt"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(SCRIPT_DIR, "yolo_data")
+MODEL_PATH = os.path.join(SCRIPT_DIR, "best.pt")
 WINDOW_NAME = "YOLO Fast Labeler & Inspector"
 
 # 類別定義與色彩
