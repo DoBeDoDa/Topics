@@ -10,9 +10,9 @@ import threading
 # 填入您的 Roboflow 專案憑證後，每次在標註介面按 Space 儲存時，
 # 程式會自動在背景將影像與標籤同步上傳到 Roboflow 專案中。
 # ==========================================
-ROBOFLOW_API_KEY = "YOUR_API_KEY"      # 填入您的 Roboflow Private API Key
-WORKSPACE_ID = "YOUR_WORKSPACE_ID"      # 填入您的 Workspace ID
-PROJECT_ID = "YOUR_PROJECT_ID"          # 填入您的 Project ID
+ROBOFLOW_API_KEY = "X5MTlOXmKVar8oAXkaKr"      # 填入您的 Roboflow Private API Key
+WORKSPACE_ID = "s-workspace-jwrhi"      # 填入您的 Workspace ID
+PROJECT_ID = "nineball-jbejf"          # 填入您的 Project ID
 
 # ==========================================
 # [基本設定參數]

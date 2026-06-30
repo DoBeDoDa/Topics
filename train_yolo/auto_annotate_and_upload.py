@@ -8,7 +8,7 @@ from ultralytics import YOLO
 # ==========================================
 # [Roboflow 設定參數]
 # ==========================================
-ROBOFLOW_API_KEY = "YOUR_API_KEY"         # 請在此填入您的 Roboflow Private API Key
+ROBOFLOW_API_KEY = "X5MTlOXmKVar8oAXkaKr"         # 請在此填入您的 Roboflow Private API Key
 WORKSPACE_ID = "s-workspace-jwrhi"       # 已根據您的網址自動填入
 PROJECT_ID = "nineball-jbejf"           # 已根據您的網址自動填入
 
