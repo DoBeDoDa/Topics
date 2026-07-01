@@ -66,7 +66,9 @@ def train():
             print(f"  - Epoch [{epoch + 1}/{epochs}], MSE Loss: {loss.item():.6f}")
             
     # 4. 儲存模型權重與標準化係數
-    model_save_path = "calibration_model.pth"
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    root_dir = os.path.dirname(script_dir)
+    model_save_path = os.path.join(root_dir, "bin", "calibration_model.pth")
     torch.save({
         'model_state': model.state_dict(),
         'cam_mean': cam_mean,

@@ -15,6 +15,11 @@ from ultralytics import YOLO
 CAMERA_INDEX = 1  # 如果讀取不到相機，請嘗試修改為 0, 1, 2...
 # ==========================================
 
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.dirname(SCRIPT_DIR)
+DEFAULT_MODEL_PATH = os.path.join(ROOT_DIR, "bin", "best.pt")
+DEFAULT_NN_MODEL_PATH = os.path.join(ROOT_DIR, "bin", "calibration_model.pth")
+
 try:
     import torch
     import torch.nn as nn
@@ -71,7 +76,12 @@ class BilliardDetector:
         15: (255, 0, 255)    # p6: 洋紅
     }
 
-    def __init__(self, model_path="best.pt", use_nn=False, nn_model_path="calibration_model.pth"):
+    def __init__(self, model_path=None, use_nn=False, nn_model_path=None):
+        if model_path is None:
+            model_path = DEFAULT_MODEL_PATH
+        if nn_model_path is None:
+            nn_model_path = DEFAULT_NN_MODEL_PATH
+
         if not os.path.exists(model_path):
             raise FileNotFoundError(f"找不到 YOLO 模型檔案: {model_path}")
         print("[系統狀態] 正在載入 YOLO 模型...")
@@ -277,7 +287,7 @@ class BilliardVisionServer:
 
 class BilliardVisionApp:
     """整合相機、辨識與通訊的主應用程式"""
-    def __init__(self, model_path="best.pt", port=12345, use_nn=False):
+    def __init__(self, model_path=None, port=12345, use_nn=False):
         self.detector = BilliardDetector(model_path, use_nn=use_nn)
         self.camera = USBCamera(camera_index=CAMERA_INDEX)
         self.server = BilliardVisionServer(port=port)

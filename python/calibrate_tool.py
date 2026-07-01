@@ -11,7 +11,14 @@ import time
 CAMERA_INDEX = 1  # 依使用者表示，設定 1 是對的
 # ==========================================
 
-def start_calibration_service(model_path="best.pt", port=12347):
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.dirname(SCRIPT_DIR)
+DEFAULT_MODEL_PATH = os.path.join(ROOT_DIR, "bin", "best.pt")
+CALIBRATION_TXT_PATH = os.path.join(ROOT_DIR, "calibrated_points.txt")
+
+def start_calibration_service(model_path=None, port=12347):
+    if model_path is None:
+        model_path = DEFAULT_MODEL_PATH
     # 載入 YOLO 模型
     if not os.path.exists(model_path):
         print(f"[系統錯誤] 找不到 YOLO 模型檔案: {model_path}")
@@ -252,11 +259,11 @@ def start_calibration_service(model_path="best.pt", port=12347):
             print(f"table_points = np.float32({table_points_list})")
             
             # 備份至 calibrated_points.txt
-            with open("calibrated_points.txt", "a", encoding="utf-8") as f:
+            with open(CALIBRATION_TXT_PATH, "a", encoding="utf-8") as f:
                 f.write(f"\n--- Round {round_count} ({time.strftime('%Y-%m-%d %H:%M:%S')}) ---\n")
                 f.write(f"cam_points = np.float32({cam_points_list})\n")
                 f.write(f"table_points = np.float32({table_points_list})\n")
-            print("\n[系統] 標定點位已寫入檔案 'calibrated_points.txt'")
+            print(f"\n[系統] 標定點位已寫入檔案 '{CALIBRATION_TXT_PATH}'")
 
             round_count += 1
 
