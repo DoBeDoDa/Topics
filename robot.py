@@ -139,7 +139,7 @@ class BilliardDetector:
         """執行 YOLO 偵測並返回標註後的影像與座標列表"""
         results = self.model(frame, conf=0.3, verbose=False)
         
-        # 分類收集偵測到的框 (新模型：0:cue, 1..9:b1..b9, 10:hole)
+        # 分類收集偵測到的框 (新模型：0..8:Ball_1..9, 9:cue, 10:hole)
         balls = {}
         holes = []
         for box in results[0].boxes:
@@ -154,13 +154,13 @@ class BilliardDetector:
 
         # 映射回新系統的 class_id (0..8: b1..b9, 9: bw, 10..15: p1..p6)
         best_boxes = {}
-        # 0..8: b1..b9 (來自新 class 1..9)
-        for i in range(1, 10):
+        # 0..8: b1..b9 (來自新 class 0..8)
+        for i in range(9):
             if i in balls:
-                best_boxes[i - 1] = balls[i]
-        # 9: bw (來自新 class 0)
-        if 0 in balls:
-            best_boxes[9] = balls[0]
+                best_boxes[i] = balls[i]
+        # 9: bw (來自新 class 9)
+        if 9 in balls:
+            best_boxes[9] = balls[9]
 
         # 將球洞以 X 座標進行排序，並分配至 p1~p6 (新 class 10~15)
         holes_sorted = sorted(holes, key=lambda b: float(b.xyxy[0][0]))

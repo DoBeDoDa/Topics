@@ -108,10 +108,10 @@ def start_calibration_service(model_path="best.pt", port=12347):
                         balls[c] = box
                 
                 best_boxes = {}
-                if 1 in balls: best_boxes[0] = balls[1]  # b1
-                if 2 in balls: best_boxes[1] = balls[2]  # b2
-                if 3 in balls: best_boxes[2] = balls[3]  # b3
-                if 0 in balls: best_boxes[3] = balls[0]  # bw
+                if 0 in balls: best_boxes[0] = balls[0]  # b1 (來自新 class 0)
+                if 1 in balls: best_boxes[1] = balls[1]  # b2 (來自新 class 1)
+                if 2 in balls: best_boxes[2] = balls[2]  # b3 (來自新 class 2)
+                if 9 in balls: best_boxes[3] = balls[9]  # bw (來自新 class 9)
 
                 current_detect = {}
                 for cls_id in required_labels:
@@ -179,10 +179,10 @@ def start_calibration_service(model_path="best.pt", port=12347):
                         balls[c] = box
                 
                 best_boxes = {}
-                if 1 in balls: best_boxes[0] = balls[1]  # b1
-                if 2 in balls: best_boxes[1] = balls[2]  # b2
-                if 3 in balls: best_boxes[2] = balls[3]  # b3
-                if 0 in balls: best_boxes[3] = balls[0]  # bw
+                if 0 in balls: best_boxes[0] = balls[0]  # b1 (來自新 class 0)
+                if 1 in balls: best_boxes[1] = balls[1]  # b2 (來自新 class 1)
+                if 2 in balls: best_boxes[2] = balls[2]  # b3 (來自新 class 2)
+                if 9 in balls: best_boxes[3] = balls[9]  # bw (來自新 class 9)
 
                 for cls_id in required_labels:
                     label_name = label_map[cls_id]
