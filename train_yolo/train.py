@@ -5,7 +5,41 @@ import torch
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DATASET_YAML = os.path.join(SCRIPT_DIR, "yolo_data", "dataset.yaml")
 
+def generate_dataset_yaml():
+    """自動為自定義 11 類別格式生成 dataset.yaml 檔案"""
+    if not os.path.exists(DATASET_YAML):
+        print("[系統] 偵測到 dataset.yaml 不存在，正在自動生成...")
+        classes = {
+            0: "Ball_cue",
+            1: "Ball_1",
+            2: "Ball_2",
+            3: "Ball_3",
+            4: "Ball_4",
+            5: "Ball_5",
+            6: "Ball_6",
+            7: "Ball_7",
+            8: "Ball_8",
+            9: "Ball_9",
+            10: "hole"
+        }
+        abs_path = os.path.abspath(os.path.join(SCRIPT_DIR, "yolo_data")).replace('\\', '/')
+        os.makedirs(abs_path, exist_ok=True)
+        names_str = "\n".join([f"  {k}: {v}" for k, v in classes.items()])
+        yaml_content = f"""path: {abs_path}
+train: .
+val: .
+
+names:
+{names_str}
+"""
+        with open(DATASET_YAML, "w", encoding="utf-8") as f:
+            f.write(yaml_content)
+        print(f"[系統] 成功自動生成 dataset.yaml")
+
 def main():
+    # 確保 dataset.yaml 存在
+    generate_dataset_yaml()
+
     # 檢查是否有安裝與支援 CUDA GPU，若無則自動切換至 CPU
     device = 0 if torch.cuda.is_available() else 'cpu'
     device_name = "NVIDIA GPU" if device == 0 else "CPU"
