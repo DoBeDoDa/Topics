@@ -137,10 +137,10 @@ bool BilliardApp::handleSecondShot() {
 }
 
 bool BilliardApp::processVisionData(char* dataString) {
-    double b1x, b1y, b2x, b2y, b3x, b3y, bwx, bwy, p1x, p1y, p2x, p2y, p3x, p3y, p4x, p4y, p5x, p5y, p6x, p6y;
+    double b1x, b1y, b2x, b2y, b3x, b3y, b4x, b4y, b5x, b5y, b6x, b6y, b7x, b7y, b8x, b8y, b9x, b9y, bwx, bwy, p1x, p1y, p2x, p2y, p3x, p3y, p4x, p4y, p5x, p5y, p6x, p6y;
 
-    if (sscanf_s(dataString, "%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf",
-        &b1x, &b1y, &b2x, &b2y, &b3x, &b3y, &bwx, &bwy, &p1x, &p1y, &p2x, &p2y, &p3x, &p3y, &p4x, &p4y, &p5x, &p5y, &p6x, &p6y) == 20) {
+    if (sscanf_s(dataString, "%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf",
+        &b1x, &b1y, &b2x, &b2y, &b3x, &b3y, &b4x, &b4y, &b5x, &b5y, &b6x, &b6y, &b7x, &b7y, &b8x, &b8y, &b9x, &b9y, &bwx, &bwy, &p1x, &p1y, &p2x, &p2y, &p3x, &p3y, &p4x, &p4y, &p5x, &p5y, &p6x, &p6y) == 32) {
         
         if (bwx < -9000.0) { 
             cout << "\r[狀態] 尋找母球中...                  " << flush; 
@@ -154,6 +154,12 @@ bool BilliardApp::processVisionData(char* dataString) {
         if (b1x > -9000.0) { target_arm = BilliardMath::applyCameraCompensation({b1x, b1y}); target_name = "1號球"; }
         else if (b2x > -9000.0) { target_arm = BilliardMath::applyCameraCompensation({b2x, b2y}); target_name = "2號球"; }
         else if (b3x > -9000.0) { target_arm = BilliardMath::applyCameraCompensation({b3x, b3y}); target_name = "3號球"; }
+        else if (b4x > -9000.0) { target_arm = BilliardMath::applyCameraCompensation({b4x, b4y}); target_name = "4號球"; }
+        else if (b5x > -9000.0) { target_arm = BilliardMath::applyCameraCompensation({b5x, b5y}); target_name = "5號球"; }
+        else if (b6x > -9000.0) { target_arm = BilliardMath::applyCameraCompensation({b6x, b6y}); target_name = "6號球"; }
+        else if (b7x > -9000.0) { target_arm = BilliardMath::applyCameraCompensation({b7x, b7y}); target_name = "7號球"; }
+        else if (b8x > -9000.0) { target_arm = BilliardMath::applyCameraCompensation({b8x, b8y}); target_name = "8號球"; }
+        else if (b9x > -9000.0) { target_arm = BilliardMath::applyCameraCompensation({b9x, b9y}); target_name = "9號球"; }
 
         Point destination = {-9999.0, -9999.0};
         if (p1x > -9000.0) {
@@ -174,6 +180,12 @@ bool BilliardApp::processVisionData(char* dataString) {
         if (b1x > -9000.0 && target_name != "1號球") obs_list.push_back(BilliardMath::applyCameraCompensation({b1x, b1y}));
         if (b2x > -9000.0 && target_name != "2號球") obs_list.push_back(BilliardMath::applyCameraCompensation({b2x, b2y}));
         if (b3x > -9000.0 && target_name != "3號球") obs_list.push_back(BilliardMath::applyCameraCompensation({b3x, b3y}));
+        if (b4x > -9000.0 && target_name != "4號球") obs_list.push_back(BilliardMath::applyCameraCompensation({b4x, b4y}));
+        if (b5x > -9000.0 && target_name != "5號球") obs_list.push_back(BilliardMath::applyCameraCompensation({b5x, b5y}));
+        if (b6x > -9000.0 && target_name != "6號球") obs_list.push_back(BilliardMath::applyCameraCompensation({b6x, b6y}));
+        if (b7x > -9000.0 && target_name != "7號球") obs_list.push_back(BilliardMath::applyCameraCompensation({b7x, b7y}));
+        if (b8x > -9000.0 && target_name != "8號球") obs_list.push_back(BilliardMath::applyCameraCompensation({b8x, b8y}));
+        if (b9x > -9000.0 && target_name != "9號球") obs_list.push_back(BilliardMath::applyCameraCompensation({b9x, b9y}));
 
         Point ghost_direct = BilliardPhysics::getGhostBall(destination, target_arm, BALL_D);
         bool direct_path_blocked = false;

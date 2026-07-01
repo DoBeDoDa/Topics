@@ -44,17 +44,29 @@ DEFAULT_CAM_POINTS = np.float32([])
 # 📝 2. 實體物理座標 (mm) 預設對應點
 DEFAULT_TABLE_POINTS = np.float32([])
 
-class BilliardDetector:
-    """負責 YOLO 辨識與 Homography 物理座標轉換"""
     LABEL_MAP = {
-        0: "b1", 1: "b2", 2: "b3", 3: "bw", 
-        4: "p1", 5: "p2", 6: "p3", 7: "p4", 8: "p5", 9: "p6"
+        0: "b1", 1: "b2", 2: "b3", 3: "b4", 4: "b5", 
+        5: "b6", 6: "b7", 7: "b8", 8: "b9", 9: "bw",
+        10: "p1", 11: "p2", 12: "p3", 13: "p4", 14: "p5", 15: "p6"
     }
 
     COLOR_MAP = {
-        0: (0, 255, 255), 1: (255, 0, 0), 2: (0, 0, 255), 3: (255, 255, 255),
-        4: (128, 0, 128), 5: (0, 165, 255), 6: (0, 128, 0), 
-        7: (0, 0, 128), 8: (0, 0, 0), 9: (0, 255, 255)
+        0: (0, 255, 255),    # b1: 黃
+        1: (255, 0, 0),      # b2: 藍
+        2: (0, 0, 255),      # b3: 紅
+        3: (0, 165, 255),    # b4: 橘
+        4: (128, 0, 128),    # b5: 紫
+        5: (0, 128, 0),      # b6: 綠
+        6: (0, 0, 128),      # b7: 暗紅
+        7: (0, 0, 0),        # b8: 黑
+        8: (128, 128, 128),  # b9: 灰
+        9: (255, 255, 255),  # bw: 白 (母球)
+        10: (255, 0, 255),   # p1: 洋紅
+        11: (255, 0, 255),   # p2: 洋紅
+        12: (255, 0, 255),   # p3: 洋紅
+        13: (255, 0, 255),   # p4: 洋紅
+        14: (255, 0, 255),   # p5: 洋紅
+        15: (255, 0, 255)    # p6: 洋紅
     }
 
     def __init__(self, model_path="best.pt", use_nn=False, nn_model_path="calibration_model.pth"):
@@ -138,27 +150,26 @@ class BilliardDetector:
                 elif box.conf[0] > balls[cls_id].conf[0]:
                     balls[cls_id] = box
 
-        # 映射回舊系統的 class_id (0:b1, 1:b2, 2:b3, 3:bw, 4..9:p1..p6)
+        # 映射回新系統的 class_id (0..8: b1..b9, 9: bw, 10..15: p1..p6)
         best_boxes = {}
-        # 0:b1 (來自新 class 1)
-        if 1 in balls: best_boxes[0] = balls[1]
-        # 1:b2 (來自新 class 2)
-        if 2 in balls: best_boxes[1] = balls[2]
-        # 2:b3 (來自新 class 3)
-        if 3 in balls: best_boxes[2] = balls[3]
-        # 3:bw (來自新 class 0)
-        if 0 in balls: best_boxes[3] = balls[0]
+        # 0..8: b1..b9 (來自新 class 1..9)
+        for i in range(1, 10):
+            if i in balls:
+                best_boxes[i - 1] = balls[i]
+        # 9: bw (來自新 class 0)
+        if 0 in balls:
+            best_boxes[9] = balls[0]
 
-        # 將球洞以 X 座標進行排序以建立穩定映射，並分配至 p1~p6 (舊 class 4~9)
+        # 將球洞以 X 座標進行排序，並分配至 p1~p6 (新 class 10~15)
         holes_sorted = sorted(holes, key=lambda b: float(b.xyxy[0][0]))
         for i, box in enumerate(holes_sorted[:6]):
-            best_boxes[4 + i] = box
+            best_boxes[10 + i] = box
 
-        coords = [-9999.0] * 20
+        coords = [-9999.0] * 32
         annotated_frame = frame.copy()
         display_data = {}
 
-        for cls_id in range(10):
+        for cls_id in range(16):
             short_name = self.LABEL_MAP[cls_id]
             box_color = self.COLOR_MAP.get(cls_id, (0, 255, 0))
             
@@ -271,9 +282,13 @@ class BilliardVisionApp:
         print(f" [1號球 b1] {display_data['b1']}   |   [左上 p1] {display_data['p1']}")
         print(f" [2號球 b2] {display_data['b2']}   |   [中上 p2] {display_data['p2']}")
         print(f" [3號球 b3] {display_data['b3']}   |   [右上 p3] {display_data['p3']}")
-        print(f" [母  球 bw] {display_data['bw']}   |   [左下 p4] {display_data['p4']}")
-        print(f"                              |   [中下 p5] {display_data['p5']}")
-        print(f"                              |   [右下 p6] {display_data['p6']}")
+        print(f" [4號球 b4] {display_data['b4']}   |   [左下 p4] {display_data['p4']}")
+        print(f" [5號球 b5] {display_data['b5']}   |   [中下 p5] {display_data['p5']}")
+        print(f" [6號球 b6] {display_data['b6']}   |   [右下 p6] {display_data['p6']}")
+        print(f" [7號球 b7] {display_data['b7']}")
+        print(f" [8號球 b8] {display_data['b8']}")
+        print(f" [9號球 b9] {display_data['b9']}")
+        print(f" [母  球 bw] {display_data['bw']}")
         print("=====================================================")
         print(" 系統提示: 請在相機影像視窗按下 'q' 結束程式")
 
