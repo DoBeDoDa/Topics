@@ -158,8 +158,15 @@ int main() {
 
             cout << "\n[系統] 四點座標量測完畢。" << endl;
             
-            // 2. 標定完成後，移動回拍照位置，並等待使用者按下 Enter
-            cout << "[手臂] 正在自動移動回拍照位置 (CAM_JOINT)..." << endl;
+            // 2. 標定完成後，等待使用者確認才移動回拍照位置
+            cout << "\n[安全鎖] 標定採集完畢！手臂即將移動回拍照位置 (CAM_JOINT)。" << endl;
+            cout << "請確認手臂路徑安全（無障礙物），隨後在【此視窗】按下 [Enter] 鍵啟動移動: ";
+            cin.clear();
+            fflush(stdin);
+            string ready_move_back;
+            getline(cin, ready_move_back);
+
+            cout << "[手臂] 正在移動回拍照位置 (CAM_JOINT)..." << endl;
             robot.moveToAxis(CAM_JOINT, true);
             cout << "[手臂] 已到達拍照位置。請重新擺放球點。" << endl;
             cout << "準備就緒後，請在【此視窗】按下 [Enter] 開始下一輪拍照與標定..." << endl;

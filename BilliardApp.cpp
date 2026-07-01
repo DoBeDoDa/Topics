@@ -79,7 +79,14 @@ void BilliardApp::run() {
 }
 
 void BilliardApp::moveToCameraPosition() {
-    cout << "\n[動作] 移動至拍照點..." << endl;
+    cout << "\n[安全鎖] 擊打結束，準備返回拍照點..." << endl;
+    cout << "請確認手臂前方安全無障礙物，隨後在【此視窗】按下 [Enter] 鍵繼續: ";
+    cin.clear();
+    fflush(stdin);
+    string confirm;
+    getline(cin, confirm);
+
+    cout << "[動作] 移動至拍照點..." << endl;
     robot.moveToAxis(CAM_JOINT);
     Sleep(800);
 }
