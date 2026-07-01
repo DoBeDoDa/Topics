@@ -114,13 +114,22 @@ int main() {
                     cout << "\n-----------------------------------------" << endl;
                     cout << "  步驟 " << (i + 1) << "/4：請對準【" << ball_names[i] << "】" << endl;
                     cout << "  --> 請手動將手臂末端移動到該球的實體中心位置。" << endl;
-                    cout << "  對準後，請在【此視窗】按下 [Enter] 鍵記錄座標..." << endl;
+                    cout << "  對準後，請在【此視窗】按下 [Enter] 鍵記錄座標，或輸入 [s] 鍵跳過此球..." << endl;
 
                     // 清理緩衝區並等待 Enter
                     cin.clear();
                     fflush(stdin);
                     string dummy;
                     getline(cin, dummy);
+
+                    // 檢查使用者是否輸入 s/S 跳過
+                    if (dummy == "s" || dummy == "S") {
+                        cout << "[系統] 跳過此球！將其標記為未採集。" << endl;
+                        string send_msg = balls[i] + ",-9999.0,-9999.0\n";
+                        pythonClient.sendData(send_msg);
+                        point_confirmed = true;
+                        continue;
+                    }
 
                     // 取得目前手臂座標
                     double cart[6] = {0.0};

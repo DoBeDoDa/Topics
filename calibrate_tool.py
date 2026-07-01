@@ -222,8 +222,11 @@ def start_calibration_service(model_path="best.pt", port=12347):
                                 arm_x = float(parts[1])
                                 arm_y = float(parts[2])
                                 if ball_name == balls_order[current_target_idx]:
-                                    arm_coords[ball_name] = (arm_x, arm_y)
-                                    print(f" --> [對齊記錄] {ball_name} 成功配對：像素 {pixel_coords[ball_name]} -> 手臂 ({arm_x}, {arm_y})")
+                                    if arm_x < -9000.0 or arm_y < -9000.0:
+                                        print(f" --> [對齊記錄] {ball_name} 被跳過。")
+                                    else:
+                                        arm_coords[ball_name] = (arm_x, arm_y)
+                                        print(f" --> [對齊記錄] {ball_name} 成功配對：像素 {pixel_coords[ball_name]} -> 手臂 ({arm_x}, {arm_y})")
                                     current_target_idx += 1
                 except BlockingIOError:
                     pass
@@ -231,8 +234,8 @@ def start_calibration_service(model_path="best.pt", port=12347):
                     print("[網路錯誤] C++ 斷開連線。")
                     break
 
-            if len(arm_coords) < 4:
-                print("[錯誤] 標定中斷，未收集齊全 4 點。")
+            if len(arm_coords) < 3:
+                print(f"[錯誤] 標定中斷，至少需要收集 3 個有效點位（目前僅收集到 {len(arm_coords)} 個點），無法計算校正矩陣。")
                 break
 
             # 3. 輸出並保存結果
@@ -240,8 +243,9 @@ def start_calibration_service(model_path="best.pt", port=12347):
             print(f"  第 {round_count} 輪標定數據完成！")
             print("=========================================")
             
-            cam_points_list = [pixel_coords[b] for b in balls_order]
-            table_points_list = [arm_coords[b] for b in balls_order]
+            valid_balls = [b for b in balls_order if b in arm_coords]
+            cam_points_list = [pixel_coords[b] for b in valid_balls]
+            table_points_list = [arm_coords[b] for b in valid_balls]
 
             print("\n[Python 格式點位數據]：")
             print(f"cam_points = np.float32({cam_points_list})")

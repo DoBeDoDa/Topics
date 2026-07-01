@@ -111,15 +111,21 @@ class BilliardDetector:
         cam_points = DEFAULT_CAM_POINTS
         table_points = DEFAULT_TABLE_POINTS
 
-        if len(cam_points) < 4 or len(table_points) < 4:
-            print("[系統警告] 標定點位小於 4 個點，透視矩陣將返回單位矩陣。請執行標定流程！")
-            return np.eye(3, dtype=np.float32)
-
         if len(cam_points) != len(table_points):
             raise ValueError(f"[嚴重錯誤] 像素點有 {len(cam_points)} 個，但實體物理點只有 {len(table_points)} 個！")
 
-        matrix, _ = cv2.findHomography(cam_points, table_points, cv2.LMEDS)
-        return matrix
+        if len(cam_points) >= 4:
+            print(f"[系統狀態] 偵測到 {len(cam_points)} 組標定點位，使用 Homography 演算法計算校正矩陣...")
+            matrix, _ = cv2.findHomography(cam_points, table_points, cv2.LMEDS)
+            return matrix
+        elif len(cam_points) == 3:
+            print("[系統狀態] 偵測到 3 組標定點位，使用仿射變換 (Affine Transform) 計算校正矩陣...")
+            affine_matrix, _ = cv2.estimateAffine2D(cam_points, table_points)
+            matrix = np.vstack([affine_matrix, [0, 0, 1]])
+            return matrix
+        else:
+            print("[系統警告] 標定點位不足（至少需要 3 組點位），透視矩陣將返回單位矩陣。請執行標定流程！")
+            return np.eye(3, dtype=np.float32)
 
     def cam_to_arm(self, x_cam, y_cam):
         if self.use_nn:
