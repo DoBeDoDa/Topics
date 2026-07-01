@@ -49,13 +49,46 @@ def main():
             with open(ROBOFLOW_YAML, "r", encoding="utf-8") as f:
                 lines = f.readlines()
             
+            # 解析 train/val 子路徑
+            train_subpath = "train/images"
+            val_subpath = "valid/images"
+            for line in lines:
+                stripped = line.strip()
+                if ":" in stripped:
+                    key, value = stripped.split(":", 1)
+                    key = key.strip()
+                    value = value.split("#")[0].strip()  # 移除可能的註解
+                    if key == "train":
+                        train_subpath = value
+                    elif key == "val":
+                        val_subpath = value
+
+            # 檢查 validation 目錄是否存在
+            abs_path = os.path.abspath(SCRIPT_DIR).replace('\\', '/')
+            val_full_path = os.path.join(abs_path, val_subpath)
+            use_fallback_val = False
+            if not os.path.exists(val_full_path):
+                print(f"[系統] 偵測到驗證資料夾不存在：{val_full_path}")
+                print(f"      自動將驗證集指向訓練集：{train_subpath}")
+                use_fallback_val = True
+
             new_lines = []
             path_fixed = False
-            abs_path = os.path.abspath(SCRIPT_DIR).replace('\\', '/')
             for line in lines:
-                if line.strip().startswith("path:"):
+                stripped = line.strip()
+                if stripped.startswith("path:"):
                     new_lines.append(f"path: {abs_path}\n")
                     path_fixed = True
+                elif stripped.startswith("val:") and use_fallback_val:
+                    new_lines.append(f"val: {train_subpath}\n")
+                elif stripped.startswith("test:"):
+                    # 檢查 test 是否存在，若無則安全刪除以避免 YOLO 報錯
+                    test_subpath = stripped.split(":", 1)[1].split("#")[0].strip()
+                    test_full_path = os.path.join(abs_path, test_subpath)
+                    if not os.path.exists(test_full_path):
+                        print(f"[系統] 偵測到測試資料夾不存在：{test_full_path}，已從 data.yaml 中安全移除該行")
+                        continue
+                    new_lines.append(line)
                 else:
                     new_lines.append(line)
             
@@ -64,7 +97,7 @@ def main():
                 
             with open(ROBOFLOW_YAML, "w", encoding="utf-8") as f:
                 f.writelines(new_lines)
-            print("[系統] 已自動優化與修正 data.yaml 中的本機 path 路徑。")
+            print("[系統] 已自動優化與修正 data.yaml 中的路徑與配置。")
         except Exception as e:
             print(f"[警告] 自動優化 data.yaml 路徑失敗 ({e})，將直接使用原設定。")
     else:
