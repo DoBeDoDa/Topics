@@ -44,6 +44,8 @@ DEFAULT_CAM_POINTS = np.float32([])
 # 📝 2. 實體物理座標 (mm) 預設對應點
 DEFAULT_TABLE_POINTS = np.float32([])
 
+class BilliardDetector:
+    """負責 YOLO 辨識與 Homography 物理座標轉換"""
     LABEL_MAP = {
         0: "b1", 1: "b2", 2: "b3", 3: "b4", 4: "b5", 
         5: "b6", 6: "b7", 7: "b8", 8: "b9", 9: "bw",
