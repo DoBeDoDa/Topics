@@ -17,15 +17,6 @@ DEFAULT_MODEL_PATH = os.path.join(ROOT_DIR, "bin", "best.pt")
 CALIBRATION_TXT_PATH = os.path.join(ROOT_DIR, "calibrated_points.txt")
 
 def start_calibration_service(model_path=None, port=12347):
-    if model_path is None:
-        model_path = DEFAULT_MODEL_PATH
-    # 載入 YOLO 模型
-    if not os.path.exists(model_path):
-        print(f"[系統錯誤] 找不到 YOLO 模型檔案: {model_path}")
-        return
-    print("[系統狀態] 正在載入 YOLO 模型...")
-    model = YOLO(model_path)
-
     # 啟動 TCP Socket 伺服器
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -52,10 +43,8 @@ def start_calibration_service(model_path=None, port=12347):
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
     print(f"[硬體狀態] 相機啟動成功，進入標定工作流。")
 
-    label_map = {0: "b1", 1: "b2", 2: "b3", 3: "bw"}
-    required_labels = [0, 1, 2, 3] # b1, b2, b3, bw
-    balls_order = ["bw", "b1", "b2", "b3"]
-    ball_names = ["母球 (bw)", "1號球 (b1)", "2號球 (b2)", "3號球 (b3)"]
+    # 棋盤格設定：偵測 8x6 的角點（9x7格）
+    pattern_size = (8, 6)
 
     try:
         round_count = 1
@@ -93,58 +82,43 @@ def start_calibration_service(model_path=None, port=12347):
 
             print(f"\n=========================================")
             print(f"  開始第 {round_count} 輪標定偵測...")
-            print(f"  請確保母球 (bw)、1號球 (b1)、2號球 (b2)、3號球 (b3) 都在鏡頭視野內")
+            print(f"  請確保黑白棋盤格 (8x6角點) 完整呈現在畫面中")
             print(f"=========================================")
 
-            pixel_coords = {}
+            corners_refined = None
             
-            # Phase 1: 偵測階段，必須同時偵測到全部 4 顆球
+            # Phase 1: 偵測階段，必須成功偵測到完整棋盤格
             while True:
                 ret, frame = cap.read()
                 if not ret: continue
                 annotated_frame = frame.copy()
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-                # YOLO 偵測 (映射新模型分類 0:cue, 1:b1, 2:b2, 3:b3 至舊系統 0:b1, 1:b2, 2:b3, 3:bw)
-                results = model(frame, conf=0.3, verbose=False)
-                balls = {}
-                for box in results[0].boxes:
-                    c = int(box.cls[0])
-                    if c not in balls:
-                        balls[c] = box
-                    elif box.conf[0] > balls[c].conf[0]:
-                        balls[c] = box
-                
-                best_boxes = {}
-                if 0 in balls: best_boxes[0] = balls[0]  # b1 (來自新 class 0)
-                if 1 in balls: best_boxes[1] = balls[1]  # b2 (來自新 class 1)
-                if 2 in balls: best_boxes[2] = balls[2]  # b3 (來自新 class 2)
-                if 9 in balls: best_boxes[3] = balls[9]  # bw (來自新 class 9)
+                # 偵測棋盤格角點
+                found, corners = cv2.findChessboardCorners(gray, pattern_size, None)
 
-                current_detect = {}
-                for cls_id in required_labels:
-                    label_name = label_map[cls_id]
-                    if cls_id in best_boxes:
-                        box = best_boxes[cls_id]
-                        x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
-                        cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
-                        
-                        current_detect[label_name] = (round(cx, 1), round(cy, 1))
-                        
-                        cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                        cv2.circle(annotated_frame, (int(cx), int(cy)), 5, (0, 0, 255), -1)
-                        cv2.putText(annotated_frame, label_name, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-                
-                # 繪製畫面提示
-                missing = [label_map[c] for c in required_labels if label_map[c] not in current_detect]
-                if missing:
-                    prompt_text = f"Status: Detecting balls... Missing: {', '.join(missing)}"
-                    cv2.putText(annotated_frame, prompt_text, (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
-                    print(f"\r[偵測中] 缺少球種: {', '.join(missing)}     ", end="", flush=True)
+                if found:
+                    # 亞像素級精細化角點
+                    cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1),
+                                     criteria=(cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001))
+                    
+                    # 繪製偵測到的棋盤格角點
+                    cv2.drawChessboardCorners(annotated_frame, pattern_size, corners, found)
+                    
+                    # 標示出 Corner A (紅圈，起點 0) 與 Corner B (藍圈，首列終點 7)
+                    ptA = tuple(map(int, corners[0][0]))
+                    ptB = tuple(map(int, corners[7][0]))
+                    
+                    cv2.circle(annotated_frame, ptA, 10, (0, 0, 255), -1)
+                    cv2.putText(annotated_frame, "A (Origin)", (ptA[0] + 15, ptA[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                    
+                    cv2.circle(annotated_frame, ptB, 10, (255, 0, 0), -1)
+                    cv2.putText(annotated_frame, "B (X-Axis)", (ptB[0] + 15, ptB[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
+
+                    cv2.putText(annotated_frame, "Status: Chessboard Corners LOCKED!", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+                    corners_refined = corners
                 else:
-                    cv2.putText(annotated_frame, "Status: All 4 balls locked!", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-                    print("\n[成功] 已同時偵測到全部 4 顆撞球！")
-                    pixel_coords = current_detect
-                    break
+                    cv2.putText(annotated_frame, "Status: Searching Chessboard (8x6 corners)...", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
 
                 cv2.imshow("Calibration Tool (Orbbec Camera)", annotated_frame)
                 key = cv2.waitKey(1) & 0xFF
@@ -152,10 +126,14 @@ def start_calibration_service(model_path=None, port=12347):
                     print("\n[系統] 使用者結束程式。")
                     return
 
+                # 若成功鎖定且已偵測到角點，則跳出 Phase 1 進入標定
+                if found:
+                    print("\n[成功] 已鎖定黑白棋盤格角點！")
+                    break
+
             # 發送 START_CALIBRATION 控制信號給 C++ 手臂端
             print("[網路] 發送標定信號 START_CALIBRATION 至 C++...")
             try:
-                # 先清空 Socket 接收緩衝區
                 try:
                     while conn.recv(1024): pass
                 except BlockingIOError:
@@ -165,41 +143,27 @@ def start_calibration_service(model_path=None, port=12347):
                 print(f"[網路錯誤] 無法發送控制信號至 C++: {e}")
                 break
 
-            # Phase 2: 連續畫面更新，同時非阻塞接收 C++ 手臂座標
+            # Phase 2: 連續畫面更新，同時非阻塞接收 C++ 手臂傳送的 2 個角點座標
             arm_coords = {}
             current_target_idx = 0
             socket_buffer = ""
+            targets = ["ptA", "ptB"]
+            target_names = ["棋盤角點 A (紅圈標記)", "棋盤角點 B (藍圈標記)"]
 
-            while current_target_idx < 4:
+            while current_target_idx < 2:
                 ret, frame = cap.read()
                 if not ret: continue
                 annotated_frame = frame.copy()
 
-                # 即時更新背景 YOLO 辨識 (映射新模型分類 0:cue, 1:b1, 2:b2, 3:b3 至舊系統 0:b1, 1:b2, 2:b3, 3:bw)
-                results = model(frame, conf=0.3, verbose=False)
-                balls = {}
-                for box in results[0].boxes:
-                    c = int(box.cls[0])
-                    if c not in balls:
-                        balls[c] = box
-                    elif box.conf[0] > balls[c].conf[0]:
-                        balls[c] = box
-                
-                best_boxes = {}
-                if 0 in balls: best_boxes[0] = balls[0]  # b1 (來自新 class 0)
-                if 1 in balls: best_boxes[1] = balls[1]  # b2 (來自新 class 1)
-                if 2 in balls: best_boxes[2] = balls[2]  # b3 (來自新 class 2)
-                if 9 in balls: best_boxes[3] = balls[9]  # bw (來自新 class 9)
-
-                for cls_id in required_labels:
-                    label_name = label_map[cls_id]
-                    if cls_id in best_boxes:
-                        box = best_boxes[cls_id]
-                        x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
-                        cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
-                        cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), (255, 255, 0), 2)
-                        cv2.circle(annotated_frame, (int(cx), int(cy)), 5, (0, 0, 255), -1)
-                        cv2.putText(annotated_frame, label_name, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+                # 即時在畫面上繪製鎖定的角點標記
+                if corners_refined is not None:
+                    cv2.drawChessboardCorners(annotated_frame, pattern_size, corners_refined, True)
+                    ptA = tuple(map(int, corners_refined[0][0]))
+                    ptB = tuple(map(int, corners_refined[7][0]))
+                    cv2.circle(annotated_frame, ptA, 10, (0, 0, 255), -1)
+                    cv2.putText(annotated_frame, "A (Origin)", (ptA[0] + 15, ptA[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                    cv2.circle(annotated_frame, ptB, 10, (255, 0, 0), -1)
+                    cv2.putText(annotated_frame, "B (X-Axis)", (ptB[0] + 15, ptB[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
 
                 # 繪製半透明提示遮罩以突顯操作提示
                 overlay = annotated_frame.copy()
@@ -207,8 +171,8 @@ def start_calibration_service(model_path=None, port=12347):
                 cv2.addWeighted(overlay, 0.6, annotated_frame, 0.4, 0, annotated_frame)
 
                 # 在螢幕上顯示清晰的操作工作流提示
-                target_ball_name = ball_names[current_target_idx]
-                guide_text1 = f"Step {current_target_idx + 1}/4: Move robot arm to center of [{target_ball_name}]"
+                target_ball_name = target_names[current_target_idx]
+                guide_text1 = f"Step {current_target_idx + 1}/2: Move robot arm to [{target_ball_name}]"
                 guide_text2 = "After positioning, press [Enter] in the C++ terminal window."
                 cv2.putText(annotated_frame, guide_text1, (30, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
                 cv2.putText(annotated_frame, guide_text2, (30, 65), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
@@ -228,42 +192,84 @@ def start_calibration_service(model_path=None, port=12347):
                                 ball_name = parts[0]
                                 arm_x = float(parts[1])
                                 arm_y = float(parts[2])
-                                if ball_name == balls_order[current_target_idx]:
+                                if ball_name == targets[current_target_idx]:
                                     if arm_x < -9000.0 or arm_y < -9000.0:
-                                        print(f" --> [對齊記錄] {ball_name} 被跳過。")
+                                        print(f" --> [錯誤] 棋盤基準點 {ball_name} 不能被跳過，標定中斷。")
+                                        current_target_idx = 99 # 終止
                                     else:
                                         arm_coords[ball_name] = (arm_x, arm_y)
-                                        print(f" --> [對齊記錄] {ball_name} 成功配對：像素 {pixel_coords[ball_name]} -> 手臂 ({arm_x}, {arm_y})")
-                                    current_target_idx += 1
+                                        print(f" --> [對齊記錄] {ball_name} 成功配對：手臂 ({arm_x}, {arm_y})")
+                                        current_target_idx += 1
                 except BlockingIOError:
                     pass
                 except ConnectionResetError:
                     print("[網路錯誤] C++ 斷開連線。")
                     break
 
-            if len(arm_coords) < 3:
-                print(f"[錯誤] 標定中斷，至少需要收集 3 個有效點位（目前僅收集到 {len(arm_coords)} 個點），無法計算校正矩陣。")
+            if len(arm_coords) < 2:
+                print("[錯誤] 標定中斷，未收集齊全 A、B 兩個基準點。")
                 break
 
-            # 3. 輸出並保存結果
+            # 3. 幾何推算 48 個角點的實際物理座標，並輸出結果
             print("\n=========================================")
-            print(f"  第 {round_count} 輪標定數據完成！")
+            print(f"  第 {round_count} 輪標定數據計算中...")
             print("=========================================")
-            
-            valid_balls = [b for b in balls_order if b in arm_coords]
-            cam_points_list = [pixel_coords[b] for b in valid_balls]
-            table_points_list = [arm_coords[b] for b in valid_balls]
 
-            print("\n[Python 格式點位數據]：")
-            print(f"cam_points = np.float32({cam_points_list})")
-            print(f"table_points = np.float32({table_points_list})")
+            x_A, y_A = arm_coords["ptA"]
+            x_B, y_B = arm_coords["ptB"]
+
+            # 計算 A 到 B 在手臂空間中的距離與角度
+            dx = x_B - x_A
+            dy = y_B - y_A
+            distance_arm = np.sqrt(dx**2 + dy**2)
+            theta = np.arctan2(dy, dx)
+
+            # 由於 A 點到 B 點之間橫跨了 7 個格子 (橫向 8 個點)
+            actual_square_size = distance_arm / 7.0
+            print(f"[計算資訊] A-B 距離: {distance_arm:.2f} mm")
+            print(f"[計算資訊] 推算出單格邊長: {actual_square_size:.2f} mm")
+            print(f"[計算資訊] 旋轉角度: {np.degrees(theta):.2f} 度")
+
+            cos_t = np.cos(theta)
+            sin_t = np.sin(theta)
+
+            cam_points_list = []
+            table_points_list = []
+
+            # 依序計算棋盤格上所有 48 個點對應的手臂座標
+            for k in range(48):
+                col = k % 8
+                row = k // 8
+                # 棋盤格局部空間座標
+                x_board = col * actual_square_size
+                y_board = row * actual_square_size
+
+                # 剛體旋轉與平移 (Rotation + Translation) 轉換至手臂空間
+                x_arm = x_A + (x_board * cos_t - y_board * sin_t)
+                y_arm = y_A + (x_board * sin_t + y_board * cos_t)
+
+                # 像素與物理座標配對
+                cam_points_list.append([float(corners_refined[k][0][0]), float(corners_refined[k][0][1])])
+                table_points_list.append([round(x_arm, 1), round(y_arm, 1)])
+
+            print(f"\n[成功] 已自動產生全量 {len(table_points_list)} 個角點的對照數據！")
+
+            # 4. 輸出並保存結果
+            print("\n[Python 格式點位數據]（請將下方兩行內容貼至 robot.py 中的對應變數）：")
+            print(f"DEFAULT_CAM_POINTS = np.float32({cam_points_list})")
+            print(f"DEFAULT_TABLE_POINTS = np.float32({table_points_list})")
             
+            # 計算 Homography 矩陣以便存檔備份
+            matrix, _ = cv2.findHomography(np.float32(cam_points_list), np.float32(table_points_list), cv2.LMEDS)
+            matrix_str = np.array2string(matrix, separator=', ')
+
             # 備份至 calibrated_points.txt
             with open(CALIBRATION_TXT_PATH, "a", encoding="utf-8") as f:
                 f.write(f"\n--- Round {round_count} ({time.strftime('%Y-%m-%d %H:%M:%S')}) ---\n")
-                f.write(f"cam_points = np.float32({cam_points_list})\n")
-                f.write(f"table_points = np.float32({table_points_list})\n")
-            print(f"\n[系統] 標定點位已寫入檔案 '{CALIBRATION_TXT_PATH}'")
+                f.write(f"DEFAULT_CAM_POINTS = np.float32({cam_points_list})\n")
+                f.write(f"DEFAULT_TABLE_POINTS = np.float32({table_points_list})\n")
+                f.write(f"# Calculated Homography Matrix:\n# {matrix_str}\n")
+            print(f"\n[系統] 標定數據已追加寫入檔案 '{CALIBRATION_TXT_PATH}'")
 
             round_count += 1
 

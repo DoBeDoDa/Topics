@@ -81,8 +81,8 @@ int main() {
     cout << "[系統] 連線至 Python 影像端成功！" << endl;
 
     char recvbuf[512];
-    string balls[] = { "bw", "b1", "b2", "b3" };
-    string ball_names[] = { "母球 (bw)", "1號球 (b1)", "2號球 (b2)", "3號球 (b3)" };
+    string balls[] = { "ptA", "ptB" };
+    string ball_names[] = { "棋盤角點 A (紅圈標記)", "棋盤角點 B (藍圈標記)" };
 
     // 1. 首次啟動：已到達拍照點，直接等待按 Enter 才拍照
     cout << "\n準備就緒後，請在【此視窗】按下 [Enter] 鍵開始拍照辨識..." << endl;
@@ -108,11 +108,11 @@ int main() {
             cout << "  標定回合開始！請依提示移動手臂末端" << endl;
             cout << "=========================================" << endl;
 
-            for (int i = 0; i < 4; i++) {
+            for (int i = 0; i < 2; i++) {
                 bool point_confirmed = false;
                 while (!point_confirmed) {
                     cout << "\n-----------------------------------------" << endl;
-                    cout << "  步驟 " << (i + 1) << "/4：請對準【" << ball_names[i] << "】" << endl;
+                    cout << "  步驟 " << (i + 1) << "/2：請對準【" << ball_names[i] << "】" << endl;
                     cout << "  --> 請手動將手臂末端移動到該球的實體中心位置。" << endl;
                     cout << "  對準後，請在【此視窗】按下 [Enter] 鍵記錄座標，或輸入 [s] 鍵跳過此球..." << endl;
 
@@ -156,7 +156,7 @@ int main() {
                 }
             }
 
-            cout << "\n[系統] 四點座標量測完畢。" << endl;
+            cout << "\n[系統] 棋盤基準點座標量測完畢。" << endl;
             
             // 2. 標定完成後，等待使用者確認才移動回拍照位置
             cout << "\n[安全鎖] 標定採集完畢！手臂即將移動回拍照位置 (CAM_JOINT)。" << endl;
