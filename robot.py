@@ -124,11 +124,35 @@ class BilliardDetector:
     def detect(self, frame):
         """執行 YOLO 偵測並返回標註後的影像與座標列表"""
         results = self.model(frame, conf=0.3, verbose=False)
-        best_boxes = {}
+        
+        # 分類收集偵測到的框 (新模型：0:cue, 1..9:b1..b9, 10:hole)
+        balls = {}
+        holes = []
         for box in results[0].boxes:
             cls_id = int(box.cls[0])
-            if cls_id not in best_boxes:
-                best_boxes[cls_id] = box
+            if cls_id == 10:
+                holes.append(box)
+            else:
+                if cls_id not in balls:
+                    balls[cls_id] = box
+                elif box.conf[0] > balls[cls_id].conf[0]:
+                    balls[cls_id] = box
+
+        # 映射回舊系統的 class_id (0:b1, 1:b2, 2:b3, 3:bw, 4..9:p1..p6)
+        best_boxes = {}
+        # 0:b1 (來自新 class 1)
+        if 1 in balls: best_boxes[0] = balls[1]
+        # 1:b2 (來自新 class 2)
+        if 2 in balls: best_boxes[1] = balls[2]
+        # 2:b3 (來自新 class 3)
+        if 3 in balls: best_boxes[2] = balls[3]
+        # 3:bw (來自新 class 0)
+        if 0 in balls: best_boxes[3] = balls[0]
+
+        # 將球洞以 X 座標進行排序以建立穩定映射，並分配至 p1~p6 (舊 class 4~9)
+        holes_sorted = sorted(holes, key=lambda b: float(b.xyxy[0][0]))
+        for i, box in enumerate(holes_sorted[:6]):
+            best_boxes[4 + i] = box
 
         coords = [-9999.0] * 20
         annotated_frame = frame.copy()

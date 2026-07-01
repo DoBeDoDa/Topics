@@ -97,13 +97,21 @@ def start_calibration_service(model_path="best.pt", port=12347):
                 if not ret: continue
                 annotated_frame = frame.copy()
 
-                # YOLO 偵測
+                # YOLO 偵測 (映射新模型分類 0:cue, 1:b1, 2:b2, 3:b3 至舊系統 0:b1, 1:b2, 2:b3, 3:bw)
                 results = model(frame, conf=0.3, verbose=False)
-                best_boxes = {}
+                balls = {}
                 for box in results[0].boxes:
-                    cls_id = int(box.cls[0])
-                    if cls_id in required_labels and cls_id not in best_boxes:
-                        best_boxes[cls_id] = box
+                    c = int(box.cls[0])
+                    if c not in balls:
+                        balls[c] = box
+                    elif box.conf[0] > balls[c].conf[0]:
+                        balls[c] = box
+                
+                best_boxes = {}
+                if 1 in balls: best_boxes[0] = balls[1]  # b1
+                if 2 in balls: best_boxes[1] = balls[2]  # b2
+                if 3 in balls: best_boxes[2] = balls[3]  # b3
+                if 0 in balls: best_boxes[3] = balls[0]  # bw
 
                 current_detect = {}
                 for cls_id in required_labels:
@@ -160,13 +168,21 @@ def start_calibration_service(model_path="best.pt", port=12347):
                 if not ret: continue
                 annotated_frame = frame.copy()
 
-                # 即時更新背景 YOLO 辨識
+                # 即時更新背景 YOLO 辨識 (映射新模型分類 0:cue, 1:b1, 2:b2, 3:b3 至舊系統 0:b1, 1:b2, 2:b3, 3:bw)
                 results = model(frame, conf=0.3, verbose=False)
-                best_boxes = {}
+                balls = {}
                 for box in results[0].boxes:
-                    cls_id = int(box.cls[0])
-                    if cls_id in required_labels and cls_id not in best_boxes:
-                        best_boxes[cls_id] = box
+                    c = int(box.cls[0])
+                    if c not in balls:
+                        balls[c] = box
+                    elif box.conf[0] > balls[c].conf[0]:
+                        balls[c] = box
+                
+                best_boxes = {}
+                if 1 in balls: best_boxes[0] = balls[1]  # b1
+                if 2 in balls: best_boxes[1] = balls[2]  # b2
+                if 3 in balls: best_boxes[2] = balls[3]  # b3
+                if 0 in balls: best_boxes[3] = balls[0]  # bw
 
                 for cls_id in required_labels:
                     label_name = label_map[cls_id]
