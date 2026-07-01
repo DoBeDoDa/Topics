@@ -4,6 +4,7 @@ import torch
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DATASET_YAML = os.path.join(SCRIPT_DIR, "yolo_data", "dataset.yaml")
+ROBOFLOW_YAML = os.path.join(SCRIPT_DIR, "data.yaml")
 
 def generate_dataset_yaml():
     """自動為自定義 11 類別格式生成 dataset.yaml 檔案"""
@@ -37,8 +38,38 @@ names:
         print(f"[系統] 成功自動生成 dataset.yaml")
 
 def main():
-    # 確保 dataset.yaml 存在
-    generate_dataset_yaml()
+    # 檢查要使用的設定檔
+    active_yaml = DATASET_YAML
+    
+    if os.path.exists(ROBOFLOW_YAML):
+        active_yaml = ROBOFLOW_YAML
+        print(f"[系統] 偵測到 Roboflow 解壓的標準 data.yaml，使用標準資料集架構。")
+        # 自動修正 Roboflow data.yaml 中的 path 欄位為本機絕對路徑，防呆並避免路徑報錯
+        try:
+            with open(ROBOFLOW_YAML, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+            
+            new_lines = []
+            path_fixed = False
+            abs_path = os.path.abspath(SCRIPT_DIR).replace('\\', '/')
+            for line in lines:
+                if line.strip().startswith("path:"):
+                    new_lines.append(f"path: {abs_path}\n")
+                    path_fixed = True
+                else:
+                    new_lines.append(line)
+            
+            if not path_fixed:
+                new_lines.insert(0, f"path: {abs_path}\n")
+                
+            with open(ROBOFLOW_YAML, "w", encoding="utf-8") as f:
+                f.writelines(new_lines)
+            print("[系統] 已自動優化與修正 data.yaml 中的本機 path 路徑。")
+        except Exception as e:
+            print(f"[警告] 自動優化 data.yaml 路徑失敗 ({e})，將直接使用原設定。")
+    else:
+        # 若沒有 Roboflow 專用的 data.yaml，則使用並確保 dataset.yaml 存在
+        generate_dataset_yaml()
 
     # 檢查是否有安裝與支援 CUDA GPU，若無則自動切換至 CPU
     device = 0 if torch.cuda.is_available() else 'cpu'
@@ -55,7 +86,7 @@ def main():
     print(" 🚀 [開始 YOLO26 快速訓練] ")
     print("=======================================================")
     model.train(
-        data=DATASET_YAML,    # 資料集設定檔路徑
+        data=active_yaml,    # 資料集設定檔路徑
         epochs=150,           # 訓練輪數 (撞球任務約 100~150 輪即可收斂)
         imgsz=640,            # 影像解析度
         batch=16,             # 批次大小 (若顯存不足可改為 8，充足可改為 32)
