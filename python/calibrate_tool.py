@@ -224,10 +224,11 @@ def start_calibration_service(model_path=None, port=12347):
             distance_arm = np.sqrt(dx**2 + dy**2)
             theta = np.arctan2(dy, dx)
 
-            # 由於 A 點到 B 點之間橫跨了 8 個格子 (橫向 9 個點)
-            actual_square_size = distance_arm / 8.0
-            print(f"[計算資訊] A-B 距離: {distance_arm:.2f} mm")
-            print(f"[計算資訊] 推算出單格邊長: {actual_square_size:.2f} mm")
+            # 使用使用者設定的固定邊長 25.0 mm (2.5 cm)
+            actual_square_size = 25.0
+            print(f"[計算資訊] A-B 測量距離: {distance_arm:.2f} mm (以 2.5cm 方格估計理論值應為 200.0 mm)")
+            print(f"[計算資訊] 測量推算單格邊長: {distance_arm / 8.0:.2f} mm")
+            print(f"[計算資訊] 套用固定單格邊長: {actual_square_size:.2f} mm")
             print(f"[計算資訊] 旋轉角度: {np.degrees(theta):.2f} 度")
 
             cos_t = np.cos(theta)
