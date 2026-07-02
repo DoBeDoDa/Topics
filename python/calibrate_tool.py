@@ -43,8 +43,8 @@ def start_calibration_service(model_path=None, port=12347):
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
     print(f"[硬體狀態] 相機啟動成功，進入標定工作流。")
 
-    # 棋盤格設定：偵測 8x5 的角點（9x6格）
-    pattern_size = (8, 5)
+    # 棋盤格設定：偵測 9x6 的角點（10x7格）
+    pattern_size = (9, 6)
 
     try:
         round_count = 1
@@ -82,7 +82,7 @@ def start_calibration_service(model_path=None, port=12347):
 
             print(f"\n=========================================")
             print(f"  開始第 {round_count} 輪標定偵測...")
-            print(f"  請確保黑白棋盤格 (8x5角點) 完整呈現在畫面中")
+            print(f"  請確保黑白棋盤格 (9x6角點) 完整呈現在畫面中")
             print(f"=========================================")
 
             corners_refined = None
@@ -94,8 +94,9 @@ def start_calibration_service(model_path=None, port=12347):
                 annotated_frame = frame.copy()
                 gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-                # 偵測棋盤格角點
-                found, corners = cv2.findChessboardCorners(gray, pattern_size, None)
+                # 偵測棋盤格角點 (加入自適應閥值與歸一化參數，避免日光燈反光干擾)
+                flags = cv2.CALIB_CB_ADAPTIVE_THRESH + cv2.CALIB_CB_NORMALIZE_IMAGE
+                found, corners = cv2.findChessboardCorners(gray, pattern_size, flags=flags)
 
                 if found:
                     # 亞像素級精細化角點
@@ -105,9 +106,9 @@ def start_calibration_service(model_path=None, port=12347):
                     # 繪製偵測到的棋盤格角點
                     cv2.drawChessboardCorners(annotated_frame, pattern_size, corners, found)
                     
-                    # 標示出 Corner A (紅圈，起點 0) 與 Corner B (藍圈，首列終點 7)
+                    # 標示出 Corner A (紅圈，起點 0) 與 Corner B (藍圈，首列終點 8)
                     ptA = tuple(map(int, corners[0][0]))
-                    ptB = tuple(map(int, corners[7][0]))
+                    ptB = tuple(map(int, corners[8][0]))
                     
                     cv2.circle(annotated_frame, ptA, 10, (0, 0, 255), -1)
                     cv2.putText(annotated_frame, "A (Origin)", (ptA[0] + 15, ptA[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
@@ -118,7 +119,7 @@ def start_calibration_service(model_path=None, port=12347):
                     cv2.putText(annotated_frame, "Status: Chessboard Corners LOCKED!", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
                     corners_refined = corners
                 else:
-                    cv2.putText(annotated_frame, "Status: Searching Chessboard (8x5 corners)...", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+                    cv2.putText(annotated_frame, "Status: Searching Chessboard (9x6 corners)...", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
 
                 cv2.imshow("Calibration Tool (Orbbec Camera)", annotated_frame)
                 key = cv2.waitKey(1) & 0xFF
@@ -159,7 +160,7 @@ def start_calibration_service(model_path=None, port=12347):
                 if corners_refined is not None:
                     cv2.drawChessboardCorners(annotated_frame, pattern_size, corners_refined, True)
                     ptA = tuple(map(int, corners_refined[0][0]))
-                    ptB = tuple(map(int, corners_refined[7][0]))
+                    ptB = tuple(map(int, corners_refined[8][0]))
                     cv2.circle(annotated_frame, ptA, 10, (0, 0, 255), -1)
                     cv2.putText(annotated_frame, "A (Origin)", (ptA[0] + 15, ptA[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
                     cv2.circle(annotated_frame, ptB, 10, (255, 0, 0), -1)
@@ -210,7 +211,7 @@ def start_calibration_service(model_path=None, port=12347):
                 print("[錯誤] 標定中斷，未收集齊全 A、B 兩個基準點。")
                 break
 
-            # 3. 幾何推算 40 個角點的實際物理座標，並輸出結果
+            # 3. 幾何推算 54 個角點的實際物理座標，並輸出結果
             print("\n=========================================")
             print(f"  第 {round_count} 輪標定數據計算中...")
             print("=========================================")
@@ -224,10 +225,10 @@ def start_calibration_service(model_path=None, port=12347):
             distance_arm = np.sqrt(dx**2 + dy**2)
             theta = np.arctan2(dy, dx)
 
-            # 由於 A 點到 B 點之間橫跨了 7 個格子 (橫向 8 個點)
+            # 由於 A 點到 B 點之間橫跨了 8 個格子 (橫向 9 個點)
             actual_square_size = 25.0
-            print(f"[計算資訊] A-B 測量距離: {distance_arm:.2f} mm (以 2.5cm 方格估計理論值應為 175.0 mm)")
-            print(f"[計算資訊] 測量推算單格邊長: {distance_arm / 7.0:.2f} mm")
+            print(f"[計算資訊] A-B 測量距離: {distance_arm:.2f} mm (以 2.5cm 方格估計理論值應為 200.0 mm)")
+            print(f"[計算資訊] 測量推算單格邊長: {distance_arm / 8.0:.2f} mm")
             print(f"[計算資訊] 套用固定單格邊長: {actual_square_size:.2f} mm")
             print(f"[計算資訊] 旋轉角度: {np.degrees(theta):.2f} 度")
 
@@ -237,10 +238,10 @@ def start_calibration_service(model_path=None, port=12347):
             cam_points_list = []
             table_points_list = []
 
-            # 依序計算棋盤格上所有 40 個點對應的手臂座標
-            for k in range(40):
-                col = k % 8
-                row = k // 8
+            # 依序計算棋盤格上所有 54 個點對應的手臂座標
+            for k in range(54):
+                col = k % 9
+                row = k // 9
                 # 棋盤格局部空間座標
                 x_board = col * actual_square_size
                 y_board = row * actual_square_size
