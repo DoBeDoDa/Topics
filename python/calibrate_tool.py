@@ -9,7 +9,7 @@ import re
 # ==========================================
 # [相機設定] 設定您所使用的相機 USB Index
 # ==========================================
-CAMERA_INDEX = 1  # 依使用者表示，設定 1 是對的
+CAMERA_INDEX = 0  # 依使用者表示，設定 1 是對的
 # ==========================================
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -201,7 +201,7 @@ def start_calibration_service(model_path=None, port=12347):
                                         current_target_idx = 99 # 終止
                                     else:
                                         arm_coords[ball_name] = (arm_x, arm_y)
-                                        print(f" --> [對齊記錄] {ball_name} 成功配對：手臂 ({arm_x}, {arm_y})")
+                                        print(f" --> [對齊記錄] {ball_name} 成功配對：工具軸 1 座標 ({arm_x}, {arm_y})")
                                         current_target_idx += 1
                 except BlockingIOError:
                     pass
@@ -269,10 +269,11 @@ def start_calibration_service(model_path=None, port=12347):
             # 備份至 calibrated_points.txt
             with open(CALIBRATION_TXT_PATH, "a", encoding="utf-8") as f:
                 f.write(f"\n--- Round {round_count} ({time.strftime('%Y-%m-%d %H:%M:%S')}) ---\n")
+                f.write(f"# Measured Tool 1 Coordinates: ptA = ({x_A}, {y_A}), ptB = ({x_B}, {y_B})\n")
                 f.write(f"DEFAULT_CAM_POINTS = {cam_str}\n")
                 f.write(f"DEFAULT_TABLE_POINTS = {table_str}\n")
                 f.write(f"# Calculated Homography Matrix:\n# {matrix_str}\n")
-            print(f"[系統] 標定數據已追加寫入檔案 '{CALIBRATION_TXT_PATH}'")
+            print(f"[系統] 標定數據已追加寫入檔案 '{CALIBRATION_TXT_PATH}' (含工具軸 1 原始點位 ptA 與 ptB)")
 
             # 自動寫入 robot.py 中的 DEFAULT_CAM_POINTS 和 DEFAULT_TABLE_POINTS
             try:
