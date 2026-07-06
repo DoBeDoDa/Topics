@@ -108,15 +108,15 @@ def start_calibration_service(model_path=None, port=12347):
                     # 繪製偵測到的棋盤格角點
                     cv2.drawChessboardCorners(annotated_frame, pattern_size, corners, found)
                     
-                    # 標示出 Corner A (紅圈，左上角點 0) 與 Corner B (藍圈，右下角點 53)
-                    ptA = tuple(map(int, corners[0][0]))
-                    ptB = tuple(map(int, corners[53][0]))
+                    # 標示出 Corner A (紅圈，左下角點 45) 與 Corner B (藍圈，右上角點 8)
+                    ptA = tuple(map(int, corners[45][0]))
+                    ptB = tuple(map(int, corners[8][0]))
                     
                     cv2.circle(annotated_frame, ptA, 10, (0, 0, 255), -1)
-                    cv2.putText(annotated_frame, "A (Top-Left)", (ptA[0] + 15, ptA[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                    cv2.putText(annotated_frame, "A (Bottom-Left)", (ptA[0] + 15, ptA[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
                     
                     cv2.circle(annotated_frame, ptB, 10, (255, 0, 0), -1)
-                    cv2.putText(annotated_frame, "B (Bottom-Right)", (ptB[0] + 15, ptB[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
+                    cv2.putText(annotated_frame, "B (Top-Right)", (ptB[0] + 15, ptB[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
 
                     cv2.putText(annotated_frame, "Status: Chessboard Corners LOCKED!", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
                     corners_refined = corners
@@ -161,12 +161,12 @@ def start_calibration_service(model_path=None, port=12347):
                 # 即時在畫面上繪製鎖定的角點標記
                 if corners_refined is not None:
                     cv2.drawChessboardCorners(annotated_frame, pattern_size, corners_refined, True)
-                    ptA = tuple(map(int, corners_refined[0][0]))
-                    ptB = tuple(map(int, corners_refined[53][0]))
+                    ptA = tuple(map(int, corners_refined[45][0]))
+                    ptB = tuple(map(int, corners_refined[8][0]))
                     cv2.circle(annotated_frame, ptA, 10, (0, 0, 255), -1)
-                    cv2.putText(annotated_frame, "A (Top-Left)", (ptA[0] + 15, ptA[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                    cv2.putText(annotated_frame, "A (Bottom-Left)", (ptA[0] + 15, ptA[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
                     cv2.circle(annotated_frame, ptB, 10, (255, 0, 0), -1)
-                    cv2.putText(annotated_frame, "B (Bottom-Right)", (ptB[0] + 15, ptB[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
+                    cv2.putText(annotated_frame, "B (Top-Right)", (ptB[0] + 15, ptB[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
 
                 # 繪製半透明提示遮罩以突顯操作提示
                 overlay = annotated_frame.copy()
@@ -221,13 +221,13 @@ def start_calibration_service(model_path=None, port=12347):
             x_A, y_A = arm_coords["ptA"]
             x_B, y_B = arm_coords["ptB"]
 
-            # 對角線幾何運算 (A到B橫向8格=200.0mm, 縱向5格=125.0mm)
+            # 對角線幾何運算 (A到B橫向8格=200.0mm, 縱向-5格=-125.0mm)
             dx = x_B - x_A
             dy = y_B - y_A
             distance_arm = np.sqrt(dx**2 + dy**2)
             
             W = 200.0
-            H = 125.0
+            H = -125.0
             denom = W**2 + H**2
             cos_t = (W * dx + H * dy) / denom
             sin_t = (W * dy - H * dx) / denom
@@ -245,9 +245,9 @@ def start_calibration_service(model_path=None, port=12347):
             for k in range(54):
                 col = k % 9
                 row = k // 9
-                # 棋盤格局部空間座標
+                # 棋盤格局部空間座標 (相對於 A 點(col=0, row=5))
                 x_board = col * actual_square_size
-                y_board = row * actual_square_size
+                y_board = (row - 5) * actual_square_size
 
                 # 剛體旋轉與平移 (Rotation + Translation) 轉換至手臂空間
                 x_arm = x_A + (x_board * cos_t - y_board * sin_t)
