@@ -107,23 +107,38 @@ int main() {
         Point bw_compensated = BilliardMath::applyCameraCompensation({ bwx, bwy });
         cout << "   - 畸變補償：X = " << bw_compensated.x << " mm, Y = " << bw_compensated.y << " mm" << endl;
 
-        // 6. 前往母球點位，Z 軸高度設為 -107
+        // 6. 移至中繼關節點位以避免路徑異常，隨後前往母球點位
+        const double TRANSIT_JOINT[6] = {-12.0, -44.0, -17.0, -14.0, 42.0, -150.0};
+        cout << "\n[步驟 5] 準備移動手臂至中繼關節位置 (TRANSIT_JOINT)..." << endl;
+        cout << "請確認安全，並按 [Enter] 開始移動: ";
+        string confirm_transit;
+        cin.clear();
+        fflush(stdin);
+        getline(cin, confirm_transit);
+        
+        cout << "[動作] 移動至中繼點位..." << endl;
+        robot.moveToAxis(TRANSIT_JOINT, true);
+        Sleep(800);
+
         double current_cart[6] = {0.0};
         if (get_current_position(robot.getId(), current_cart) == 0) {
             double target_pos[6];
             target_pos[0] = bw_compensated.x;  // X 軸 (補償後座標)
             target_pos[1] = bw_compensated.y;  // Y 軸 (補償後座標)
             target_pos[2] = -107.0;            // Z 軸固定於 -107.0 mm
-            target_pos[3] = 0.0;               // RX
-            target_pos[4] = 90.0;              // RY (使工具 X 軸垂直桌面向下。若發現方向相反朝上，請改為 -90.0)
-            target_pos[5] = 0.0;               // RZ
+            target_pos[3] = current_cart[3];   // 沿用中繼點的姿勢 RX
+            target_pos[4] = current_cart[4];   // 沿用中繼點的姿勢 RY
+            target_pos[5] = current_cart[5];   // 沿用中繼點的姿勢 RZ
 
-            cout << "\n[步驟 5] 準備讓末端移動至母球點位！" << endl;
+            cout << "\n[步驟 6] 準備讓末端移動至母球點位！" << endl;
             cout << "   - 目標 Cartesian 座標：X = " << target_pos[0] 
                  << ", Y = " << target_pos[1] 
                  << ", Z = " << target_pos[2] << " mm" << endl;
+            cout << "   - 目標 姿勢角：RX = " << target_pos[3] 
+                 << ", RY = " << target_pos[4] 
+                 << ", RZ = " << target_pos[5] << endl;
             cout << "==================================================" << endl;
-            cout << "【安全鎖】請確認手臂運行軌跡無障礙，且 Z 軸高度不會撞擊桌面。" << endl;
+            cout << "【安全鎖】請確認平面平移路徑無障礙，且 Z 軸高度不會撞擊桌面。" << endl;
             cout << "確認完畢後，請在【此視窗】按下 [Enter] 鍵開始移動：" << endl;
 
             string confirm_move2;
@@ -135,7 +150,7 @@ int main() {
             robot.moveToPosition(target_pos, true);
             cout << "[成功] 已抵達目標母球點位。" << endl;
         } else {
-            cout << "[錯誤] 無法讀取手臂目前姿態，為安全起見取消定位移動。" << endl;
+            cout << "[錯誤] 無法讀取中繼點姿態，為安全起見取消定位移動。" << endl;
         }
     }
 
