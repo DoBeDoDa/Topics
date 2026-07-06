@@ -114,7 +114,7 @@ int main() {
             target_pos[0] = bw_compensated.x;  // X 軸 (補償後座標)
             target_pos[1] = bw_compensated.y;  // Y 軸 (補償後座標)
             target_pos[2] = -107.0;            // Z 軸固定於 -107.0 mm
-            target_pos[3] = 180.0;             // RX 設為 180.0 度使工具 Z 軸垂直桌面
+            target_pos[3] = 90;             // RX 設為 180.0 度使工具 Z 軸垂直桌面
             target_pos[4] = 0.0;               // RY 設為 0.0 度使工具 Z 軸垂直桌面
             target_pos[5] = 0.0;               // RZ 設為 0.0 度
 
