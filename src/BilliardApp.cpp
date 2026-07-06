@@ -169,13 +169,37 @@ bool BilliardApp::processVisionData(char* dataString) {
         else if (b8x > -9000.0) { target_arm = BilliardMath::applyCameraCompensation({b8x, b8y}); target_name = "8號球"; }
         else if (b9x > -9000.0) { target_arm = BilliardMath::applyCameraCompensation({b9x, b9y}); target_name = "9號球"; }
 
-        Point destination = {-9999.0, -9999.0};
-        if (p1x > -9000.0) {
-            destination = BilliardMath::applyCameraCompensation({ p1x, p1y });
-        } else {
-            cout << "\r[錯誤] 核心錯誤：缺少 1 號球袋 (p1) 座標，拒絕執行擊打...  " << flush;
+        // 收集所有偵測到的有效球袋並進行相機補償
+        std::vector<std::pair<int, Point>> valid_pockets;
+        if (p1x > -9000.0) valid_pockets.push_back({1, BilliardMath::applyCameraCompensation({ p1x, p1y })});
+        if (p2x > -9000.0) valid_pockets.push_back({2, BilliardMath::applyCameraCompensation({ p2x, p2y })});
+        if (p3x > -9000.0) valid_pockets.push_back({3, BilliardMath::applyCameraCompensation({ p3x, p3y })});
+        if (p4x > -9000.0) valid_pockets.push_back({4, BilliardMath::applyCameraCompensation({ p4x, p4y })});
+        if (p5x > -9000.0) valid_pockets.push_back({5, BilliardMath::applyCameraCompensation({ p5x, p5y })});
+        if (p6x > -9000.0) valid_pockets.push_back({6, BilliardMath::applyCameraCompensation({ p6x, p6y })});
+
+        if (valid_pockets.empty()) {
+            cout << "\r[錯誤] 核心錯誤：沒有偵測到任何有效球袋座標，拒絕執行擊打...  " << flush;
             return false;
         }
+
+        // 尋找與「母球 -> 目標球」向量夾角最小的「目標球 -> 球袋」向量
+        int best_pocket_idx = -1;
+        Point destination = {-9999.0, -9999.0};
+        double min_angle = 9999.0;
+        Vector2D vec_cue = BilliardMath::getVector(bw, target_arm);
+
+        for (const auto& pkt : valid_pockets) {
+            Vector2D vec_pocket = BilliardMath::getVector(target_arm, pkt.second);
+            double angle = BilliardMath::getAngleBetweenVectors(vec_cue.x, vec_cue.y, vec_pocket.x, vec_pocket.y);
+            if (angle < min_angle) {
+                min_angle = angle;
+                best_pocket_idx = pkt.first;
+                destination = pkt.second;
+            }
+        }
+
+        cout << "\n[決策] 選擇夾角最小的目標球袋為 p" << best_pocket_idx << " (夾角: " << min_angle << " 度)" << endl;
 
         if (p2x < -9000.0 || p3x < -9000.0) {
             cout << "\r[錯誤] 核心錯誤：缺少 2 號或 3 號球袋座標，無法建立顆星牆壁...  " << flush;
@@ -240,13 +264,13 @@ bool BilliardApp::processVisionData(char* dataString) {
 
             best_aim_target = ghost_bank;
             if (bank_route_safe) {
-                strategy_name = "雙鏡射顆星擊球 (洞2-洞3牆壁 -> p1)";
+                strategy_name = "雙鏡射顆星擊球 (洞2-洞3牆壁 -> p" + to_string(best_pocket_idx) + ")";
             } else {
                 strategy_name = "雙鏡射顆星擊球 (安全路徑受阻，強制開火洞2-洞3牆壁)";
             }
         } 
         else {
-            strategy_name = "直線直擊 (Direct Shot -> p1)";
+            strategy_name = "直線直擊 (Direct Shot -> p" + to_string(best_pocket_idx) + ")";
             best_aim_target = ghost_direct;
         }
 
