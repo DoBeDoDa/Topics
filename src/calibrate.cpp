@@ -66,7 +66,8 @@ int main() {
     }
     robot.setMotorState(1);
     robot.setOverrideRatio(40);
-    cout << "[系統] 機械手臂連線成功，馬達已啟動。" << endl;
+    robot.setToolNumber(1);  // 使用工具軸 1 座標系
+    cout << "[系統] 機械手臂連線成功，馬達已啟動，已切換至工具軸 1。" << endl;
 
     // 在連線至 Python 之前，先將手臂移到拍照點位以避免相機視野受阻
     cout << "\n[系統] 正在自動移動至拍照位置 (CAM_JOINT)..." << endl;
@@ -131,12 +132,13 @@ int main() {
                         continue;
                     }
 
-                    // 取得目前手臂座標
+                    // 取得目前手臂座標 (工具軸 1 座標系)
+                    robot.setToolNumber(1);
                     double cart[6] = {0.0};
                     if (get_current_position(robot.getId(), cart) == 0) {
                         double x = cart[0];
                         double y = cart[1];
-                        cout << "[記錄] 手臂目前座標：X = " << x << " mm, Y = " << y << " mm" << endl;
+                        cout << "[記錄] 工具軸 1 座標：X = " << x << " mm, Y = " << y << " mm" << endl;
 
                         // 進行點位確認 (支援 Enter 確認，Delete/Backspace/D 重新記錄)
                         if (askConfirmation()) {

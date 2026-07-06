@@ -42,7 +42,8 @@ int main() {
     
     robot.setMotorState(1);     // 啟動伺服馬達
     robot.setOverrideRatio(40); // 限制運行速度在 40% 以策安全
-    cout << "[成功] 手臂連線成功，伺服馬達已啟動。" << endl;
+    robot.setToolNumber(1);     // 使用工具軸 1 座標系 (與校正一致)
+    cout << "[成功] 手臂連線成功，伺服馬達已啟動，已切換至工具軸 1。" << endl;
 
     // 2. 移動至拍照基準點，避免遮擋相機視野
     const double CAM_JOINT[6] = {0.0, -32.319, 51.653, 0.0, -18.813, -90.0};

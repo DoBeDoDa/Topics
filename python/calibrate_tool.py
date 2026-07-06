@@ -4,6 +4,7 @@ import numpy as np
 from ultralytics import YOLO
 import os
 import time
+import re
 
 # ==========================================
 # [相機設定] 設定您所使用的相機 USB Index
@@ -15,6 +16,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(SCRIPT_DIR)
 DEFAULT_MODEL_PATH = os.path.join(ROOT_DIR, "bin", "best.pt")
 CALIBRATION_TXT_PATH = os.path.join(ROOT_DIR, "calibrated_points.txt")
+ROBOT_PY_PATH = os.path.join(SCRIPT_DIR, "robot.py")
 
 def start_calibration_service(model_path=None, port=12347):
     # 啟動 TCP Socket 伺服器
@@ -257,10 +259,9 @@ def start_calibration_service(model_path=None, port=12347):
             print(f"\n[成功] 已自動產生全量 {len(table_points_list)} 個角點的對照數據！")
 
             # 4. 輸出並保存結果
-            print("\n[Python 格式點位數據]（請將下方兩行內容貼至 robot.py 中的對應變數）：")
-            print(f"DEFAULT_CAM_POINTS = np.float32({cam_points_list})")
-            print(f"DEFAULT_TABLE_POINTS = np.float32({table_points_list})")
-            
+            cam_str = f"np.float32({cam_points_list})"
+            table_str = f"np.float32({table_points_list})"
+
             # 計算 Homography 矩陣以便存檔備份
             matrix, _ = cv2.findHomography(np.float32(cam_points_list), np.float32(table_points_list), cv2.LMEDS)
             matrix_str = np.array2string(matrix, separator=', ')
@@ -268,10 +269,37 @@ def start_calibration_service(model_path=None, port=12347):
             # 備份至 calibrated_points.txt
             with open(CALIBRATION_TXT_PATH, "a", encoding="utf-8") as f:
                 f.write(f"\n--- Round {round_count} ({time.strftime('%Y-%m-%d %H:%M:%S')}) ---\n")
-                f.write(f"DEFAULT_CAM_POINTS = np.float32({cam_points_list})\n")
-                f.write(f"DEFAULT_TABLE_POINTS = np.float32({table_points_list})\n")
+                f.write(f"DEFAULT_CAM_POINTS = {cam_str}\n")
+                f.write(f"DEFAULT_TABLE_POINTS = {table_str}\n")
                 f.write(f"# Calculated Homography Matrix:\n# {matrix_str}\n")
-            print(f"\n[系統] 標定數據已追加寫入檔案 '{CALIBRATION_TXT_PATH}'")
+            print(f"[系統] 標定數據已追加寫入檔案 '{CALIBRATION_TXT_PATH}'")
+
+            # 自動寫入 robot.py 中的 DEFAULT_CAM_POINTS 和 DEFAULT_TABLE_POINTS
+            try:
+                with open(ROBOT_PY_PATH, "r", encoding="utf-8") as f:
+                    robot_content = f.read()
+
+                # 使用正則表達式替換對應變數行
+                robot_content = re.sub(
+                    r'^DEFAULT_CAM_POINTS\s*=\s*.*$',
+                    f'DEFAULT_CAM_POINTS = {cam_str}',
+                    robot_content, count=1, flags=re.MULTILINE
+                )
+                robot_content = re.sub(
+                    r'^DEFAULT_TABLE_POINTS\s*=\s*.*$',
+                    f'DEFAULT_TABLE_POINTS = {table_str}',
+                    robot_content, count=1, flags=re.MULTILINE
+                )
+
+                with open(ROBOT_PY_PATH, "w", encoding="utf-8") as f:
+                    f.write(robot_content)
+
+                print(f"[成功] 校正數據已自動寫入 '{ROBOT_PY_PATH}'，下次啟動 robot.py 即生效。")
+            except Exception as e:
+                print(f"[警告] 自動寫入 robot.py 失敗：{e}")
+                print(f"請手動將以下兩行貼入 robot.py：")
+                print(f"DEFAULT_CAM_POINTS = {cam_str}")
+                print(f"DEFAULT_TABLE_POINTS = {table_str}")
 
             round_count += 1
 
