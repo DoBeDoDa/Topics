@@ -80,12 +80,18 @@ void BilliardApp::run() {
 }
 
 void BilliardApp::moveToCameraPosition() {
-    cout << "\n[安全鎖] 擊打結束，準備返回拍照點..." << endl;
+    cout << "\n[安全鎖] 準備返回拍照點..." << endl;
     cout << "請確認手臂前方安全無障礙物，隨後在【此視窗】按下 [Enter] 鍵繼續: ";
     cin.clear();
     fflush(stdin);
     string confirm;
     getline(cin, confirm);
+
+    // 先返回中繼點關節以防撞限位或奇異點
+    const double TRANSIT_JOINT[6] = {-12.0, -44.0, -17.0, -14.0, 42.0, -150.0};
+    cout << "[動作] 先返回安全中繼關節點位..." << endl;
+    robot.moveToAxis(TRANSIT_JOINT, true);
+    Sleep(500);
 
     cout << "[動作] 移動至拍照點..." << endl;
     robot.moveToAxis(CAM_JOINT);
@@ -317,6 +323,12 @@ bool BilliardApp::processVisionData(char* dataString) {
         else if (confirm != 'y' && confirm != 'Y') {
             return false; 
         }
+
+        // 先移動至中繼關節點位以避免路徑異常或奇異點
+        const double TRANSIT_JOINT[6] = {-12.0, -44.0, -17.0, -14.0, 42.0, -150.0};
+        cout << "[動作] 先移動至中繼關節點位..." << endl;
+        robot.moveToAxis(TRANSIT_JOINT, true);
+        Sleep(500);
 
         cout << "[動作] 平移至預備點..." << endl;
         robot.moveToPosition(ready); 
