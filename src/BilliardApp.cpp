@@ -36,28 +36,6 @@ void BilliardApp::run() {
     while (true) {
         if (needCameraMove) {
             moveToCameraPosition();
-
-            if (shotCount == 1) {
-                if (handleFirstShot()) {
-                    shotCount = 2;
-                    needCameraMove = true;
-                    continue;
-                }
-                shotCount = 2;
-            }
-            
-            if (shotCount == 2) {
-                if (handleSecondShot()) {
-                    shotCount = 3;
-                    yoloClient.flushBuffer();
-                    needCameraMove = false;
-                    continue;
-                }
-                shotCount = 3;
-                yoloClient.flushBuffer();
-                needCameraMove = false;
-            }
-            
             yoloClient.flushBuffer();
             needCameraMove = false;
         }
@@ -87,67 +65,9 @@ void BilliardApp::moveToCameraPosition() {
     string confirm;
     getline(cin, confirm);
 
-    // 先返回中繼點關節以防撞限位或奇異點
-    const double TRANSIT_JOINT[6] = {-12.0, -44.0, -17.0, -14.0, 42.0, -150.0};
-    cout << "[動作] 先返回安全中繼關節點位..." << endl;
-    robot.moveToAxis(TRANSIT_JOINT, true);
-    Sleep(500);
-
     cout << "[動作] 移動至拍照點..." << endl;
     robot.moveToAxis(CAM_JOINT);
     Sleep(800);
-}
-
-bool BilliardApp::handleFirstShot() {
-    cout << "\n[系統] 偵測為第 1 桿。是否移動至開球點位 (y: 是 / n: 否，跳過)? ";
-    char do_break;
-    cin >> do_break;
-    if (do_break == 'y' || do_break == 'Y') {
-        cout << "[動作] 移動至開球點..." << endl;
-        robot.moveToAxis(BREAK_JOINT);
-        
-        cout << "\a\n[安全鎖] 已抵達開球點！輸入 'yes' 執行擊打並返回: ";
-        string confirm_break;
-        cin >> confirm_break;
-        while (confirm_break != "yes" && confirm_break != "YES") {
-            cout << "請完整輸入 'yes' 以執行開球: ";
-            cin >> confirm_break;
-        }
-        
-        cout << "[動作] 第一桿氣壓缸擊發！" << endl;
-        robot.firePneumatic(PNEUMATIC_DO, TASK2_EXTEND_MS);
-        
-        cout << "[動作] 開球完畢，返回拍照點..." << endl;
-        moveToCameraPosition();
-        return true;
-    }
-    return false;
-}
-
-bool BilliardApp::handleSecondShot() {
-    cout << "\n[系統] 偵測為第 2 桿。是否移動至第 2 桿預設點位 (y: 是 / n: 否，跳過)? ";
-    char do_second;
-    cin >> do_second;
-    if (do_second == 'y' || do_second == 'Y') {
-        cout << "[動作] 移動至第 2 桿預設點..." << endl;
-        robot.moveToAxis(SECOND_JOINT);
-        
-        cout << "\a\n[安全鎖] 已抵達第 2 桿點位！輸入 'yes' 執行擊打並返回: ";
-        string confirm_second;
-        cin >> confirm_second;
-        while (confirm_second != "yes" && confirm_second != "YES") {
-            cout << "請完整輸入 'yes' 以執行擊打: ";
-            cin >> confirm_second;
-        }
-        
-        cout << "[動作] 第 2 桿氣壓缸擊發！" << endl;
-        robot.firePneumatic(PNEUMATIC_DO, TASK2_EXTEND_MS);
-        
-        cout << "[動作] 第 2 桿擊打完畢，返回拍照點..." << endl;
-        moveToCameraPosition();
-        return true;
-    }
-    return false;
 }
 
 bool BilliardApp::processVisionData(char* dataString) {
