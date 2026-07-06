@@ -245,7 +245,7 @@ bool BilliardApp::processVisionData(char* dataString) {
         }
 
         // 先移動至中繼關節點位以避免路徑異常或奇異點
-        const double TRANSIT_JOINT[6] = {-12.0, -44.0, -17.0, -14.0, 42.0, -150.0};
+        const double TRANSIT_JOINT[6] = {-12.0, -44.0, -17.0, -14.0, -42.0, -150.0};
         cout << "[動作] 先移動至中繼關節點位..." << endl;
         robot.moveToAxis(TRANSIT_JOINT, true);
         Sleep(500);
@@ -259,15 +259,12 @@ bool BilliardApp::processVisionData(char* dataString) {
         robot.setOverrideRatio(20); 
         robot.setToolNumber(1);  // 維持工具軸 1 座標系
         
-        char strike_confirm = 'n';
-        while (strike_confirm != 'y' && strike_confirm != 'Y') {
-            cout << "\a\n[安全鎖] 準備就緒！輸入 'y' 執行擊打並回歸: ";
-            cin >> strike_confirm;
+        char return_confirm = 'n';
+        while (return_confirm != 'y' && return_confirm != 'Y') {
+            cout << "\a\n[定位確認] 已抵達打擊點！請確認筆尖與母球位置。輸入 'y' 返回拍照點: ";
+            cin >> return_confirm;
         }
 
-        cout << "[動作] 氣壓缸出桿擊打！" << endl;
-        robot.firePneumatic(PNEUMATIC_DO, TASK2_EXTEND_MS); 
-        
         cout << "[動作] 抬升回歸..." << endl;
         robot.moveLinearTo(ready); 
         
