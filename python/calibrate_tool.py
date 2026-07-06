@@ -221,13 +221,13 @@ def start_calibration_service(model_path=None, port=12347):
             x_A, y_A = arm_coords["ptA"]
             x_B, y_B = arm_coords["ptB"]
 
-            # 對角線幾何運算 (A到B橫向8格=200.0mm, 縱向-5格=-125.0mm)
+            # 對角線幾何運算 (A到B橫向8格=200.0mm, 縱向5格=125.0mm)
             dx = x_B - x_A
             dy = y_B - y_A
             distance_arm = np.sqrt(dx**2 + dy**2)
             
             W = 200.0
-            H = -125.0
+            H = 125.0
             denom = W**2 + H**2
             cos_t = (W * dx + H * dy) / denom
             sin_t = (W * dy - H * dx) / denom
@@ -245,9 +245,9 @@ def start_calibration_service(model_path=None, port=12347):
             for k in range(54):
                 col = k % 9
                 row = k // 9
-                # 棋盤格局部空間座標 (相對於 A 點(col=0, row=5))
+                # 棋盤格局部空間座標 (相對於 A 點(col=0, row=5)，Y軸向上遞增)
                 x_board = col * actual_square_size
-                y_board = (row - 5) * actual_square_size
+                y_board = (5 - row) * actual_square_size
 
                 # 剛體旋轉與平移 (Rotation + Translation) 轉換至手臂空間
                 x_arm = x_A + (x_board * cos_t - y_board * sin_t)
