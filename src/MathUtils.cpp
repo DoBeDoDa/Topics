@@ -8,13 +8,16 @@ namespace BilliardMath {
             return raw_pt;
         }
 
-        // 🎯 [誤差補償參數設定區] (您可以在此處自行調整基準點與比例)
+        // 🎯 [誤差補償參數設定區] (您可以在此處自行調整偏移與比例)
         // -------------------------------------------------------------
-        const double ref_x = -400.0;  // 基準點 X 座標 (機械手臂座標系下)
-        const double ref_y = 600.0;   // 基準點 Y 座標
+        const double offset_x = 0.0;  // X 軸固定誤差補償 (單位: mm，若偏右可設為負值如 -5.0)
+        const double offset_y = 0.0;  // Y 軸固定誤差補償 (單位: mm)
+
+        const double ref_x = -400.0;  // 比例補償基準點 X 座標 (機械手臂座標系下)
+        const double ref_y = 600.0;   // 比例補償基準點 Y 座標
         
-        const double k_x = 0.0;       // X 方向補償係數 (設為 0 表示暫不補償，可依需求如 0.02 調整)
-        const double k_y = 0.0;       // Y 方向補償係數 (同上)
+        const double k_x = 0.0;       // X 方向比例補償係數 (設為 0 表示不使用比例補償)
+        const double k_y = 0.0;       // Y 方向比例補償係數
         // -------------------------------------------------------------
 
         // 1. 計算相對於基準點的偏移值
@@ -22,13 +25,12 @@ namespace BilliardMath {
         double dy = raw_pt.y - ref_y;
 
         // 2. 比例計算補償值 (離基準點越近，補償越小；越遠，補償越大)
-        // 左右兩邊與上下兩邊會隨着相對於基準點的方向符號相反自動反向
         double comp_x = k_x * dx;
         double comp_y = k_y * dy;
 
         Point compensated_pt;
-        compensated_pt.x = raw_pt.x + comp_x;
-        compensated_pt.y = raw_pt.y + comp_y;
+        compensated_pt.x = raw_pt.x + offset_x + comp_x;
+        compensated_pt.y = raw_pt.y + offset_y + comp_y;
 
         return compensated_pt;
     }
