@@ -108,15 +108,15 @@ def start_calibration_service(model_path=None, port=12347):
                     # 繪製偵測到的棋盤格角點
                     cv2.drawChessboardCorners(annotated_frame, pattern_size, corners, found)
                     
-                    # 標示出 Corner A (紅圈，起點 0) 與 Corner B (藍圈，首列終點 8)
+                    # 標示出 Corner A (紅圈，左上角點 0) 與 Corner B (藍圈，右下角點 53)
                     ptA = tuple(map(int, corners[0][0]))
-                    ptB = tuple(map(int, corners[8][0]))
+                    ptB = tuple(map(int, corners[53][0]))
                     
                     cv2.circle(annotated_frame, ptA, 10, (0, 0, 255), -1)
-                    cv2.putText(annotated_frame, "A (Origin)", (ptA[0] + 15, ptA[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                    cv2.putText(annotated_frame, "A (Top-Left)", (ptA[0] + 15, ptA[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
                     
                     cv2.circle(annotated_frame, ptB, 10, (255, 0, 0), -1)
-                    cv2.putText(annotated_frame, "B (X-Axis)", (ptB[0] + 15, ptB[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
+                    cv2.putText(annotated_frame, "B (Bottom-Right)", (ptB[0] + 15, ptB[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
 
                     cv2.putText(annotated_frame, "Status: Chessboard Corners LOCKED!", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
                     corners_refined = corners
@@ -162,11 +162,11 @@ def start_calibration_service(model_path=None, port=12347):
                 if corners_refined is not None:
                     cv2.drawChessboardCorners(annotated_frame, pattern_size, corners_refined, True)
                     ptA = tuple(map(int, corners_refined[0][0]))
-                    ptB = tuple(map(int, corners_refined[8][0]))
+                    ptB = tuple(map(int, corners_refined[53][0]))
                     cv2.circle(annotated_frame, ptA, 10, (0, 0, 255), -1)
-                    cv2.putText(annotated_frame, "A (Origin)", (ptA[0] + 15, ptA[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                    cv2.putText(annotated_frame, "A (Top-Left)", (ptA[0] + 15, ptA[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
                     cv2.circle(annotated_frame, ptB, 10, (255, 0, 0), -1)
-                    cv2.putText(annotated_frame, "B (X-Axis)", (ptB[0] + 15, ptB[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
+                    cv2.putText(annotated_frame, "B (Bottom-Right)", (ptB[0] + 15, ptB[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
 
                 # 繪製半透明提示遮罩以突顯操作提示
                 overlay = annotated_frame.copy()
@@ -221,21 +221,22 @@ def start_calibration_service(model_path=None, port=12347):
             x_A, y_A = arm_coords["ptA"]
             x_B, y_B = arm_coords["ptB"]
 
-            # 計算 A 到 B 在手臂空間中的距離與角度
+            # 對角線幾何運算 (A到B橫向8格=200.0mm, 縱向5格=125.0mm)
             dx = x_B - x_A
             dy = y_B - y_A
             distance_arm = np.sqrt(dx**2 + dy**2)
-            theta = np.arctan2(dy, dx)
-
-            # 由於 A 點到 B 點之間橫跨了 8 個格子 (橫向 9 個點)
+            
+            W = 200.0
+            H = 125.0
+            denom = W**2 + H**2
+            cos_t = (W * dx + H * dy) / denom
+            sin_t = (W * dy - H * dx) / denom
+            theta = np.arctan2(sin_t, cos_t)
+            
             actual_square_size = 25.0
-            print(f"[計算資訊] A-B 測量距離: {distance_arm:.2f} mm (以 2.5cm 方格估計理論值應為 200.0 mm)")
-            print(f"[計算資訊] 測量推算單格邊長: {distance_arm / 8.0:.2f} mm")
+            print(f"[計算資訊] A-B 測量對角距離: {distance_arm:.2f} mm (理論值應為 235.85 mm)")
             print(f"[計算資訊] 套用固定單格邊長: {actual_square_size:.2f} mm")
             print(f"[計算資訊] 旋轉角度: {np.degrees(theta):.2f} 度")
-
-            cos_t = np.cos(theta)
-            sin_t = np.sin(theta)
 
             cam_points_list = []
             table_points_list = []

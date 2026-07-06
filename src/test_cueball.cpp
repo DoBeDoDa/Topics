@@ -114,9 +114,9 @@ int main() {
             target_pos[0] = bw_compensated.x;  // X 軸 (補償後座標)
             target_pos[1] = bw_compensated.y;  // Y 軸 (補償後座標)
             target_pos[2] = -107.0;            // Z 軸固定於 -107.0 mm
-            target_pos[3] = current_cart[3];   // RX 姿勢維持拍照角度
-            target_pos[4] = current_cart[4];   // RY 姿勢維持拍照角度
-            target_pos[5] = current_cart[5];   // RZ 姿勢維持拍照角度
+            target_pos[3] = 180.0;             // RX 設為 180.0 度使工具 Z 軸垂直桌面
+            target_pos[4] = 0.0;               // RY 設為 0.0 度使工具 Z 軸垂直桌面
+            target_pos[5] = 0.0;               // RZ 設為 0.0 度
 
             cout << "\n[步驟 5] 準備讓末端移動至母球點位！" << endl;
             cout << "   - 目標 Cartesian 座標：X = " << target_pos[0] 

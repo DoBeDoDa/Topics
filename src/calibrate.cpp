@@ -83,7 +83,7 @@ int main() {
 
     char recvbuf[512];
     string balls[] = { "ptA", "ptB" };
-    string ball_names[] = { "棋盤角點 A (紅圈標記)", "棋盤角點 B (藍圈標記)" };
+    string ball_names[] = { "棋盤左上角點 A (紅圈標記)", "棋盤右下角點 B (藍圈標記)" };
 
     // 1. 首次啟動：已到達拍照點，直接等待按 Enter 才拍照
     cout << "\n準備就緒後，請在【此視窗】按下 [Enter] 鍵開始拍照辨識..." << endl;
