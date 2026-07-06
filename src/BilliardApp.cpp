@@ -301,14 +301,14 @@ bool BilliardApp::processVisionData(char* dataString) {
         
         // 使用 MathUtils 函式庫計算向量平面角度
         double arm_rz = BilliardMath::getVectorAngle(v_dir.x, v_dir.y) + YAW_OFFSET;
-        double standoff = (BALL_D / 2.0) + 10.0; 
+        double standoff = (BALL_D / 2.0) + 30.0; 
         double strike_x = bw.x - (v_dir.x / v_dist) * standoff;
         double strike_y = bw.y - (v_dir.y / v_dist) * standoff;
 
         Offset3D offset = BilliardMath::getTiltOffset(arm_rz, TILT_RY_DEG, MOVE_BACK_MM);
 
-        double ready[6] = { strike_x + offset.x, strike_y + offset.y, SAFE_Z, 180, TILT_RY_DEG, arm_rz };
-        double down[6]  = { strike_x + offset.x, strike_y + offset.y, STRIKE_Z + offset.z, 180, TILT_RY_DEG, arm_rz };
+        double ready[6] = { strike_x + offset.x, strike_y + offset.y, SAFE_Z, 0.0, TILT_RY_DEG, arm_rz };
+        double down[6]  = { strike_x + offset.x, strike_y + offset.y, STRIKE_Z + offset.z, 0.0, TILT_RY_DEG, arm_rz };
 
         cout << "\n\n--- 幾何決策面板 (核心鎖定 p1) ---" << endl;
         cout << "[分析] 軌跡夾角: " << angle_deg << " 度" << endl;
