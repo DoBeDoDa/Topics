@@ -41,7 +41,7 @@ int main() {
     }
     
     robot.setMotorState(1);     // 啟動伺服馬達
-    robot.setOverrideRatio(40); // 限制運行速度在 40% 以策安全
+    robot.setOverrideRatio(20); // 限制運行速度在 20% 以策安全
     robot.setToolNumber(1);     // 使用工具軸 1 座標系 (與校正一致)
     cout << "[成功] 手臂連線成功，伺服馬達已啟動，已切換至工具軸 1。" << endl;
 

@@ -65,7 +65,7 @@ int main() {
         return -1;
     }
     robot.setMotorState(1);
-    robot.setOverrideRatio(40);
+    robot.setOverrideRatio(20);
     robot.setToolNumber(1);  // 使用工具軸 1 座標系
     cout << "[系統] 機械手臂連線成功，馬達已啟動，已切換至工具軸 1。" << endl;
 
