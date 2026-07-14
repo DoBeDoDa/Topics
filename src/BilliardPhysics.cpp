@@ -3,6 +3,15 @@
 #include <cmath>
 #include <algorithm>
 
+bool BilliardPhysics::isRouteBlocked(Point start, Point end, const std::vector<Point>& obs_list, double ball_d) {
+    for (const auto& obs : obs_list) {
+        if (isPathBlocked(start, end, obs, ball_d)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool BilliardPhysics::isPathBlocked(Point start, Point end, Point obs, double ball_d) {
     double line_dx = end.x - start.x;
     double line_dy = end.y - start.y;

@@ -1,4 +1,5 @@
 #include "Algorithm.h"
+#include "BilliardPhysics.h"
 #include <iostream>
 
 using namespace std;
@@ -20,17 +21,10 @@ ShotDecision BilliardAlgorithm::decideShot(
     // 1. 直擊假想球與路徑防撞檢測
     Point ghost_direct = BilliardPhysics::getGhostBall(destination, target_arm, BALL_D);
     
-    for (const auto& obs : obs_list) {
-        if (BilliardPhysics::isPathBlocked(bw, ghost_direct, obs, BALL_D)) {
-            decision.direct_path_blocked = true;
-        }
-        if (BilliardPhysics::isPathBlocked(target_arm, destination, obs, BALL_D)) {
-            decision.direct_path_blocked = true;
-        }
-    }
-    if (BilliardPhysics::isPathBlocked(target_arm, destination, bw, BALL_D)) {
-        decision.direct_path_blocked = true;
-    }
+    decision.direct_path_blocked = 
+        BilliardPhysics::isRouteBlocked(bw, ghost_direct, obs_list, BALL_D) ||
+        BilliardPhysics::isRouteBlocked(target_arm, destination, obs_list, BALL_D) ||
+        BilliardPhysics::isPathBlocked(target_arm, destination, bw, BALL_D);
 
     // 2. 夾角計算
     Vector2D vec1 = BilliardMath::getVector(target_arm, destination);
@@ -49,22 +43,11 @@ ShotDecision BilliardAlgorithm::decideShot(
 
         Point pt_wall;
         if (BilliardPhysics::getIntersection(bw, ghost_bank, rail_A, rail_B, pt_wall)) {
-            bool current_bank_blocked = false;
-
-            for (const auto& obs : obs_list) {
-                if (BilliardPhysics::isPathBlocked(bw, pt_wall, obs, BALL_D)) {
-                    current_bank_blocked = true;
-                }
-                if (BilliardPhysics::isPathBlocked(pt_wall, target_arm, obs, BALL_D)) {
-                    current_bank_blocked = true;
-                }
-                if (BilliardPhysics::isPathBlocked(target_arm, destination, obs, BALL_D)) {
-                    current_bank_blocked = true;
-                }
-            }
-            if (BilliardPhysics::isPathBlocked(target_arm, destination, bw, BALL_D)) {
-                current_bank_blocked = true;
-            }
+            bool current_bank_blocked = 
+                BilliardPhysics::isRouteBlocked(bw, pt_wall, obs_list, BALL_D) ||
+                BilliardPhysics::isRouteBlocked(pt_wall, target_arm, obs_list, BALL_D) ||
+                BilliardPhysics::isRouteBlocked(target_arm, destination, obs_list, BALL_D) ||
+                BilliardPhysics::isPathBlocked(target_arm, destination, bw, BALL_D);
 
             if (!current_bank_blocked) {
                 decision.bank_route_safe = true;

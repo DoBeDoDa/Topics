@@ -1,8 +1,12 @@
 #pragma once
 #include "Point.h"
+#include <vector>
 
 class BilliardPhysics {
 public:
+    // 檢查從起點到終點的路徑是否被列表中任何一個障礙物阻擋
+    static bool isRouteBlocked(Point start, Point end, const std::vector<Point>& obs_list, double ball_d);
+
     // 檢查從起點到終點的路徑是否被障礙物阻擋
     static bool isPathBlocked(Point start, Point end, Point obs, double ball_d);
 
