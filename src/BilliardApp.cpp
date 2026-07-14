@@ -2,6 +2,7 @@
 #include "BilliardPhysics.h"
 #include "MathUtils.h"
 #include "Point.h"
+#include "Algorithm.h"
 #include <iostream>
 #include <vector>
 #include <cmath>
@@ -145,73 +146,14 @@ bool BilliardApp::processVisionData(char* dataString) {
         if (b8x > -9000.0 && target_name != "8號球") obs_list.push_back(BilliardMath::applyCameraCompensation({b8x, b8y}));
         if (b9x > -9000.0 && target_name != "9號球") obs_list.push_back(BilliardMath::applyCameraCompensation({b9x, b9y}));
 
-        Point ghost_direct = BilliardPhysics::getGhostBall(destination, target_arm, BALL_D);
-        bool direct_path_blocked = false;
+        // 呼叫全新的擊球決策演算法
+        ShotDecision decision = BilliardAlgorithm::decideShot(
+            bw, target_arm, destination, rail_A, rail_B, obs_list, BALL_D, best_pocket_idx
+        );
 
-        for (const auto& obs : obs_list) {
-            if (BilliardPhysics::isPathBlocked(bw, ghost_direct, obs, BALL_D)) direct_path_blocked = true;      
-            if (BilliardPhysics::isPathBlocked(target_arm, destination, obs, BALL_D)) direct_path_blocked = true; 
-        }
-        if (BilliardPhysics::isPathBlocked(target_arm, destination, bw, BALL_D)) direct_path_blocked = true;      
-
-        Vector2D vec1 = BilliardMath::getVector(target_arm, destination);
-        Vector2D vec2 = BilliardMath::getVector(bw, target_arm);
-
-        // 使用 MathUtils 函式庫計算向量夾角
-        double angle_deg = BilliardMath::getAngleBetweenVectors(vec1.x, vec1.y, vec2.x, vec2.y);
-
-        Point best_aim_target;
-        string strategy_name = "";
-
-        if (angle_deg > 90.0 || direct_path_blocked) {
-            if (direct_path_blocked) {
-                cout << "\n[防撞提示] 偵測到直擊    路徑受阻，自動切換至顆星解球模式。" << endl;
-            }
-            
-            Point mirrored_pocket = BilliardPhysics::getSlantedBankTarget(destination, rail_A, rail_B);
-            Point mirrored_target = BilliardPhysics::getSlantedBankTarget(target_arm, rail_A, rail_B);
-            Point ghost_bank = BilliardPhysics::getGhostBall(mirrored_pocket, mirrored_target, BALL_D);
-
-            Point pt_wall;
-            bool bank_route_safe = false;
-
-            if (BilliardPhysics::getIntersection(bw, ghost_bank, rail_A, rail_B, pt_wall)) {
-                bool current_bank_blocked = false;
-
-                for (const auto& obs : obs_list) {
-                    if (BilliardPhysics::isPathBlocked(bw, pt_wall, obs, BALL_D)) current_bank_blocked = true;
-                    if (BilliardPhysics::isPathBlocked(pt_wall, target_arm, obs, BALL_D)) current_bank_blocked = true;
-                    if (BilliardPhysics::isPathBlocked(target_arm, destination, obs, BALL_D)) current_bank_blocked = true;
-                }
-                if (BilliardPhysics::isPathBlocked(target_arm, destination, bw, BALL_D)) current_bank_blocked = true;
-
-                if (!current_bank_blocked) bank_route_safe = true;
-            }
-
-            best_aim_target = ghost_bank;
-            if (bank_route_safe) {
-                strategy_name = "雙鏡射顆星擊球 (洞2-洞3牆壁 -> p" + to_string(best_pocket_idx) + ")";
-            } else {
-                strategy_name = "雙鏡射顆星擊球 (安全路徑受阻，強制開火洞2-洞3牆壁)";
-            }
-        } 
-        else {
-            strategy_name = "直線直擊 (Direct Shot -> p" + to_string(best_pocket_idx) + ")";
-            best_aim_target = ghost_direct;
-        }
-
-        double MAX_REACH_RADIUS = 850.0; 
-        
-        // 使用 MathUtils 函式庫計算與原點距離
-        double target_reach = BilliardMath::getLength(best_aim_target.x, best_aim_target.y);
-        
-        if (target_reach > MAX_REACH_RADIUS) {
-            cout << "\n[警告] 計算出之擊球點超出工作半徑 (" << target_reach << " > " << MAX_REACH_RADIUS << " mm)！" << endl;
-            cout << "[降級] 放棄當前路徑，強制切換為直線直擊策略..." << endl;
-            
-            best_aim_target = ghost_direct; 
-            strategy_name = "[降級] 強制直線直擊";
-        }
+        Point best_aim_target = decision.best_aim_target;
+        string strategy_name = decision.strategy_name;
+        double angle_deg = decision.angle_deg;
 
         Vector2D v_dir = BilliardMath::getVector(bw, best_aim_target);
         
