@@ -186,17 +186,14 @@ bool BilliardApp::processVisionData(char* dataString) {
             return false; 
         }
 
-        // 先移動至中繼關節點位以避免路徑異常或奇異點
-        const double TRANSIT_JOINT[6] = {-12.0, -44.0, -17.0, -14.0, 42.0, -150.0};
+        // 先移動至中繼關節點位 (與拍照點 CAM_JOINT 相同)
+        const double TRANSIT_JOINT[6] = {0.0, -33.564, 49.53, 0.0, -15.574, -90.0};
         cout << "[動作] 先移動至中繼關節點位..." << endl;
         robot.moveToAxis(TRANSIT_JOINT, true);
         Sleep(500);
 
-        cout << "[動作] 平移至預備點..." << endl;
-        robot.moveToPosition(ready); 
-        
-        cout << "[動作] 直線下降至傾斜擊球高度..." << endl;
-        robot.moveLinearTo(down);
+        cout << "[動作] 以 PTP 方式直接移動至打擊點..." << endl;
+        robot.moveToPosition(down, true);
         
         robot.setOverrideRatio(20); 
         robot.setToolNumber(1);  // 維持工具軸 1 座標系
@@ -207,10 +204,10 @@ bool BilliardApp::processVisionData(char* dataString) {
             cin >> return_confirm;
         }
 
-        cout << "[動作] 抬升回歸..." << endl;
-        robot.moveLinearTo(ready); 
+        cout << "[動作] 手臂返回拍照點..." << endl;
+        robot.moveToAxis(CAM_JOINT, true);
         
-        needCameraMove = true; 
+        needCameraMove = false; // 已手動回拍照點，不需要再次觸發 moveToCameraPosition 的 Enter 提示
         return true;
     }
     return false;
