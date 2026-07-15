@@ -15,7 +15,7 @@
 using namespace std;
 
 // 拍照點位關節角度 (A1 ~ A6)
-const double CAM_JOINT[6] = {0.0, -32.319, 51.653, 0.0, -18.813, -90.0};
+const double CAM_JOINT[6] = {0.0, -33.564, 49.53, 0.0, -15.574, -90.0};
 
 // 回傳 true 表示確認，false 表示重新記錄 (按 Delete/Backspace/D)
 bool askConfirmation() {

@@ -21,7 +21,7 @@ private:
     const double MOVE_BACK_MM = 20.0;
     
     // 預設關節點位
-    const double CAM_JOINT[6] = {0.0, -32.319, 51.653, 0.0, -18.813, -90.0};
+    const double CAM_JOINT[6] = {0.0, -33.564, 49.53, 0.0, -15.574, -90.0};
     
     const DWORD TASK2_EXTEND_MS = 150;
     

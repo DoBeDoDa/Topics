@@ -46,7 +46,7 @@ int main() {
     cout << "[成功] 手臂連線成功，伺服馬達已啟動，已切換至工具軸 1。" << endl;
 
     // 2. 移動至拍照基準點，避免遮擋相機視野
-    const double CAM_JOINT[6] = {0.0, -32.319, 51.653, 0.0, -18.813, -90.0};
+    const double CAM_JOINT[6] = {0.0, -33.564, 49.53, 0.0, -15.574, -90.0};
     cout << "\n[步驟 2] 移動手臂返回拍照位置 (CAM_JOINT)..." << endl;
     cout << "請確認手臂路徑安全無障礙物，隨後在【此視窗】按下 [Enter] 鍵開始移動: ";
     cin.clear();
@@ -125,10 +125,10 @@ int main() {
             double target_pos[6];
             target_pos[0] = bw_compensated.x;  // X 軸 (補償後座標)
             target_pos[1] = bw_compensated.y;  // Y 軸 (補償後座標)
-            target_pos[2] = -107.0;            // Z 軸固定於 -107.0 mm
-            target_pos[3] = current_cart[3];   // 沿用中繼點的姿勢 RX
-            target_pos[4] = current_cart[4];   // 沿用中繼點的姿勢 RY
-            target_pos[5] = current_cart[5];   // 沿用中繼點的姿勢 RZ
+            target_pos[2] = -125.0;            // Z 軸固定於 -107.0 mm
+            target_pos[3] = -179.0;   // 沿用中繼點的姿勢 RX
+            target_pos[4] = 0.0;   // 沿用中繼點的姿勢 RY
+            target_pos[5] = 0.0;   // 沿用中繼點的姿勢 RZ
 
             cout << "\n[步驟 6] 準備讓末端移動至母球點位！" << endl;
             cout << "   - 目標 Cartesian 座標：X = " << target_pos[0] 
