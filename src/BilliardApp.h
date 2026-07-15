@@ -13,7 +13,7 @@ private:
     
     const int PNEUMATIC_DO = 1;
     const double BALL_D = 49.52;
-    const double STRIKE_Z = -294.960;
+    const double STRIKE_Z = -319.769;
     const double SAFE_Z = 0.0;
     const double YAW_OFFSET = 0.0;
     
@@ -30,6 +30,7 @@ private:
     int shotCount;
     bool needCameraMove;
 
+    
 public:
     BilliardApp();
     

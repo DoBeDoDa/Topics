@@ -187,7 +187,7 @@ bool BilliardApp::processVisionData(char* dataString) {
         }
 
         // 先移動至安全中繼關節以切換手腕組態，避免逆向運動學解算失敗
-        const double TRANSIT_JOINT[6] = {-12.0, -44.0, -17.0, -14.0, 42.0, -150.0};
+        const double TRANSIT_JOINT[6] = {-5.00, -53.0, 8.0, -3.62, -46.497, -130.0};
         cout << "[動作] 先移動至中繼關節點位..." << endl;
         robot.moveToAxis(TRANSIT_JOINT, true);
         Sleep(500);

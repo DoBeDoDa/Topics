@@ -208,7 +208,7 @@ int main() {
         ready_pos[2] = -125.0;     // 安全預備點高度 (Z = -125.0)
 
         // 6. 移動至中繼點與打擊點 (中繼點用來進行手腕組態轉換，避開奇異點)
-        const double TRANSIT_JOINT[6] = {-12.0, -44.0, -17.0, -14.0, 42.0, -150.0};
+        const double TRANSIT_JOINT[6] = {-5.00, -53.0, 8.0, -3.62, -46.497, -130.0};
         cout << "\n[步驟 5] 準備移動手臂至中繼關節位置 (TRANSIT_JOINT) 切換組態..." << endl;
         cout << "請確認安全，並按 [Enter] 開始移動: ";
         string confirm_transit;
