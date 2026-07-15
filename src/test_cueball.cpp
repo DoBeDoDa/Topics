@@ -203,6 +203,10 @@ int main() {
         target_pos[4] = TILT_RY_DEG; // RY (傾斜 10 度)
         target_pos[5] = arm_rz;    // RZ (瞄準角)
 
+        double ready_pos[6];
+        memcpy(ready_pos, target_pos, sizeof(ready_pos));
+        ready_pos[2] = -125.0;     // 安全預備點高度 (Z = -125.0)
+
         // 6. 移動至中繼點與打擊點 (中繼點用來進行手腕組態轉換，避開奇異點)
         const double TRANSIT_JOINT[6] = {-12.0, -44.0, -17.0, -14.0, 42.0, -150.0};
         cout << "\n[步驟 5] 準備移動手臂至中繼關節位置 (TRANSIT_JOINT) 切換組態..." << endl;
@@ -216,11 +220,14 @@ int main() {
         robot.moveToAxis(TRANSIT_JOINT, true);
         Sleep(800);
 
-        cout << "\n[步驟 6] 準備以 PTP 直接移動至目標球心點位..." << endl;
-        cout << "   - 目標座標：X = " << target_pos[0] 
+        cout << "\n[步驟 6] 準備移動至目標點位..." << endl;
+        cout << "   - 預備點座標：X = " << ready_pos[0] 
+             << ", Y = " << ready_pos[1] 
+             << ", Z = " << ready_pos[2] << " mm" << endl;
+        cout << "   - 球心點座標：X = " << target_pos[0] 
              << ", Y = " << target_pos[1] 
              << ", Z = " << target_pos[2] << " mm" << endl;
-        cout << "   - 目標姿勢：RX = " << target_pos[3] 
+        cout << "   - 姿勢角：RX = " << target_pos[3] 
              << ", RY = " << target_pos[4] 
              << ", RZ = " << target_pos[5] << endl;
         cout << "==================================================" << endl;
@@ -232,8 +239,12 @@ int main() {
         fflush(stdin);
         getline(cin, confirm_move2);
 
-        cout << "[動作] 手臂以 PTP 方式移往目標點位..." << endl;
-        robot.moveToPosition(target_pos, true);
+        cout << "[動作] 手臂以 PTP 方式移往預備點 (Z = -125.0)..." << endl;
+        robot.moveToPosition(ready_pos, true);
+        Sleep(200);
+
+        cout << "[動作] 手臂直線下降至球心高度 (Z = -290.0)..." << endl;
+        robot.moveLinearTo(target_pos, true);
         cout << "[成功] 已抵達目標球心點位。" << endl;
 
         char return_confirm = 'n';
@@ -241,6 +252,9 @@ int main() {
             cout << "\a\n[定位確認] 已抵達目標位置！請確認筆尖是否與球心重合。輸入 'y' 返回拍照點: ";
             cin >> return_confirm;
         }
+
+        cout << "[動作] 手臂直線抬升至預備點..." << endl;
+        robot.moveLinearTo(ready_pos, true);
 
         cout << "[動作] 手臂返回拍照點..." << endl;
         robot.moveToAxis(CAM_JOINT, true);

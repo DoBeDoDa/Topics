@@ -192,8 +192,11 @@ bool BilliardApp::processVisionData(char* dataString) {
         robot.moveToAxis(TRANSIT_JOINT, true);
         Sleep(500);
 
-        cout << "[動作] 以 PTP 方式直接移動至打擊點..." << endl;
-        robot.moveToPosition(down, true);
+        cout << "[動作] 平移至預備點..." << endl;
+        robot.moveToPosition(ready, true); 
+        
+        cout << "[動作] 直線下降至傾斜擊球高度..." << endl;
+        robot.moveLinearTo(down, true);
         
         robot.setOverrideRatio(20); 
         robot.setToolNumber(1);  // 維持工具軸 1 座標系
@@ -203,6 +206,9 @@ bool BilliardApp::processVisionData(char* dataString) {
             cout << "\a\n[定位確認] 已抵達打擊點！請確認筆尖與母球位置。輸入 'y' 返回拍照點: ";
             cin >> return_confirm;
         }
+
+        cout << "[動作] 直線抬升至預備點..." << endl;
+        robot.moveLinearTo(ready, true);
 
         cout << "[動作] 手臂返回拍照點..." << endl;
         robot.moveToAxis(CAM_JOINT, true);
