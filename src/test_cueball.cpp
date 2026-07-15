@@ -203,9 +203,20 @@ int main() {
         target_pos[4] = TILT_RY_DEG; // RY (傾斜 10 度)
         target_pos[5] = arm_rz;    // RZ (瞄準角)
 
-        // 6. 移動至中繼點與打擊點 (中繼點與拍照點 CAM_JOINT 相同)
-        const double TRANSIT_JOINT[6] = {0.0, -33.564, 49.53, 0.0, -15.574, -90.0};
-        cout << "\n[步驟 5] 手臂目前已在拍照位置 (中繼點)。準備以 PTP 直接移動至目標球心點位..." << endl;
+        // 6. 移動至中繼點與打擊點 (中繼點用來進行手腕組態轉換，避開奇異點)
+        const double TRANSIT_JOINT[6] = {-12.0, -44.0, -17.0, -14.0, 42.0, -150.0};
+        cout << "\n[步驟 5] 準備移動手臂至中繼關節位置 (TRANSIT_JOINT) 切換組態..." << endl;
+        cout << "請確認安全，並按 [Enter] 開始移動: ";
+        string confirm_transit;
+        cin.clear();
+        fflush(stdin);
+        getline(cin, confirm_transit);
+        
+        cout << "[動作] 移動至中繼點位..." << endl;
+        robot.moveToAxis(TRANSIT_JOINT, true);
+        Sleep(800);
+
+        cout << "\n[步驟 6] 準備以 PTP 直接移動至目標球心點位..." << endl;
         cout << "   - 目標座標：X = " << target_pos[0] 
              << ", Y = " << target_pos[1] 
              << ", Z = " << target_pos[2] << " mm" << endl;
