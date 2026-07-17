@@ -198,8 +198,8 @@ int main() {
         target_pos[0] = bw.x;      // 與球心 X 重合
         target_pos[1] = bw.y;      // 與球心 Y 重合
         target_pos[2] = -290.0;    // Z 軸設定在 -290.0 mm
-        target_pos[3] = 0.0;       // RX
-        const double TILT_RY_DEG = 10.0;
+        target_pos[3] = 5.0;       // RX
+        const double TILT_RY_DEG = 20.0;
         target_pos[4] = TILT_RY_DEG; // RY (傾斜 10 度)
         target_pos[5] = arm_rz;    // RZ (瞄準角)
 
