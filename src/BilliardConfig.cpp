@@ -31,6 +31,8 @@ const double ALIGN_MAX_STEP_MM = 10.0;
 
 const unsigned long CAMERA_SETTLE_MS = 800;
 const unsigned long TRANSIT_SETTLE_MS = 500;
+const unsigned long MOTION_TIMEOUT_MS = 60000;
+const unsigned long MOTION_POLL_INTERVAL_MS = 50;
 
 const std::array<double, 6> CAMERA_JOINT = {
     0.0, -33.564, 49.53, 0.0, -15.574, -90.0

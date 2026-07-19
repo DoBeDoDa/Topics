@@ -1,6 +1,7 @@
 #include "BilliardApp.h"
 
 #include <cmath>
+#include <iomanip>
 #include <iostream>
 #include <limits>
 
@@ -88,7 +89,7 @@ bool BilliardApp::processVisionData(const std::string& dataString) {
          << "，球袋 p" << target.pocketNumber
          << "（夾角: " << target.pocketAngleDeg << " 度）" << endl;
 
-    ShotDecision shot = shotPlanner.createPlan(target);
+    ShotDecision shot = BilliardAlgorithm::decideShot(target);
 
     MotionPlan motion;
     if (!motionPlanner.createPlan(
@@ -110,7 +111,7 @@ bool BilliardApp::processVisionData(const std::string& dataString) {
     cout << "出發至預備點? (y:確認 / n:重算 / r:重拍): ";
     char confirm;
     cin >> confirm;
-    cin.ignore(numeric_limits<streamsize>::max(), '\n');
+    cin.ignore((numeric_limits<streamsize>::max)(), '\n');
     if (confirm == 'r' || confirm == 'R') {
         needCameraMove = true;
         return false;
@@ -123,15 +124,90 @@ bool BilliardApp::processVisionData(const std::string& dataString) {
 }
 
 bool BilliardApp::executeMotionPlan(const MotionPlan& plan) {
-    cout << "[動作] 先移動至中繼關節點位..." << endl;
-    robot.moveToAxis(plan.transitJoint.data(), true);
+    cout << "[Motion] Move to transit joint pose with PTP..." << endl;
+    if (!requireMotionSuccess(
+        "PTP to transit joint pose",
+        robot.moveToAxis(plan.transitJoint.data(), true)
+    )) {
+        return false;
+    }
     Sleep(BilliardConfig::TRANSIT_SETTLE_MS);
 
-    cout << "[動作] 平移至預備點..." << endl;
-    robot.moveToPosition(plan.readyPose.data(), true);
+    const int toolNumber = robot.getCurrentToolNumber();
+    const int baseNumber = robot.getCurrentBaseNumber();
+    cout << "[Diagnostic] Tool=" << toolNumber
+         << ", Base=" << baseNumber << endl;
+    if (toolNumber < 0 || baseNumber < 0) {
+        cout << "[Error] Unable to read the active Tool/Base." << endl;
+        printAlarmCodes();
+        return false;
+    }
+    if (toolNumber != BilliardConfig::TOOL_NUMBER) {
+        cout << "[Error] Active Tool does not match configured Tool "
+             << BilliardConfig::TOOL_NUMBER << "." << endl;
+        printAlarmCodes();
+        return false;
+    }
 
-    cout << "[動作] 直線下降至傾斜擊球高度..." << endl;
-    robot.moveLinearTo(plan.strikePose.data(), true);
+    array<double, 6> transitPose;
+    int sdkCode = -1;
+    if (!robot.getCurrentPosition(transitPose, sdkCode)) {
+        cout << "[Error] get_current_position failed after transit point. SDK code="
+             << sdkCode << endl;
+        printAlarmCodes();
+        return false;
+    }
+    printPose("Current pose after transit", transitPose);
+    printPose("Ready pose", plan.readyPose);
+    printPose("Strike pose", plan.strikePose);
+
+    if (!requireReachable("ready pose", plan.readyPose) ||
+        !requireReachable("strike pose", plan.strikePose)) {
+        return false;
+    }
+
+    cout << "[Motion] Move to ready pose with PTP..." << endl;
+    if (!requireMotionSuccess(
+        "PTP from transit to ready pose",
+        robot.moveToPosition(plan.readyPose.data(), true)
+    )) {
+        return false;
+    }
+
+    array<double, 6> actualReadyPose;
+    if (!robot.getCurrentPosition(actualReadyPose, sdkCode)) {
+        cout << "[Warning] get_current_position failed at ready pose. SDK code="
+             << sdkCode << endl;
+        actualReadyPose = plan.readyPose;
+        printAlarmCodes();
+    }
+
+    bool linearPathReachable = false;
+    if (!robot.checkLinearPath(
+        actualReadyPose,
+        plan.strikePose,
+        linearPathReachable,
+        sdkCode
+    )) {
+        cout << "[Diagnostic] motion_check_lin failed. SDK code="
+             << sdkCode << ". PTP will still be attempted." << endl;
+        printAlarmCodes();
+    } else {
+        cout << "[Diagnostic] Ready-to-strike LIN path: "
+             << (linearPathReachable ? "reachable" : "not reachable")
+             << ". This run uses PTP." << endl;
+        if (!linearPathReachable) {
+            printAlarmCodes();
+        }
+    }
+
+    cout << "[Motion] Move from ready pose to strike pose with PTP..." << endl;
+    if (!requireMotionSuccess(
+        "PTP from ready to strike pose",
+        robot.moveToPosition(plan.strikePose.data(), true)
+    )) {
+        return false;
+    }
 
     robot.setOverrideRatio(BilliardConfig::NORMAL_SPEED_RATIO);
     robot.setToolNumber(BilliardConfig::TOOL_NUMBER);
@@ -141,15 +217,95 @@ bool BilliardApp::executeMotionPlan(const MotionPlan& plan) {
         cout << "\a\n[定位確認] 已抵達打擊點！請確認筆尖與母球位置。輸入 'y' 返回拍照點: ";
         cin >> returnConfirm;
     }
-    cin.ignore(numeric_limits<streamsize>::max(), '\n');
+    cin.ignore((numeric_limits<streamsize>::max)(), '\n');
 
-    cout << "[動作] 直線抬升至預備點..." << endl;
-    robot.moveLinearTo(plan.readyPose.data(), true);
+    cout << "[Motion] Return from strike pose to ready pose with PTP..." << endl;
+    if (!requireMotionSuccess(
+        "PTP from strike to ready pose",
+        robot.moveToPosition(plan.readyPose.data(), true)
+    )) {
+        return false;
+    }
 
-    cout << "[動作] 手臂返回拍照點..." << endl;
-    robot.moveToAxis(BilliardConfig::CAMERA_JOINT.data(), true);
+    cout << "[Motion] Return to camera joint pose..." << endl;
+    if (!requireMotionSuccess(
+        "PTP to camera joint pose",
+        robot.moveToAxis(BilliardConfig::CAMERA_JOINT.data(), true)
+    )) {
+        return false;
+    }
     needCameraMove = false;
     return true;
+}
+
+bool BilliardApp::requireReachable(
+    const string& pointName,
+    const array<double, 6>& pose
+) {
+    bool reachable = false;
+    int sdkCode = -1;
+    if (!robot.checkReachable(pose, reachable, sdkCode)) {
+        cout << "[Error] motion_reachable failed for " << pointName
+             << ". SDK code=" << sdkCode << endl;
+        printAlarmCodes();
+        return false;
+    }
+    cout << "[Diagnostic] " << pointName << ": "
+         << (reachable ? "reachable" : "not reachable") << endl;
+    if (!reachable) {
+        printAlarmCodes();
+    }
+    return reachable;
+}
+
+bool BilliardApp::requireMotionSuccess(
+    const string& stepName,
+    const MotionResult& result
+) {
+    if (result.success) {
+        return true;
+    }
+    cout << "[Error] " << stepName << " failed. SDK code=" << result.sdkCode
+         << ", motion state=" << result.finalMotionState;
+    if (result.timedOut) {
+        cout << ", timeout=" << BilliardConfig::MOTION_TIMEOUT_MS
+             << " ms, motion_abort SDK code=" << result.abortSdkCode;
+    }
+    cout << endl;
+    printAlarmCodes();
+    return false;
+}
+
+void BilliardApp::printPose(
+    const string& label,
+    const array<double, 6>& pose
+) const {
+    cout << fixed << setprecision(3)
+         << "[Pose] " << label
+         << ": X=" << pose[0]
+         << ", Y=" << pose[1]
+         << ", Z=" << pose[2]
+         << ", RX=" << pose[3]
+         << ", RY=" << pose[4]
+         << ", RZ=" << pose[5] << defaultfloat << endl;
+}
+
+void BilliardApp::printAlarmCodes() const {
+    int sdkCode = -1;
+    vector<uint64_t> alarms = robot.getAlarmCodes(sdkCode);
+    if (sdkCode != 0) {
+        cout << "[Alarm] get_alarm_code failed. SDK code=" << sdkCode << endl;
+        return;
+    }
+    if (alarms.empty()) {
+        cout << "[Alarm] No active alarm code reported." << endl;
+        return;
+    }
+    cout << "[Alarm] Active codes:";
+    for (size_t index = 0; index < alarms.size(); ++index) {
+        cout << " 0x" << hex << uppercase << alarms[index];
+    }
+    cout << dec << nouppercase << endl;
 }
 
 void BilliardApp::runContourAlignment() {

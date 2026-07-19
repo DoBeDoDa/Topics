@@ -5,6 +5,19 @@
 
 using namespace std;
 
+ShotDecision BilliardAlgorithm::decideShot(const TargetSelection& target) {
+    return decideShot(
+        target.cueBall,
+        target.targetBall,
+        target.destinationPocket,
+        target.railA,
+        target.railB,
+        target.obstacles,
+        BilliardConfig::BALL_DIAMETER_MM,
+        target.pocketNumber
+    );
+}
+
 ShotDecision BilliardAlgorithm::decideShot(
     Point bw,
     Point target_arm,

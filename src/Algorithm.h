@@ -4,6 +4,7 @@
 #include "Point.h"
 #include "MathUtils.h"
 #include "BilliardPhysics.h"
+#include "TableState.h"
 
 struct ShotDecision {
     Point best_aim_target;
@@ -15,6 +16,8 @@ struct ShotDecision {
 
 class BilliardAlgorithm {
 public:
+    static ShotDecision decideShot(const TargetSelection& target);
+
     static ShotDecision decideShot(
         Point bw,
         Point target_arm,

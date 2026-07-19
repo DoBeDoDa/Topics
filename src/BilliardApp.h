@@ -1,10 +1,11 @@
 #pragma once
 
+#include <array>
 #include <string>
 
+#include "Algorithm.h"
 #include "MotionPlanner.h"
 #include "RobotController.h"
-#include "ShotPlanner.h"
 #include "SocketClient.h"
 #include "TargetSelector.h"
 #include "VisionDataParser.h"
@@ -15,7 +16,6 @@ private:
     SocketClient visionClient;
     VisionDataParser visionParser;
     TargetSelector targetSelector;
-    ShotPlanner shotPlanner;
     MotionPlanner motionPlanner;
     bool needCameraMove;
 
@@ -29,5 +29,18 @@ private:
     void moveToCameraPosition();
     bool processVisionData(const std::string& dataString);
     bool executeMotionPlan(const MotionPlan& plan);
+    bool requireReachable(
+        const std::string& pointName,
+        const std::array<double, 6>& pose
+    );
+    bool requireMotionSuccess(
+        const std::string& stepName,
+        const MotionResult& result
+    );
+    void printPose(
+        const std::string& label,
+        const std::array<double, 6>& pose
+    ) const;
+    void printAlarmCodes() const;
     void runContourAlignment();
 };

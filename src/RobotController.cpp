@@ -1,8 +1,10 @@
 #include "RobotController.h"
-#include "HRSDK.h"
-#include <iostream>
 
-// HRSDK 需要的回標函數宣告
+#include <algorithm>
+
+#include "BilliardConfig.h"
+#include "HRSDK.h"
+
 void __stdcall arm_callback(uint16_t, uint16_t, unsigned short*, int) {}
 
 RobotController::RobotController() : id(-1), connected(false) {}
@@ -52,57 +54,144 @@ void RobotController::setOverrideRatio(int ratio) {
     }
 }
 
-void RobotController::setToolNumber(int tool_num) {
+void RobotController::setToolNumber(int toolNumber) {
     if (connected) {
-        set_tool_number(id, tool_num);
+        set_tool_number(id, toolNumber);
     }
 }
 
 int RobotController::getMotionState() {
-    if (connected) {
-        return get_motion_state(id);
-    }
-    return -1;
+    return connected ? get_motion_state(id) : -1;
 }
 
-void RobotController::moveToAxis(const double joint[6], bool wait) {
-    if (!connected) return;
-    ptp_axis(id, 0, const_cast<double*>(joint));
-    if (wait) {
-        while (get_motion_state(id) != 1) {
-            Sleep(50);
+int RobotController::getCurrentToolNumber() const {
+    return connected ? get_tool_number(id) : -1;
+}
+
+int RobotController::getCurrentBaseNumber() const {
+    return connected ? get_base_number(id) : -1;
+}
+
+bool RobotController::getCurrentPosition(
+    std::array<double, 6>& position,
+    int& sdkCode
+) const {
+    if (!connected) {
+        sdkCode = -1;
+        return false;
+    }
+    sdkCode = get_current_position(id, position.data());
+    return sdkCode == 0;
+}
+
+bool RobotController::checkReachable(
+    const std::array<double, 6>& position,
+    bool& reachable,
+    int& sdkCode
+) const {
+    reachable = false;
+    if (!connected) {
+        sdkCode = -1;
+        return false;
+    }
+    std::array<double, 6> copy = position;
+    sdkCode = motion_reachable(id, copy.data(), reachable);
+    return sdkCode == 0;
+}
+
+bool RobotController::checkLinearPath(
+    const std::array<double, 6>& start,
+    const std::array<double, 6>& end,
+    bool& reachable,
+    int& sdkCode
+) const {
+    reachable = false;
+    if (!connected) {
+        sdkCode = -1;
+        return false;
+    }
+    std::array<double, 6> startCopy = start;
+    std::array<double, 6> endCopy = end;
+    sdkCode = motion_check_lin(id, startCopy.data(), endCopy.data(), reachable);
+    return sdkCode == 0;
+}
+
+std::vector<uint64_t> RobotController::getAlarmCodes(int& sdkCode) const {
+    std::vector<uint64_t> result;
+    if (!connected) {
+        sdkCode = -1;
+        return result;
+    }
+
+    const int maxAlarmCount = 20;
+    uint64_t alarms[maxAlarmCount] = {};
+    int count = maxAlarmCount;
+    sdkCode = get_alarm_code(id, count, alarms);
+    if (sdkCode != 0) {
+        return result;
+    }
+
+    count = std::max(0, std::min(count, maxAlarmCount));
+    result.assign(alarms, alarms + count);
+    return result;
+}
+
+MotionResult RobotController::waitForMotion(int sdkCode, bool wait) {
+    MotionResult result;
+    result.sdkCode = sdkCode;
+    if (sdkCode != 0) {
+        return result;
+    }
+    if (!wait) {
+        result.success = true;
+        return result;
+    }
+
+    const DWORD startTime = GetTickCount();
+    while (true) {
+        result.finalMotionState = get_motion_state(id);
+        if (result.finalMotionState == 1) {
+            result.success = true;
+            return result;
         }
+        if (result.finalMotionState < 0) {
+            return result;
+        }
+        if (GetTickCount() - startTime >= BilliardConfig::MOTION_TIMEOUT_MS) {
+            result.timedOut = true;
+            result.abortSdkCode = motion_abort(id);
+            return result;
+        }
+        Sleep(BilliardConfig::MOTION_POLL_INTERVAL_MS);
     }
 }
 
-void RobotController::moveToPosition(const double pos[6], bool wait) {
-    if (!connected) return;
-    ptp_pos(id, 0, const_cast<double*>(pos));
-    if (wait) {
-        while (get_motion_state(id) != 1) {
-            Sleep(50);
-        }
-    }
+MotionResult RobotController::moveToAxis(const double joint[6], bool wait) {
+    if (!connected) return MotionResult();
+    double copy[6];
+    std::copy(joint, joint + 6, copy);
+    return waitForMotion(ptp_axis(id, 0, copy), wait);
 }
 
-void RobotController::moveLinearTo(const double pos[6], bool wait) {
-    if (!connected) return;
-    lin_pos(id, 0, 0, const_cast<double*>(pos));
-    if (wait) {
-        while (get_motion_state(id) != 1) {
-            Sleep(50);
-        }
-    }
+MotionResult RobotController::moveToPosition(const double position[6], bool wait) {
+    if (!connected) return MotionResult();
+    double copy[6];
+    std::copy(position, position + 6, copy);
+    return waitForMotion(ptp_pos(id, 0, copy), wait);
 }
 
-void RobotController::moveLinearRelative(const double rel[6], bool wait) {
-    if (!connected) return;
-    lin_rel_pos(id, 0, 0.0, const_cast<double*>(rel));
-    if (wait) {
-        while (get_motion_state(id) != 1) {
-            Sleep(20);
-        }
-    }
+MotionResult RobotController::moveLinearTo(const double position[6], bool wait) {
+    if (!connected) return MotionResult();
+    double copy[6];
+    std::copy(position, position + 6, copy);
+    return waitForMotion(lin_pos(id, 0, 0, copy), wait);
+}
+
+MotionResult RobotController::moveLinearRelative(const double relative[6], bool wait) {
+    if (!connected) return MotionResult();
+    double copy[6];
+    std::copy(relative, relative + 6, copy);
+    return waitForMotion(lin_rel_pos(id, 0, 0.0, copy), wait);
 }
 
 void RobotController::setDigitalOutput(int index, bool state) {
@@ -111,9 +200,9 @@ void RobotController::setDigitalOutput(int index, bool state) {
     }
 }
 
-void RobotController::firePneumatic(int index, DWORD duration_ms) {
+void RobotController::firePneumatic(int index, DWORD durationMs) {
     if (!connected) return;
     set_digital_output(id, index, true);
-    Sleep(duration_ms);
+    Sleep(durationMs);
     set_digital_output(id, index, false);
 }

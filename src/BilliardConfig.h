@@ -42,6 +42,8 @@ extern const double ALIGN_MAX_STEP_MM;
 
 extern const unsigned long CAMERA_SETTLE_MS;
 extern const unsigned long TRANSIT_SETTLE_MS;
+extern const unsigned long MOTION_TIMEOUT_MS;
+extern const unsigned long MOTION_POLL_INTERVAL_MS;
 
 extern const std::array<double, 6> CAMERA_JOINT;
 extern const std::array<double, 6> TRANSIT_JOINT;
