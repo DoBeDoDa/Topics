@@ -4,6 +4,10 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <winsock2.h>
 
 #pragma comment(lib, "HRSDK.lib")

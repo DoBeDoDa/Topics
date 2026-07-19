@@ -1,7 +1,5 @@
 #include "RobotController.h"
 
-#include <algorithm>
-
 #include "BilliardConfig.h"
 #include "HRSDK.h"
 
@@ -131,7 +129,11 @@ std::vector<uint64_t> RobotController::getAlarmCodes(int& sdkCode) const {
         return result;
     }
 
-    count = std::max(0, std::min(count, maxAlarmCount));
+    if (count < 0) {
+        count = 0;
+    } else if (count > maxAlarmCount) {
+        count = maxAlarmCount;
+    }
     result.assign(alarms, alarms + count);
     return result;
 }

@@ -43,7 +43,7 @@ bool TargetSelector::select(
     output.targetBall = compensated(table.objectBalls[targetIndex]);
 
     Vector2D cueVector = BilliardMath::getVector(output.cueBall, output.targetBall);
-    double minimumAngle = std::numeric_limits<double>::max();
+    double minimumAngle = (std::numeric_limits<double>::max)();
 
     for (std::size_t index = 0; index < table.pockets.size(); ++index) {
         if (!table.pockets[index].detected) {
