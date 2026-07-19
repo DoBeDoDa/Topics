@@ -39,7 +39,7 @@ bool MotionPlanner::createPlan(
     output.strikePose = {
         strikeX + offset.x,
         strikeY + offset.y,
-        profile.strikeZ + offset.z,
+        profile.strikeZ,
         profile.rxDeg,
         profile.tiltRyDeg,
         armRz

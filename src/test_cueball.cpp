@@ -194,7 +194,7 @@ int main() {
         double arm_rz = BilliardMath::getVectorAngle(v_dir.x, v_dir.y) +
             BilliardConfig::YAW_OFFSET_DEG;
 
-        // 設定打擊目標點 (使工具軸 1 末端直接與母球球心重合，Z軸在 -290.0)
+        // 設定安全測試點（不下降至正式擊球高度）
         double target_pos[6];
         target_pos[0] = bw.x;      // 與球心 X 重合
         target_pos[1] = bw.y;      // 與球心 Y 重合
@@ -238,22 +238,19 @@ int main() {
         fflush(stdin);
         getline(cin, confirm_move2);
 
-        cout << "[動作] 手臂以 PTP 方式移往預備點 (Z = -125.0)..." << endl;
+        cout << "[動作] 手臂以 PTP 方式移往安全測試點 (Z = "
+             << BilliardConfig::TEST_MOTION.safeZ << ")..." << endl;
         robot.moveToPosition(ready_pos, true);
         Sleep(200);
 
-        cout << "[動作] 手臂直線下降至球心高度 (Z = -290.0)..." << endl;
-        robot.moveLinearTo(target_pos, true);
-        cout << "[成功] 已抵達目標球心點位。" << endl;
+        // TEST_MOTION 的 strikeZ 與 safeZ 相同，不再送出零距離 LIN 指令。
+        cout << "[成功] 已抵達安全測試點；測試模式不下降至實際擊球高度。" << endl;
 
         char return_confirm = 'n';
         while (return_confirm != 'y' && return_confirm != 'Y') {
             cout << "\a\n[定位確認] 已抵達目標位置！請確認筆尖是否與球心重合。輸入 'y' 返回拍照點: ";
             cin >> return_confirm;
         }
-
-        cout << "[動作] 手臂直線抬升至預備點..." << endl;
-        robot.moveLinearTo(ready_pos, true);
 
         cout << "[動作] 手臂返回拍照點..." << endl;
         robot.moveToAxis(BilliardConfig::CAMERA_JOINT.data(), true);
