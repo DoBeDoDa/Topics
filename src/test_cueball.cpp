@@ -10,6 +10,7 @@
 #include "MathUtils.h"
 #include "Point.h"
 #include "Algorithm.h"
+#include "BilliardConfig.h"
 #include <vector>
 #include "HRSDK.h"
 
@@ -34,21 +35,19 @@ int main() {
     SocketClient yoloClient;
 
     // 1. 連線至手臂控制箱
-    const string ARM_IP = "192.168.0.1";
-    cout << "[步驟 1] 正在連線至手臂控制箱 (" << ARM_IP << ")..." << endl;
-    if (!robot.connect(ARM_IP)) {
+    cout << "[步驟 1] 正在連線至手臂控制箱 (" << BilliardConfig::ARM_IP << ")..." << endl;
+    if (!robot.connect(BilliardConfig::ARM_IP)) {
         cout << "[錯誤] 手臂連線失敗，請檢查網路連線與控制箱電源。" << endl;
         WSACleanup();
         return -1;
     }
     
     robot.setMotorState(1);     // 啟動伺服馬達
-    robot.setOverrideRatio(20); // 限制運行速度在 20% 以策安全
-    robot.setToolNumber(1);     // 使用工具軸 1 座標系 (與校正一致)
+    robot.setOverrideRatio(BilliardConfig::NORMAL_SPEED_RATIO);
+    robot.setToolNumber(BilliardConfig::TOOL_NUMBER);
     cout << "[成功] 手臂連線成功，伺服馬達已啟動，已切換至工具軸 1。" << endl;
 
     // 2. 移動至拍照基準點，避免遮擋相機視野
-    const double CAM_JOINT[6] = {0.0, -33.564, 49.53, 0.0, -15.574, -90.0};
     cout << "\n[步驟 2] 移動手臂返回拍照位置 (CAM_JOINT)..." << endl;
     cout << "請確認手臂路徑安全無障礙物，隨後在【此視窗】按下 [Enter] 鍵開始移動: ";
     cin.clear();
@@ -56,16 +55,19 @@ int main() {
     string confirm_move;
     getline(cin, confirm_move);
 
-    robot.moveToAxis(CAM_JOINT);
+    robot.moveToAxis(BilliardConfig::CAMERA_JOINT.data());
     Sleep(1000);
     cout << "[動作] 手臂已抵達拍照點。" << endl;
 
     // 3. 連線至 Python YOLO 辨識伺服器
-    const string PYTHON_IP = "127.0.0.1";
-    const int PYTHON_PORT = 12345;
-    cout << "\n[步驟 3] 正在建立與 Python 影像辨識端的連線 (" << PYTHON_IP << ":" << PYTHON_PORT << ")..." << endl;
+    cout << "\n[步驟 3] 正在建立與 Python 影像辨識端的連線 ("
+         << BilliardConfig::VISION_SERVER_IP << ":"
+         << BilliardConfig::VISION_SERVER_PORT << ")..." << endl;
     cout << "--> 請先確保 python python/robot.py 已經啟動並處於運行狀態。" << endl;
-    while (!yoloClient.connectToServer(PYTHON_IP, PYTHON_PORT)) {
+    while (!yoloClient.connectToServer(
+        BilliardConfig::VISION_SERVER_IP,
+        BilliardConfig::VISION_SERVER_PORT
+    )) {
         cout << "正在等待 Python 伺服器回應中..." << endl;
         Sleep(1000);
     }
@@ -175,10 +177,10 @@ int main() {
         if (b8x > -9000.0 && target_name != "8號球") obs_list.push_back(BilliardMath::applyCameraCompensation({b8x, b8y}));
         if (b9x > -9000.0 && target_name != "9號球") obs_list.push_back(BilliardMath::applyCameraCompensation({b9x, b9y}));
 
-        const double BALL_D = 49.52;
         // 呼叫全新的擊球決策演算法
         ShotDecision decision = BilliardAlgorithm::decideShot(
-            bw, target_arm, destination, rail_A, rail_B, obs_list, BALL_D, best_pocket_idx
+            bw, target_arm, destination, rail_A, rail_B, obs_list,
+            BilliardConfig::BALL_DIAMETER_MM, best_pocket_idx
         );
 
         Point best_aim_target = decision.best_aim_target;
@@ -188,27 +190,24 @@ int main() {
         cout << "\n[決策結果] 策略: " << strategy_name << " | 夾角: " << angle_deg << " 度" << endl;
 
         Vector2D v_dir = BilliardMath::getVector(bw, best_aim_target);
-        double v_dist = BilliardMath::getLength(v_dir.x, v_dir.y);
-        
-        const double YAW_OFFSET = 0.0;
-        double arm_rz = BilliardMath::getVectorAngle(v_dir.x, v_dir.y) + YAW_OFFSET;
+
+        double arm_rz = BilliardMath::getVectorAngle(v_dir.x, v_dir.y) +
+            BilliardConfig::YAW_OFFSET_DEG;
 
         // 設定打擊目標點 (使工具軸 1 末端直接與母球球心重合，Z軸在 -290.0)
         double target_pos[6];
         target_pos[0] = bw.x;      // 與球心 X 重合
         target_pos[1] = bw.y;      // 與球心 Y 重合
-        target_pos[2] = -290.0;    // Z 軸設定在 -290.0 mm
-        target_pos[3] = 5.0;       // RX
-        const double TILT_RY_DEG = 20.0;
-        target_pos[4] = TILT_RY_DEG; // RY (傾斜 10 度)
+        target_pos[2] = BilliardConfig::TEST_MOTION.strikeZ;
+        target_pos[3] = BilliardConfig::TEST_MOTION.rxDeg;
+        target_pos[4] = BilliardConfig::TEST_MOTION.tiltRyDeg;
         target_pos[5] = arm_rz;    // RZ (瞄準角)
 
         double ready_pos[6];
         memcpy(ready_pos, target_pos, sizeof(ready_pos));
-        ready_pos[2] = -125.0;     // 安全預備點高度 (Z = -125.0)
+        ready_pos[2] = BilliardConfig::TEST_MOTION.safeZ;
 
         // 6. 移動至中繼點與打擊點 (中繼點用來進行手腕組態轉換，避開奇異點)
-        const double TRANSIT_JOINT[6] = {-5.00, -53.0, 8.0, -3.62, -46.497, -130.0};
         cout << "\n[步驟 5] 準備移動手臂至中繼關節位置 (TRANSIT_JOINT) 切換組態..." << endl;
         cout << "請確認安全，並按 [Enter] 開始移動: ";
         string confirm_transit;
@@ -217,7 +216,7 @@ int main() {
         getline(cin, confirm_transit);
         
         cout << "[動作] 移動至中繼點位..." << endl;
-        robot.moveToAxis(TRANSIT_JOINT, true);
+        robot.moveToAxis(BilliardConfig::TRANSIT_JOINT.data(), true);
         Sleep(800);
 
         cout << "\n[步驟 6] 準備移動至目標點位..." << endl;
@@ -257,7 +256,7 @@ int main() {
         robot.moveLinearTo(ready_pos, true);
 
         cout << "[動作] 手臂返回拍照點..." << endl;
-        robot.moveToAxis(CAM_JOINT, true);
+        robot.moveToAxis(BilliardConfig::CAMERA_JOINT.data(), true);
         Sleep(800);
     }
 

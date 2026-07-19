@@ -1,5 +1,6 @@
 #include "MathUtils.h"
 #include "Point.h"
+#include "BilliardConfig.h"
 
 namespace BilliardMath {
     Point applyCameraCompensation(Point raw_pt) {
@@ -8,17 +9,14 @@ namespace BilliardMath {
             return raw_pt;
         }
 
-        // 🎯 [誤差補償參數設定區] (您可以在此處自行調整偏移與比例)
-        // -------------------------------------------------------------
-        const double offset_x = 0.0;  // X 軸固定誤差補償 (單位: mm，若偏右可設為負值如 -5.0)
-        const double offset_y = 0.0;  // Y 軸固定誤差補償 (單位: mm)
+        const double offset_x = BilliardConfig::CAMERA_OFFSET_X_MM;
+        const double offset_y = BilliardConfig::CAMERA_OFFSET_Y_MM;
 
-        const double ref_x = -400.0;  // 比例補償基準點 X 座標 (機械手臂座標系下)
-        const double ref_y = 600.0;   // 比例補償基準點 Y 座標
-        
-        const double k_x = 0.0;       // X 方向比例補償係數 (設為 0 表示不使用比例補償)
-        const double k_y = 0.0;       // Y 方向比例補償係數
-        // -------------------------------------------------------------
+        const double ref_x = BilliardConfig::CAMERA_REFERENCE_X_MM;
+        const double ref_y = BilliardConfig::CAMERA_REFERENCE_Y_MM;
+
+        const double k_x = BilliardConfig::CAMERA_COMPENSATION_KX;
+        const double k_y = BilliardConfig::CAMERA_COMPENSATION_KY;
 
         // 1. 計算相對於基準點的偏移值
         double dx = raw_pt.x - ref_x;

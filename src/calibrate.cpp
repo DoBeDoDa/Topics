@@ -8,6 +8,7 @@
 #include <conio.h>
 #include "RobotController.h"
 #include "SocketClient.h"
+#include "BilliardConfig.h"
 #include "HRSDK.h"
 
 #pragma comment(lib, "ws2_32.lib")
@@ -15,7 +16,6 @@
 using namespace std;
 
 // 拍照點位關節角度 (A1 ~ A6)
-const double CAM_JOINT[6] = {0.0, -33.564, 49.53, 0.0, -15.574, -90.0};
 
 // 回傳 true 表示確認，false 表示重新記錄 (按 Delete/Backspace/D)
 bool askConfirmation() {
@@ -58,25 +58,28 @@ int main() {
 
     RobotController robot;
     cout << "[系統] 正在連線至機械手臂 (IP: 192.168.0.1)..." << endl;
-    if (!robot.connect("192.168.0.1")) {
+    if (!robot.connect(BilliardConfig::ARM_IP)) {
         cout << "[錯誤] 手臂連線失敗。請確認手臂 IP 以及網路線連接。" << endl;
         WSACleanup();
         system("pause");
         return -1;
     }
     robot.setMotorState(1);
-    robot.setOverrideRatio(20);
-    robot.setToolNumber(1);  // 使用工具軸 1 座標系
+    robot.setOverrideRatio(BilliardConfig::NORMAL_SPEED_RATIO);
+    robot.setToolNumber(BilliardConfig::TOOL_NUMBER);
     cout << "[系統] 機械手臂連線成功，馬達已啟動，已切換至工具軸 1。" << endl;
 
     // 在連線至 Python 之前，先將手臂移到拍照點位以避免相機視野受阻
     cout << "\n[系統] 正在自動移動至拍照位置 (CAM_JOINT)..." << endl;
-    robot.moveToAxis(CAM_JOINT, true);
+    robot.moveToAxis(BilliardConfig::CAMERA_JOINT.data(), true);
     cout << "[系統] 已到達拍照位置。請在球桌上擺放好球。" << endl;
 
     SocketClient pythonClient;
     cout << "[系統] 正在連線至 Python 影像偵測端 (Port: 12347)..." << endl;
-    while (!pythonClient.connectToServer("127.0.0.1", 12347)) {
+    while (!pythonClient.connectToServer(
+        BilliardConfig::VISION_SERVER_IP,
+        BilliardConfig::CALIBRATION_SERVER_PORT
+    )) {
         Sleep(1000);
     }
     cout << "[系統] 連線至 Python 影像端成功！" << endl;
@@ -133,7 +136,7 @@ int main() {
                     }
 
                     // 取得目前手臂座標 (工具軸 1 座標系)
-                    robot.setToolNumber(1);
+                    robot.setToolNumber(BilliardConfig::TOOL_NUMBER);
                     double cart[6] = {0.0};
                     if (get_current_position(robot.getId(), cart) == 0) {
                         double x = cart[0];
@@ -169,7 +172,7 @@ int main() {
             getline(cin, ready_move_back);
 
             cout << "[手臂] 正在移動回拍照位置 (CAM_JOINT)..." << endl;
-            robot.moveToAxis(CAM_JOINT, true);
+            robot.moveToAxis(BilliardConfig::CAMERA_JOINT.data(), true);
             cout << "[手臂] 已到達拍照位置。請重新擺放球點。" << endl;
             cout << "準備就緒後，請在【此視窗】按下 [Enter] 開始下一輪拍照與標定..." << endl;
             

@@ -1,5 +1,6 @@
 #include "Algorithm.h"
 #include "BilliardPhysics.h"
+#include "BilliardConfig.h"
 #include <iostream>
 
 using namespace std;
@@ -67,11 +68,10 @@ ShotDecision BilliardAlgorithm::decideShot(
     }
 
     // 4. 工作半徑檢測與降級
-    double MAX_REACH_RADIUS = 850.0;
     double target_reach = BilliardMath::getLength(decision.best_aim_target.x, decision.best_aim_target.y);
     
-    if (target_reach > MAX_REACH_RADIUS) {
-        cout << "\n[警告] 計算出之擊球點超出工作半徑 (" << target_reach << " > " << MAX_REACH_RADIUS << " mm)！" << endl;
+    if (target_reach > BilliardConfig::MAX_REACH_RADIUS_MM) {
+        cout << "\n[警告] 計算出之擊球點超出工作半徑 (" << target_reach << " > " << BilliardConfig::MAX_REACH_RADIUS_MM << " mm)！" << endl;
         cout << "[降級] 放棄當前路徑，強制切換為直線直擊策略..." << endl;
         
         decision.best_aim_target = ghost_direct; 

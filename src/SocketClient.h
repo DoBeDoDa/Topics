@@ -6,6 +6,7 @@ class SocketClient {
 private:
     SOCKET clientSocket;
     bool connected;
+    std::string receiveBuffer;
 public:
     SocketClient();
     ~SocketClient();
@@ -17,6 +18,7 @@ public:
 
     // 接收與發送資料與清除緩衝區
     int receiveData(char* buf, int max_len);
+    int receiveLine(std::string& line);
     int sendData(const std::string& data);
     void flushBuffer();
 };

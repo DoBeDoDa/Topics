@@ -3,7 +3,7 @@
 #include <iostream>
 
 // HRSDK 需要的回標函數宣告
-void __stdcall arm_callback(uint16_t rob_idx, uint16_t status, unsigned short* msg, int msg_len) {}
+void __stdcall arm_callback(uint16_t, uint16_t, unsigned short*, int) {}
 
 RobotController::RobotController() : id(-1), connected(false) {}
 
