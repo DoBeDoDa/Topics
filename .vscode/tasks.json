@@ -1,0 +1,174 @@
+{
+    "tasks": [
+        {
+            "type": "shell",
+            "label": "Prepare build directories",
+            "command": "powershell.exe",
+            "args": [
+                "-NoProfile",
+                "-Command",
+                "New-Item -ItemType Directory -Force -Path '${workspaceFolder}\\build','${workspaceFolder}\\bin' | Out-Null"
+            ],
+            "problemMatcher": []
+        },
+        {
+            "type": "cppbuild",
+            "label": "Build with HRSDK (MSVC)",
+            "command": "cl.exe",
+            "args": [
+                "/Zi",
+                "/EHsc",
+                "/nologo",
+                "/utf-8",
+                "/FS",
+                "/Fd${workspaceFolder}\\build\\main.pdb",
+                "/I", "${workspaceFolder}\\include",
+                "/Fe:", "${workspaceFolder}\\bin\\main.exe",
+                "/Fo${workspaceFolder}\\build\\",
+                "${workspaceFolder}\\src\\main.cpp",
+                "${workspaceFolder}\\src\\BilliardApp.cpp",
+                "${workspaceFolder}\\src\\BilliardPhysics.cpp",
+                "${workspaceFolder}\\src\\MathUtils.cpp",
+                "${workspaceFolder}\\src\\RobotController.cpp",
+                "${workspaceFolder}\\src\\SocketClient.cpp",
+                "${workspaceFolder}\\src\\Algorithm.cpp",
+                "${workspaceFolder}\\src\\BilliardConfig.cpp",
+                "${workspaceFolder}\\src\\MotionPlanner.cpp",
+                "${workspaceFolder}\\src\\TargetSelector.cpp",
+                "${workspaceFolder}\\src\\VisionDataParser.cpp"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": "Prepare build directories",
+            "problemMatcher": ["$msCompile"],
+            "group": {
+                "kind": "build",
+                "isDefault": true // 確保這裡設為 true
+            },
+            "detail": "使用 MSVC 編譯器以支援 HRSDK"
+        },
+        {
+            "type": "cppbuild",
+            "label": "Build Calibration Tool (MSVC)",
+            "command": "cl.exe",
+            "args": [
+                "/Zi",
+                "/EHsc",
+                "/nologo",
+                "/utf-8",
+                "/FS",
+                "/Fd${workspaceFolder}\\build\\calibrate.pdb",
+                "/I", "${workspaceFolder}\\include",
+                "/Fe:", "${workspaceFolder}\\bin\\calibrate.exe",
+                "/Fo${workspaceFolder}\\build\\",
+                "${workspaceFolder}\\src\\calibrate.cpp",
+                "${workspaceFolder}\\src\\RobotController.cpp",
+                "${workspaceFolder}\\src\\SocketClient.cpp",
+                "${workspaceFolder}\\src\\MathUtils.cpp",
+                "${workspaceFolder}\\src\\BilliardConfig.cpp"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": "Prepare build directories",
+            "problemMatcher": ["$msCompile"],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "detail": "編譯標定/校正工具程式"
+        },
+        {
+            "type": "cppbuild",
+            "label": "Build Cueball Test (MSVC)",
+            "command": "cl.exe",
+            "args": [
+                "/Zi",
+                "/EHsc",
+                "/nologo",
+                "/utf-8",
+                "/FS",
+                "/Fd${workspaceFolder}\\build\\test_cueball.pdb",
+                "/I", "${workspaceFolder}\\include",
+                "/Fe:", "${workspaceFolder}\\bin\\test_cueball.exe",
+                "/Fo${workspaceFolder}\\build\\",
+                "${workspaceFolder}\\src\\test_cueball.cpp",
+                "${workspaceFolder}\\src\\RobotController.cpp",
+                "${workspaceFolder}\\src\\SocketClient.cpp",
+                "${workspaceFolder}\\src\\MathUtils.cpp",
+                "${workspaceFolder}\\src\\BilliardPhysics.cpp",
+                "${workspaceFolder}\\src\\Algorithm.cpp",
+                "${workspaceFolder}\\src\\BilliardConfig.cpp"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": "Prepare build directories",
+            "problemMatcher": ["$msCompile"],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "detail": "編譯母球定位測試程式"
+        },
+        {
+            "type": "cmake",
+            "label": "CMake: 設定",
+            "command": "configure",
+            "problemMatcher": [],
+            "detail": "CMake 範本 設定 工作",
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            }
+        },
+        {
+            "type": "cppbuild",
+            "label": "C/C++: cl.exe 建置使用中檔案",
+            "command": "cl.exe",
+            "args": [
+                "/Zi",
+                "/EHsc",
+                "/nologo",
+                "/Fe${fileDirname}\\${fileBasenameNoExtension}.exe",
+                "${file}"
+            ],
+            "options": {
+                "cwd": "${fileDirname}"
+            },
+            "problemMatcher": [
+                "$msCompile"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "detail": "偵錯工具產生的工作。"
+        },
+        {
+            "type": "cppbuild",
+            "label": "C/C++: g++.exe 建置使用中檔案",
+            "command": "C:\\mingw64\\bin\\g++.exe",
+            "args": [
+                "-fdiagnostics-color=always",
+                "-g",
+                "${file}",
+                "-o",
+                "${fileDirname}\\${fileBasenameNoExtension}.exe"
+            ],
+            "options": {
+                "cwd": "${fileDirname}"
+            },
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "detail": "偵錯工具產生的工作。"
+        }
+    ],
+    "version": "2.0.0"
+}
