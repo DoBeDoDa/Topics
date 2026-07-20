@@ -142,9 +142,11 @@ bool BilliardApp::executeMotionPlan(const MotionPlan& plan) {
         printAlarmCodes();
         return false;
     }
-    if (toolNumber != BilliardConfig::TOOL_NUMBER) {
-        cout << "[Error] Active Tool does not match configured Tool "
-             << BilliardConfig::TOOL_NUMBER << "." << endl;
+    if (toolNumber != BilliardConfig::TOOL_NUMBER ||
+        baseNumber != BilliardConfig::BASE_NUMBER) {
+        cout << "[Error] Active Tool/Base does not match configured Tool "
+             << BilliardConfig::TOOL_NUMBER << "/Base "
+             << BilliardConfig::BASE_NUMBER << "." << endl;
         printAlarmCodes();
         return false;
     }

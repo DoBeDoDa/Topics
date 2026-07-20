@@ -79,6 +79,18 @@ bool RobotController::getCurrentPosition(
     return sdkCode == 0;
 }
 
+bool RobotController::getCurrentJoints(
+    std::array<double, 6>& joints,
+    int& sdkCode
+) const {
+    if (!connected) {
+        sdkCode = -1;
+        return false;
+    }
+    sdkCode = get_current_joint(id, joints.data());
+    return sdkCode == 0;
+}
+
 bool RobotController::checkReachable(
     const std::array<double, 6>& position,
     bool& reachable,

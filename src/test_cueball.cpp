@@ -3,6 +3,9 @@
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
 #endif
 
+#include <array>
+#include <cstdint>
+#include <iomanip>
 #include <iostream>
 #include <string>
 #include <winsock2.h>
@@ -19,6 +22,72 @@
 
 using namespace std;
 
+namespace {
+
+void printSixValues(const string& label, const array<double, 6>& values) {
+    cout << fixed << setprecision(3) << label;
+    for (size_t index = 0; index < values.size(); ++index) {
+        cout << (index == 0 ? "" : ", ") << values[index];
+    }
+    cout << defaultfloat << endl;
+}
+
+void printAlarmCodes(const RobotController& robot) {
+    int sdkCode = -1;
+    vector<uint64_t> alarms = robot.getAlarmCodes(sdkCode);
+    if (sdkCode != 0) {
+        cout << "[警報] get_alarm_code 失敗，SDK code=" << sdkCode << endl;
+        return;
+    }
+    if (alarms.empty()) {
+        cout << "[警報] 控制器目前沒有回報有效警報碼。" << endl;
+        return;
+    }
+    cout << "[警報] 目前警報碼：";
+    for (size_t index = 0; index < alarms.size(); ++index) {
+        cout << " 0x" << hex << uppercase << alarms[index];
+    }
+    cout << dec << nouppercase << endl;
+}
+
+bool requireMotionSuccess(
+    const string& stepName,
+    const MotionResult& result,
+    const RobotController& robot
+) {
+    if (result.success) {
+        return true;
+    }
+    cout << "[錯誤] " << stepName << " 失敗，SDK code=" << result.sdkCode
+         << "，motion state=" << result.finalMotionState;
+    if (result.timedOut) {
+        cout << "，等待逾時，motion_abort SDK code=" << result.abortSdkCode;
+    }
+    cout << endl;
+    printAlarmCodes(robot);
+    return false;
+}
+
+bool requireReachable(
+    const string& pointName,
+    const array<double, 6>& pose,
+    const RobotController& robot
+) {
+    bool reachable = false;
+    int sdkCode = -1;
+    bool callSucceeded = robot.checkReachable(pose, reachable, sdkCode);
+    cout << "[診斷] motion_reachable(" << pointName << ")：SDK code="
+         << sdkCode << "，reachable=" << (reachable ? "true" : "false")
+         << endl;
+    if (!callSucceeded || !reachable) {
+        printAlarmCodes(robot);
+        return false;
+    }
+    return true;
+}
+
+}  // namespace
+
 int main() {
     // 設定編碼支援繁體中文輸出
     setlocale(LC_ALL, "zh_TW.UTF-8");
@@ -34,6 +103,12 @@ int main() {
 
     RobotController robot;
     SocketClient yoloClient;
+    const auto failAndExit = [&]() {
+        yoloClient.closeConnection();
+        robot.disconnect();
+        WSACleanup();
+        return -1;
+    };
 
     // 1. 連線至手臂控制箱
     cout << "[步驟 1] 正在連線至手臂控制箱 (" << BilliardConfig::ARM_IP << ")..." << endl;
@@ -46,7 +121,20 @@ int main() {
     robot.setMotorState(1);     // 啟動伺服馬達
     robot.setOverrideRatio(BilliardConfig::NORMAL_SPEED_RATIO);
     robot.setToolNumber(BilliardConfig::TOOL_NUMBER);
-    cout << "[成功] 手臂連線成功，伺服馬達已啟動，已切換至工具軸 1。" << endl;
+    const int activeTool = robot.getCurrentToolNumber();
+    const int activeBase = robot.getCurrentBaseNumber();
+    cout << "[診斷] Tool=" << activeTool << "，Base=" << activeBase << endl;
+    if (activeTool != BilliardConfig::TOOL_NUMBER ||
+        activeBase != BilliardConfig::BASE_NUMBER) {
+        cout << "[錯誤] 測試要求 Tool=" << BilliardConfig::TOOL_NUMBER
+             << "、Base=" << BilliardConfig::BASE_NUMBER
+             << "，請先修正控制器座標系。" << endl;
+        printAlarmCodes(robot);
+        return failAndExit();
+    }
+    cout << "[成功] 手臂連線成功，伺服馬達已啟動，Tool "
+         << BilliardConfig::TOOL_NUMBER << "／Base "
+         << BilliardConfig::BASE_NUMBER << " 已確認。" << endl;
 
     // 2. 移動至拍照基準點，避免遮擋相機視野
     cout << "\n[步驟 2] 移動手臂返回拍照位置 (CAM_JOINT)..." << endl;
@@ -56,7 +144,13 @@ int main() {
     string confirm_move;
     getline(cin, confirm_move);
 
-    robot.moveToAxis(BilliardConfig::CAMERA_JOINT.data());
+    if (!requireMotionSuccess(
+        "PTP 移動至拍照點",
+        robot.moveToAxis(BilliardConfig::CAMERA_JOINT.data(), true),
+        robot
+    )) {
+        return failAndExit();
+    }
     Sleep(1000);
     cout << "[動作] 手臂已抵達拍照點。" << endl;
 
@@ -196,16 +290,15 @@ int main() {
             BilliardConfig::YAW_OFFSET_DEG;
 
         // 設定安全測試點（不下降至正式擊球高度）
-        double target_pos[6];
-        target_pos[0] = bw.x;      // 與球心 X 重合
-        target_pos[1] = bw.y;      // 與球心 Y 重合
-        target_pos[2] = BilliardConfig::TEST_MOTION.strikeZ;
-        target_pos[3] = BilliardConfig::TEST_MOTION.rxDeg;
-        target_pos[4] = BilliardConfig::TEST_MOTION.tiltRyDeg;
-        target_pos[5] = arm_rz;    // RZ (瞄準角)
-
-        double ready_pos[6];
-        memcpy(ready_pos, target_pos, sizeof(ready_pos));
+        array<double, 6> target_pos = {
+            bw.x,
+            bw.y,
+            BilliardConfig::TEST_MOTION.strikeZ,
+            BilliardConfig::TEST_MOTION.rxDeg,
+            BilliardConfig::TEST_MOTION.tiltRyDeg,
+            arm_rz
+        };
+        array<double, 6> ready_pos = target_pos;
         ready_pos[2] = BilliardConfig::TEST_MOTION.safeZ;
 
         // 6. 移動至中繼點與打擊點 (中繼點用來進行手腕組態轉換，避開奇異點)
@@ -217,8 +310,50 @@ int main() {
         getline(cin, confirm_transit);
         
         cout << "[動作] 移動至中繼點位..." << endl;
-        robot.moveToAxis(BilliardConfig::TRANSIT_JOINT.data(), true);
+        if (!requireMotionSuccess(
+            "PTP 移動至中繼關節點",
+            robot.moveToAxis(BilliardConfig::TRANSIT_JOINT.data(), true),
+            robot
+        )) {
+            return failAndExit();
+        }
         Sleep(800);
+
+        const int transitTool = robot.getCurrentToolNumber();
+        const int transitBase = robot.getCurrentBaseNumber();
+        cout << "[診斷] 中繼點 Tool=" << transitTool
+             << "，Base=" << transitBase << endl;
+        if (transitTool != BilliardConfig::TOOL_NUMBER ||
+            transitBase != BilliardConfig::BASE_NUMBER) {
+            cout << "[錯誤] 中繼點的 Tool／Base 與測試設定不一致，停止動作。" << endl;
+            printAlarmCodes(robot);
+            return failAndExit();
+        }
+
+        int sdkCode = -1;
+        array<double, 6> actualTransitPose = {};
+        if (!robot.getCurrentPosition(actualTransitPose, sdkCode)) {
+            cout << "[錯誤] 無法取得中繼點實際姿態，SDK code="
+                 << sdkCode << endl;
+            printAlarmCodes(robot);
+            return failAndExit();
+        }
+        printSixValues(
+            "[診斷] 中繼點實際姿態 {X, Y, Z, RX, RY, RZ} = ",
+            actualTransitPose
+        );
+
+        array<double, 6> actualTransitJoints = {};
+        if (!robot.getCurrentJoints(actualTransitJoints, sdkCode)) {
+            cout << "[錯誤] 無法取得中繼點關節角度，SDK code="
+                 << sdkCode << endl;
+            printAlarmCodes(robot);
+            return failAndExit();
+        }
+        printSixValues(
+            "[診斷] 中繼點實際關節 {A1, A2, A3, A4, A5, A6} = ",
+            actualTransitJoints
+        );
 
         cout << "\n[步驟 6] 準備移動至目標點位..." << endl;
         cout << "   - 預備點座標：X = " << ready_pos[0] 
@@ -231,6 +366,13 @@ int main() {
              << ", RY = " << target_pos[4] 
              << ", RZ = " << target_pos[5] << endl;
         cout << "==================================================" << endl;
+
+        if (!requireReachable("預備點", ready_pos, robot) ||
+            !requireReachable("球心測試點", target_pos, robot)) {
+            cout << "[安全停止] HRSDK 判定目標姿態不可達，不送出 PTP 指令。" << endl;
+            return failAndExit();
+        }
+
         cout << "【安全鎖】請確認平面平移路徑無障礙，且 Z 軸高度不會撞擊桌面。" << endl;
         cout << "確認完畢後，請在【此視窗】按下 [Enter] 鍵開始移動：" << endl;
 
@@ -241,11 +383,17 @@ int main() {
 
         cout << "[動作] 手臂以 PTP 方式移往安全測試點 (Z = "
              << BilliardConfig::TEST_MOTION.safeZ << ")..." << endl;
-        robot.moveToPosition(ready_pos, true);
+        if (!requireMotionSuccess(
+            "PTP 從中繼點移動至安全測試點",
+            robot.moveToPosition(ready_pos.data(), true),
+            robot
+        )) {
+            return failAndExit();
+        }
         Sleep(200);
 
-        // TEST_MOTION 的 strikeZ 與 safeZ 相同，不再送出零距離 LIN 指令。
-        cout << "[成功] 已抵達安全測試點；測試模式不下降至實際擊球高度。" << endl;
+        // 本測試只移動至 safeZ；strikeZ 僅做可達性診斷，不送出第二段移動。
+        cout << "[成功] 已抵達安全測試點；球心測試點未實際執行。" << endl;
 
         char return_confirm = 'n';
         while (return_confirm != 'y' && return_confirm != 'Y') {
@@ -254,7 +402,13 @@ int main() {
         }
 
         cout << "[動作] 手臂返回拍照點..." << endl;
-        robot.moveToAxis(BilliardConfig::CAMERA_JOINT.data(), true);
+        if (!requireMotionSuccess(
+            "PTP 返回拍照點",
+            robot.moveToAxis(BilliardConfig::CAMERA_JOINT.data(), true),
+            robot
+        )) {
+            return failAndExit();
+        }
         Sleep(800);
     }
 

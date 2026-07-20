@@ -10,6 +10,7 @@ const int CALIBRATION_SERVER_PORT = 12347;
 
 const int NORMAL_SPEED_RATIO = 20;
 const int TOOL_NUMBER = 1;  // 使用控制器中定義的 Tool 1
+const int BASE_NUMBER = 0;  // 視覺校正與動作座標共同使用的 Base 0
 const int PNEUMATIC_OUTPUT = 1;
 
 const double BALL_DIAMETER_MM = 49.52;  // 撞球直徑
@@ -34,12 +35,12 @@ const std::array<double, 6> CAMERA_JOINT = {
 };  // 拍照關節點 {A1, A2, A3, A4, A5, A6}
 
 const std::array<double, 6> TRANSIT_JOINT = {
-    -5.0, -53.0, 8.0, -3.62, -46.497, -130.0
+    -5.0, -53.0, 8.0, -3.62, -46.497, 0.0
 };  // 中繼關節點 {A1, A2, A3, A4, A5, A6}
 
 const MotionProfile PRODUCTION_MOTION = {
-    -290.0,    // strikeZ：實際擊球高度
-    -180.0,    // safeZ：正式擊球前的預備高度
+    -216.0,    // strikeZ：實際擊球高度
+    -125.0,    // safeZ：正式擊球前的預備高度
     5.0,       // rxDeg
     10.0,      // tiltRyDeg
     20.0,      // moveBackMm
@@ -47,7 +48,7 @@ const MotionProfile PRODUCTION_MOTION = {
 };
 
 const MotionProfile TEST_MOTION = {
-    -125.0,  // strikeZ：測試時不下降至實際擊球高度
+    -120.0,  // strikeZ：測試時不下降至實際擊球高度
     -125.0,  // safeZ：測試點位統一使用此高度
     5.0,     // rxDeg
     10.0,    // tiltRyDeg

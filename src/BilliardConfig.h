@@ -21,6 +21,7 @@ extern const int CALIBRATION_SERVER_PORT;
 
 extern const int NORMAL_SPEED_RATIO;
 extern const int TOOL_NUMBER;
+extern const int BASE_NUMBER;
 extern const int PNEUMATIC_OUTPUT;
 
 extern const double BALL_DIAMETER_MM;

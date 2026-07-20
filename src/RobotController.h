@@ -47,6 +47,7 @@ public:
     int getCurrentToolNumber() const;
     int getCurrentBaseNumber() const;
     bool getCurrentPosition(std::array<double, 6>& position, int& sdkCode) const;
+    bool getCurrentJoints(std::array<double, 6>& joints, int& sdkCode) const;
     bool checkReachable(
         const std::array<double, 6>& position,
         bool& reachable,
