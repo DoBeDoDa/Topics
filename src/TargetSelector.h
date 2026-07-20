@@ -1,3 +1,4 @@
+// 宣告根據球桌狀態建立目標選擇結果的元件。
 #pragma once
 
 #include <string>

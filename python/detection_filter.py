@@ -1,3 +1,6 @@
+"""篩選 YOLO 結果，為每個類別保留符合規則的最佳偵測。"""
+
+
 class DetectionFilter:
     """把 YOLO 原始 boxes 整理成 b1~b9、bw、p1~p6。"""
 

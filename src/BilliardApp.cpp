@@ -1,6 +1,6 @@
+// 協調視覺解析、目標選擇、擊球規劃與手臂動作，不實作個別演算法細節。
 #include "BilliardApp.h"
 
-#include <cmath>
 #include <iomanip>
 #include <iostream>
 #include <limits>
@@ -306,65 +306,4 @@ void BilliardApp::printAlarmCodes() const {
         cout << " 0x" << hex << uppercase << alarms[index];
     }
     cout << dec << nouppercase << endl;
-}
-
-void BilliardApp::runContourAlignment() {
-    SocketClient alignClient;
-    cout << "[視覺伺服] 正在連線至對齊伺服器" << flush;
-    bool alignConnected = false;
-
-    for (int attempt = 0; attempt < 10; ++attempt) {
-        if (alignClient.connectToServer(
-            BilliardConfig::VISION_SERVER_IP,
-            BilliardConfig::ALIGN_SERVER_PORT
-        )) {
-            alignConnected = true;
-            break;
-        }
-        cout << "." << flush;
-        Sleep(1000);
-    }
-    cout << endl;
-
-    if (!alignConnected) {
-        cout << "[警告] 無法連線至 align.py，跳過二次微調。" << endl;
-        return;
-    }
-
-    robot.setToolNumber(BilliardConfig::TOOL_NUMBER);
-    robot.setOverrideRatio(BilliardConfig::ALIGN_SPEED_RATIO);
-
-    string message;
-    while (alignClient.receiveLine(message) > 0) {
-        double pixelError;
-        try {
-            pixelError = stod(message);
-        } catch (const std::exception&) {
-            continue;
-        }
-
-        if (pixelError <= -9000.0) {
-            continue;
-        }
-
-        cout << "\r[微調] 偏差: " << pixelError << " 像素" << flush;
-        if (abs(pixelError) <= BilliardConfig::ALIGN_TOLERANCE_PX) {
-            cout << "\n[微調] 達成對齊！停止微調。" << endl;
-            break;
-        }
-
-        double moveY = pixelError * BilliardConfig::ALIGN_KP;
-        if (moveY > BilliardConfig::ALIGN_MAX_STEP_MM) {
-            moveY = BilliardConfig::ALIGN_MAX_STEP_MM;
-        }
-        if (moveY < -BilliardConfig::ALIGN_MAX_STEP_MM) {
-            moveY = -BilliardConfig::ALIGN_MAX_STEP_MM;
-        }
-
-        cout << " | 工具 Y 軸平移: " << moveY << " mm   " << flush;
-        double relativeMove[6] = {0.0, moveY, 0.0, 0.0, 0.0, 0.0};
-        robot.moveLinearRelative(relativeMove);
-    }
-
-    alignClient.closeConnection();
 }

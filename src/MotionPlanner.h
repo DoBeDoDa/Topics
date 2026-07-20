@@ -1,3 +1,4 @@
+// 宣告手臂動作計畫資料及擊球姿態產生器。
 #pragma once
 
 #include <array>

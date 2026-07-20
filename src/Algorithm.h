@@ -1,3 +1,4 @@
+// 宣告擊球決策結果與撞球策略演算法的公開介面。
 #pragma once
 #include <string>
 #include <vector>

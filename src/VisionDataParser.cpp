@@ -1,3 +1,4 @@
+// 解析 Python 傳來的 32 個 CSV 座標值並產生 TableState。
 #include "VisionDataParser.h"
 
 #include <sstream>

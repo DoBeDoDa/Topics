@@ -1,3 +1,4 @@
+// 相機與手臂座標校正工具，配合 calibrate_tool.py 收集棋盤格對應點。
 #ifndef _WINSOCK_DEPRECATED_NO_WARNINGS
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
 #endif

@@ -1,3 +1,4 @@
+// 宣告 Windows TCP Client 封裝及文字封包通訊介面。
 #pragma once
 #include <winsock2.h>
 #include <string>

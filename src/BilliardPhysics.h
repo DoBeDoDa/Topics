@@ -1,3 +1,4 @@
+// 宣告撞球路徑與碰撞判斷所需的幾何函式。
 #pragma once
 #include "Point.h"
 #include <vector>

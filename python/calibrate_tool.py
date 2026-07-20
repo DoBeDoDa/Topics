@@ -1,3 +1,5 @@
+"""與 calibrate.cpp 配合偵測棋盤格，收集相機與手臂座標校正點。"""
+
 import cv2
 import socket
 import numpy as np

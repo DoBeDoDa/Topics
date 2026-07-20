@@ -1,3 +1,4 @@
+// 將瞄準方向轉換成中繼關節點、預備姿態與正式擊球姿態。
 #include "MotionPlanner.h"
 
 #include "MathUtils.h"

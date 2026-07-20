@@ -1,3 +1,4 @@
+// 宣告全專案共用的連線、幾何、速度、點位與動作設定。
 #pragma once
 
 #include <array>
@@ -16,11 +17,9 @@ struct MotionProfile {
 extern const char* const ARM_IP;
 extern const char* const VISION_SERVER_IP;
 extern const int VISION_SERVER_PORT;
-extern const int ALIGN_SERVER_PORT;
 extern const int CALIBRATION_SERVER_PORT;
 
 extern const int NORMAL_SPEED_RATIO;
-extern const int ALIGN_SPEED_RATIO;
 extern const int TOOL_NUMBER;
 extern const int PNEUMATIC_OUTPUT;
 
@@ -35,10 +34,6 @@ extern const double CAMERA_REFERENCE_X_MM;
 extern const double CAMERA_REFERENCE_Y_MM;
 extern const double CAMERA_COMPENSATION_KX;
 extern const double CAMERA_COMPENSATION_KY;
-
-extern const double ALIGN_TOLERANCE_PX;
-extern const double ALIGN_KP;
-extern const double ALIGN_MAX_STEP_MM;
 
 extern const unsigned long CAMERA_SETTLE_MS;
 extern const unsigned long TRANSIT_SETTLE_MS;

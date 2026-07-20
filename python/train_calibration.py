@@ -1,3 +1,5 @@
+"""使用既有校正點訓練選用的神經網路座標轉換模型。"""
+
 import os
 import sys
 import numpy as np

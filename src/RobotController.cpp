@@ -1,3 +1,4 @@
+// 實作 HRSDK 連線、狀態檢查、警報讀取與手臂動作命令。
 #include "RobotController.h"
 
 #include "BilliardConfig.h"
@@ -56,10 +57,6 @@ void RobotController::setToolNumber(int toolNumber) {
     if (connected) {
         set_tool_number(id, toolNumber);
     }
-}
-
-int RobotController::getMotionState() {
-    return connected ? get_motion_state(id) : -1;
 }
 
 int RobotController::getCurrentToolNumber() const {
@@ -187,13 +184,6 @@ MotionResult RobotController::moveLinearTo(const double position[6], bool wait) 
     double copy[6];
     std::copy(position, position + 6, copy);
     return waitForMotion(lin_pos(id, 0, 0, copy), wait);
-}
-
-MotionResult RobotController::moveLinearRelative(const double relative[6], bool wait) {
-    if (!connected) return MotionResult();
-    double copy[6];
-    std::copy(relative, relative + 6, copy);
-    return waitForMotion(lin_rel_pos(id, 0, 0.0, copy), wait);
 }
 
 void RobotController::setDigitalOutput(int index, bool state) {

@@ -1,3 +1,4 @@
+// 正式撞球程式入口，初始化網路並啟動 BilliardApp 主流程。
 #ifndef _WINSOCK_DEPRECATED_NO_WARNINGS
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
 #endif

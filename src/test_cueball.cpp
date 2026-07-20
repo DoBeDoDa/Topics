@@ -1,3 +1,4 @@
+// 母球定位與安全高度測試工具，不下降至正式擊球高度。
 #ifndef _WINSOCK_DEPRECATED_NO_WARNINGS
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
 #endif

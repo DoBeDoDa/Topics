@@ -1,3 +1,5 @@
+"""載入 YOLO 模型並執行單張影像的物件偵測推論。"""
+
 from ultralytics import YOLO
 
 

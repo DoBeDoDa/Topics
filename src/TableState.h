@@ -1,3 +1,4 @@
+// 定義視覺偵測結果、球桌狀態與目標選擇結果等領域資料。
 #pragma once
 
 #include <array>

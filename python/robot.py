@@ -1,3 +1,5 @@
+"""協調相機、YOLO、座標轉換、畫面繪製與 C++ TCP 通訊的視覺主程式。"""
+
 import os
 import socket
 import time

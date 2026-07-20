@@ -1,3 +1,4 @@
+// 宣告 HRSDK 控制器封裝、動作結果與手臂控制介面。
 #pragma once
 
 #include <array>
@@ -43,7 +44,6 @@ public:
     void setMotorState(int state);
     void setOverrideRatio(int ratio);
     void setToolNumber(int toolNumber);
-    int getMotionState();
     int getCurrentToolNumber() const;
     int getCurrentBaseNumber() const;
     bool getCurrentPosition(std::array<double, 6>& position, int& sdkCode) const;
@@ -63,7 +63,6 @@ public:
     MotionResult moveToAxis(const double joint[6], bool wait = true);
     MotionResult moveToPosition(const double position[6], bool wait = true);
     MotionResult moveLinearTo(const double position[6], bool wait = true);
-    MotionResult moveLinearRelative(const double relative[6], bool wait = true);
     void setDigitalOutput(int index, bool state);
     void firePneumatic(int index, DWORD durationMs);
 };

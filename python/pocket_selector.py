@@ -1,3 +1,5 @@
+"""根據偵測結果與轉換座標整理候選球袋及選擇資訊。"""
+
 from dataclasses import dataclass, field
 
 import numpy as np

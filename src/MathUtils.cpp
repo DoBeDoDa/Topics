@@ -1,3 +1,4 @@
+// 實作向量、角度、相機補償與球桿傾斜偏移等共用數學計算。
 #include "MathUtils.h"
 #include "Point.h"
 #include "BilliardConfig.h"

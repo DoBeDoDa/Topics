@@ -1,3 +1,4 @@
+// 宣告撞球應用流程協調器及其依賴元件。
 #pragma once
 
 #include <array>
@@ -42,5 +43,4 @@ private:
         const std::array<double, 6>& pose
     ) const;
     void printAlarmCodes() const;
-    void runContourAlignment();
 };

@@ -1,3 +1,4 @@
+// 實作直球、反彈球、障礙判斷與瞄準點選擇等擊球決策。
 #include "Algorithm.h"
 #include "BilliardPhysics.h"
 #include "BilliardConfig.h"

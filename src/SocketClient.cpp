@@ -1,3 +1,4 @@
+// 實作 C++ 控制端使用的 TCP 連線、傳送與換行封包接收。
 #include "SocketClient.h"
 
 SocketClient::SocketClient() : clientSocket(INVALID_SOCKET), connected(false) {}

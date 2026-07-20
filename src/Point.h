@@ -1,3 +1,4 @@
+// 定義點、球桌邊界、二維向量與三維偏移等基礎幾何型別。
 #pragma once
 #include <string>
 

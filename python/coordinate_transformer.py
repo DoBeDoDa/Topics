@@ -1,3 +1,5 @@
+"""使用 Homography 或選用神經網路將像素座標轉換為手臂平面座標。"""
+
 import os
 
 import cv2

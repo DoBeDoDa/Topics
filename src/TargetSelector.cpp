@@ -1,3 +1,4 @@
+// 實作目標球、目標球袋、障礙球與反彈邊界的選擇流程。
 #include "TargetSelector.h"
 
 #include <limits>

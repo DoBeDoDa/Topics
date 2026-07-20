@@ -1,3 +1,4 @@
+// 宣告撞球幾何與座標補償使用的共用數學函式。
 #pragma once
 #include <cmath>
 

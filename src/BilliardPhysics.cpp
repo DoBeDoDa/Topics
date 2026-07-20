@@ -1,3 +1,4 @@
+// 實作鬼球點、路徑遮擋、反射點與線段交點等撞球幾何計算。
 #include "BilliardPhysics.h"
 #include "MathUtils.h"
 #include <cmath>
