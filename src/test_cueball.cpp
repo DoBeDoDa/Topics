@@ -3,6 +3,7 @@
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
 #endif
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <iomanip>
@@ -23,6 +24,16 @@
 using namespace std;
 
 namespace {
+
+constexpr double ORIENTATION_SEARCH_MIN_DEG = -20.0;
+constexpr double ORIENTATION_SEARCH_MAX_DEG = 20.0;
+constexpr double ORIENTATION_SEARCH_STEP_DEG = 5.0;
+
+struct OrientationCandidate {
+    double rxDeg;
+    double ryDeg;
+    double distanceSquared;
+};
 
 void printSixValues(const string& label, const array<double, 6>& values) {
     cout << fixed << setprecision(3) << label;
@@ -68,22 +79,75 @@ bool requireMotionSuccess(
     return false;
 }
 
-bool requireReachable(
-    const string& pointName,
-    const array<double, 6>& pose,
-    const RobotController& robot
+bool findReachableOrientation(
+    const array<double, 6>& fixedPose,
+    const RobotController& robot,
+    array<double, 6>& reachablePose
 ) {
-    bool reachable = false;
-    int sdkCode = -1;
-    bool callSucceeded = robot.checkReachable(pose, reachable, sdkCode);
-    cout << "[診斷] motion_reachable(" << pointName << ")：SDK code="
-         << sdkCode << "，reachable=" << (reachable ? "true" : "false")
-         << endl;
-    if (!callSucceeded || !reachable) {
-        printAlarmCodes(robot);
-        return false;
+    vector<OrientationCandidate> candidates;
+    for (double rx = ORIENTATION_SEARCH_MIN_DEG;
+         rx <= ORIENTATION_SEARCH_MAX_DEG;
+         rx += ORIENTATION_SEARCH_STEP_DEG) {
+        for (double ry = ORIENTATION_SEARCH_MIN_DEG;
+             ry <= ORIENTATION_SEARCH_MAX_DEG;
+             ry += ORIENTATION_SEARCH_STEP_DEG) {
+            const double rxDifference = rx - fixedPose[3];
+            const double ryDifference = ry - fixedPose[4];
+            candidates.push_back({
+                rx,
+                ry,
+                rxDifference * rxDifference + ryDifference * ryDifference
+            });
+        }
     }
-    return true;
+
+    stable_sort(
+        candidates.begin(),
+        candidates.end(),
+        [](const OrientationCandidate& lhs, const OrientationCandidate& rhs) {
+            return lhs.distanceSquared < rhs.distanceSquared;
+        }
+    );
+
+    cout << "[姿態搜尋] 固定 X、Y、Z、RZ，只搜尋 RX/RY："
+         << ORIENTATION_SEARCH_MIN_DEG << " 至 "
+         << ORIENTATION_SEARCH_MAX_DEG << " 度，間隔 "
+         << ORIENTATION_SEARCH_STEP_DEG << " 度。" << endl;
+
+    for (size_t index = 0; index < candidates.size(); ++index) {
+        array<double, 6> candidatePose = fixedPose;
+        candidatePose[3] = candidates[index].rxDeg;
+        candidatePose[4] = candidates[index].ryDeg;
+
+        bool reachable = false;
+        int sdkCode = -1;
+        const bool callSucceeded = robot.checkReachable(
+            candidatePose,
+            reachable,
+            sdkCode
+        );
+        cout << "[姿態搜尋 " << (index + 1) << "/" << candidates.size()
+             << "] RX=" << candidatePose[3]
+             << "，RY=" << candidatePose[4]
+             << "：SDK code=" << sdkCode
+             << "，reachable=" << (reachable ? "true" : "false")
+             << endl;
+
+        if (!callSucceeded) {
+            cout << "[錯誤] motion_reachable 呼叫失敗，停止姿態搜尋。" << endl;
+            printAlarmCodes(robot);
+            return false;
+        }
+        if (reachable) {
+            reachablePose = candidatePose;
+            return true;
+        }
+    }
+
+    cout << "[安全停止] 搜尋範圍內沒有可達的 RX/RY 組合，不送出移動指令。"
+         << endl;
+    printAlarmCodes(robot);
+    return false;
 }
 
 }  // namespace
@@ -298,9 +362,6 @@ int main() {
             BilliardConfig::TEST_MOTION.tiltRyDeg,
             arm_rz
         };
-        array<double, 6> ready_pos = target_pos;
-        ready_pos[2] = BilliardConfig::TEST_MOTION.safeZ;
-
         // 6. 移動至中繼點與打擊點 (中繼點用來進行手腕組態轉換，避開奇異點)
         cout << "\n[步驟 5] 準備移動手臂至中繼關節位置 (TRANSIT_JOINT) 切換組態..." << endl;
         cout << "請確認安全，並按 [Enter] 開始移動: ";
@@ -356,44 +417,45 @@ int main() {
         );
 
         cout << "\n[步驟 6] 準備移動至目標點位..." << endl;
-        cout << "   - 預備點座標：X = " << ready_pos[0] 
-             << ", Y = " << ready_pos[1] 
-             << ", Z = " << ready_pos[2] << " mm" << endl;
-        cout << "   - 球心點座標：X = " << target_pos[0] 
+        cout << "   - 測試擊球點座標：X = " << target_pos[0]
              << ", Y = " << target_pos[1] 
              << ", Z = " << target_pos[2] << " mm" << endl;
-        cout << "   - 姿勢角：RX = " << target_pos[3] 
+        cout << "   - 原始姿勢角：RX = " << target_pos[3]
              << ", RY = " << target_pos[4] 
              << ", RZ = " << target_pos[5] << endl;
         cout << "==================================================" << endl;
 
-        if (!requireReachable("預備點", ready_pos, robot) ||
-            !requireReachable("球心測試點", target_pos, robot)) {
-            cout << "[安全停止] HRSDK 判定目標姿態不可達，不送出 PTP 指令。" << endl;
+        array<double, 6> reachableTargetPos = {};
+        if (!findReachableOrientation(target_pos, robot, reachableTargetPos)) {
             return failAndExit();
         }
 
+        cout << "[姿態搜尋成功] 將使用以下測試擊球姿態：" << endl;
+        printSixValues(
+            "   {X, Y, Z, RX, RY, RZ} = ",
+            reachableTargetPos
+        );
+
         cout << "【安全鎖】請確認平面平移路徑無障礙，且 Z 軸高度不會撞擊桌面。" << endl;
-        cout << "確認完畢後，請在【此視窗】按下 [Enter] 鍵開始移動：" << endl;
+        cout << "確認上列 RX/RY 姿態與路徑安全後，請在【此視窗】按下 [Enter] 鍵開始移動：" << endl;
 
         string confirm_move2;
         cin.clear();
         fflush(stdin);
         getline(cin, confirm_move2);
 
-        cout << "[動作] 手臂以 PTP 方式移往安全測試點 (Z = "
-             << BilliardConfig::TEST_MOTION.safeZ << ")..." << endl;
+        cout << "[動作] 手臂以 PTP 方式移往測試擊球點 (Z = "
+             << reachableTargetPos[2] << ")..." << endl;
         if (!requireMotionSuccess(
-            "PTP 從中繼點移動至安全測試點",
-            robot.moveToPosition(ready_pos.data(), true),
+            "PTP 從中繼點移動至測試擊球點",
+            robot.moveToPosition(reachableTargetPos.data(), true),
             robot
         )) {
             return failAndExit();
         }
         Sleep(200);
 
-        // 本測試只移動至 safeZ；strikeZ 僅做可達性診斷，不送出第二段移動。
-        cout << "[成功] 已抵達安全測試點；球心測試點未實際執行。" << endl;
+        cout << "[成功] 已抵達 RX/RY 搜尋得到的測試擊球點。" << endl;
 
         char return_confirm = 'n';
         while (return_confirm != 'y' && return_confirm != 'Y') {

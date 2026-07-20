@@ -40,18 +40,18 @@ const std::array<double, 6> TRANSIT_JOINT = {
 
 const MotionProfile PRODUCTION_MOTION = {
     -216.0,    // strikeZ：實際擊球高度
-    -125.0,    // safeZ：正式擊球前的預備高度
-    5.0,       // rxDeg
-    10.0,      // tiltRyDeg
+    -160.0,    // safeZ：正式擊球前的預備高度
+    0.0,       // rxDeg
+    15.0,      // tiltRyDeg
     20.0,      // moveBackMm
     30.0       // standoffExtraMm
 };
 
 const MotionProfile TEST_MOTION = {
-    -120.0,  // strikeZ：測試時不下降至實際擊球高度
-    -125.0,  // safeZ：測試點位統一使用此高度
-    5.0,     // rxDeg
-    10.0,    // tiltRyDeg
+    -140.0,  // strikeZ：測試時不下降至實際擊球高度
+    -150.0,  // safeZ：測試點位統一使用此高度
+    0.0,     // rxDeg
+    15.0,    // tiltRyDeg
     0.0,     // moveBackMm
     0.0      // standoffExtraMm
 };  // 測試模式動作參數
