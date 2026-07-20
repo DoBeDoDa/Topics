@@ -30,7 +30,7 @@ const unsigned long MOTION_TIMEOUT_MS = 60000;
 const unsigned long MOTION_POLL_INTERVAL_MS = 50;
 
 const std::array<double, 6> CAMERA_JOINT = {
-    0.0, -33.564, 49.53, 0.0, -15.574, -90.0
+    0.0, -11.049, 28.921, 0.0, -15.574, -90.0
 };  // 拍照關節點 {A1, A2, A3, A4, A5, A6}
 
 const std::array<double, 6> TRANSIT_JOINT = {
