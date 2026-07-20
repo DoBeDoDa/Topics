@@ -25,8 +25,10 @@ using namespace std;
 
 namespace {
 
-constexpr double ORIENTATION_SEARCH_MIN_DEG = -20.0;
-constexpr double ORIENTATION_SEARCH_MAX_DEG = 20.0;
+constexpr double RX_SEARCH_MIN_DEG = -20.0;
+constexpr double RX_SEARCH_MAX_DEG = 20.0;
+constexpr double RY_SEARCH_MIN_DEG = 15.0;
+constexpr double RY_SEARCH_MAX_DEG = 30.0;
 constexpr double ORIENTATION_SEARCH_STEP_DEG = 5.0;
 
 struct OrientationCandidate {
@@ -85,11 +87,11 @@ bool findReachableOrientation(
     array<double, 6>& reachablePose
 ) {
     vector<OrientationCandidate> candidates;
-    for (double rx = ORIENTATION_SEARCH_MIN_DEG;
-         rx <= ORIENTATION_SEARCH_MAX_DEG;
+    for (double rx = RX_SEARCH_MIN_DEG;
+         rx <= RX_SEARCH_MAX_DEG;
          rx += ORIENTATION_SEARCH_STEP_DEG) {
-        for (double ry = ORIENTATION_SEARCH_MIN_DEG;
-             ry <= ORIENTATION_SEARCH_MAX_DEG;
+        for (double ry = RY_SEARCH_MIN_DEG;
+             ry <= RY_SEARCH_MAX_DEG;
              ry += ORIENTATION_SEARCH_STEP_DEG) {
             const double rxDifference = rx - fixedPose[3];
             const double ryDifference = ry - fixedPose[4];
@@ -109,9 +111,10 @@ bool findReachableOrientation(
         }
     );
 
-    cout << "[姿態搜尋] 固定 X、Y、Z、RZ，只搜尋 RX/RY："
-         << ORIENTATION_SEARCH_MIN_DEG << " 至 "
-         << ORIENTATION_SEARCH_MAX_DEG << " 度，間隔 "
+    cout << "[姿態搜尋] 固定 X、Y、Z、RZ，只搜尋工具姿態：RX="
+         << RX_SEARCH_MIN_DEG << " 至 " << RX_SEARCH_MAX_DEG
+         << " 度，RY=" << RY_SEARCH_MIN_DEG << " 至 "
+         << RY_SEARCH_MAX_DEG << " 度，間隔 "
          << ORIENTATION_SEARCH_STEP_DEG << " 度。" << endl;
 
     for (size_t index = 0; index < candidates.size(); ++index) {
