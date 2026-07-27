@@ -59,7 +59,7 @@ void BilliardApp::run() {
     }
 }
 
-void BilliardApp::moveToCameraPosition() {
+void BilliardApp::moveToCameraPosition() {  // 移動至拍照點
     cout << "\n[安全鎖] 準備返回拍照點..." << endl;
     cout << "請確認手臂前方安全無障礙物，隨後在【此視窗】按下 [Enter] 鍵繼續: ";
     cin.clear();
