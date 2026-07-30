@@ -1,77 +1,114 @@
-// 實作向量、角度、相機補償與球桿傾斜偏移等共用數學計算。
 #include "MathUtils.h"
-#include "Point.h"
-#include "BilliardConfig.h"
+
+#include <algorithm>
+#include <cmath>
 
 namespace BilliardMath {
-    Point applyCameraCompensation(Point raw_pt) {
-        // 如果是無效座標點，不進行補償
-        if (raw_pt.x < -9000.0 || raw_pt.y < -9000.0) {
-            return raw_pt;
-        }
+bool isFinite(Point point) noexcept
+{
+    return std::isfinite(point.x) && std::isfinite(point.y);
+}
 
-        const double offset_x = BilliardConfig::CAMERA_OFFSET_X_MM;
-        const double offset_y = BilliardConfig::CAMERA_OFFSET_Y_MM;
+bool isFinite(Vector2D vector) noexcept
+{
+    return std::isfinite(vector.x) && std::isfinite(vector.y);
+}
 
-        const double ref_x = BilliardConfig::CAMERA_REFERENCE_X_MM;
-        const double ref_y = BilliardConfig::CAMERA_REFERENCE_Y_MM;
-
-        const double k_x = BilliardConfig::CAMERA_COMPENSATION_KX;
-        const double k_y = BilliardConfig::CAMERA_COMPENSATION_KY;
-
-        // 1. 計算相對於基準點的偏移值
-        double dx = raw_pt.x - ref_x;
-        double dy = raw_pt.y - ref_y;
-
-        // 2. 比例計算補償值 (離基準點越近，補償越小；越遠，補償越大)
-        double comp_x = k_x * dx;
-        double comp_y = k_y * dy;
-
-        Point compensated_pt;
-        compensated_pt.x = raw_pt.x + offset_x + comp_x;
-        compensated_pt.y = raw_pt.y + offset_y + comp_y;
-
-        return compensated_pt;
+std::optional<Vector2D> getVector(Point start, Point end) noexcept
+{
+    if (!isFinite(start) || !isFinite(end)) {
+        return std::nullopt;
     }
 
-    double getDistance(double x1, double y1, double x2, double y2) {
-        return sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1));
+    const Vector2D result{end.x - start.x, end.y - start.y};
+    if (!isFinite(result)) {
+        return std::nullopt;
     }
 
-    double getDistance(Point p1, Point p2) {
-        return getDistance(p1.x, p1.y, p2.x, p2.y);
+    return result;
+}
+
+std::optional<double> getLength(Vector2D vector) noexcept
+{
+    if (!isFinite(vector)) {
+        return std::nullopt;
     }
 
-    double getLength(double dx, double dy) {
-        return sqrt(dx * dx + dy * dy);
+    const double length = std::hypot(vector.x, vector.y);
+    if (!std::isfinite(length)) {
+        return std::nullopt;
     }
 
-    double getAngleBetweenVectors(double v1_x, double v1_y, double v2_x, double v2_y) {
-        double len1 = getLength(v1_x, v1_y);
-        double len2 = getLength(v2_x, v2_y);
-        if (len1 < 0.001 || len2 < 0.001) return 0.0;
-        
-        double cos_theta = (v1_x * v2_x + v1_y * v2_y) / (len1 * len2);
-        if (cos_theta > 1.0) cos_theta = 1.0;
-        if (cos_theta < -1.0) cos_theta = -1.0;
-        return acos(cos_theta) * 180.0 / PI;
+    return length;
+}
+
+std::optional<double> getDistance(Point first, Point second) noexcept
+{
+    const auto vector = getVector(first, second);
+    if (!vector) {
+        return std::nullopt;
     }
 
-    double getVectorAngle(double dx, double dy) {
-        return atan2(dy, dx) * 180.0 / PI;
+    return getLength(*vector);
+}
+
+std::optional<Vector2D> normalize(Vector2D vector) noexcept
+{
+    const auto length = getLength(vector);
+    if (!length || *length == 0.0) {
+        return std::nullopt;
     }
 
-    Vector2D getVector(Point start, Point end) {
-        return { end.x - start.x, end.y - start.y };
+    const Vector2D normalized{vector.x / *length, vector.y / *length};
+    if (!isFinite(normalized)) {
+        return std::nullopt;
     }
 
-    Offset3D getTiltOffset(double arm_rz, double tilt_ry_deg, double move_back_mm) {
-        double rad_rz = arm_rz * PI / 180.0;
-        double rad_tilt = tilt_ry_deg * PI / 180.0;
+    return normalized;
+}
 
-        double dx = -move_back_mm * cos(rad_tilt) * cos(rad_rz);
-        double dy = -move_back_mm * cos(rad_tilt) * sin(rad_rz);
-        double dz =  move_back_mm * sin(rad_tilt);
-        return { dx, dy, dz };
+std::optional<double> getVectorAngleDeg(Vector2D vector) noexcept
+{
+    const auto length = getLength(vector);
+    if (!length || *length == 0.0) {
+        return std::nullopt;
     }
+
+    double angleDeg = std::atan2(vector.y, vector.x) * 180.0 / PI;
+    if (!std::isfinite(angleDeg)) {
+        return std::nullopt;
+    }
+
+    if (angleDeg == -180.0) {
+        angleDeg = 180.0;
+    }
+
+    return angleDeg;
+}
+
+std::optional<double> getAngleBetweenVectorsDeg(
+    Vector2D first,
+    Vector2D second) noexcept
+{
+    const auto normalizedFirst = normalize(first);
+    const auto normalizedSecond = normalize(second);
+    if (!normalizedFirst || !normalizedSecond) {
+        return std::nullopt;
+    }
+
+    const double dot =
+        normalizedFirst->x * normalizedSecond->x +
+        normalizedFirst->y * normalizedSecond->y;
+    if (!std::isfinite(dot)) {
+        return std::nullopt;
+    }
+
+    const double clampedDot = std::clamp(dot, -1.0, 1.0);
+    const double angleDeg = std::acos(clampedDot) * 180.0 / PI;
+    if (!std::isfinite(angleDeg)) {
+        return std::nullopt;
+    }
+
+    return angleDeg;
+}
 }

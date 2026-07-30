@@ -1,31 +1,22 @@
-// 宣告撞球幾何與座標補償使用的共用數學函式。
+// 宣告不依賴業務設定的純二維數學函式。
 #pragma once
-#include <cmath>
+
+#include <optional>
 
 #include "Point.h"
 
 namespace BilliardMath {
-    const double PI = 3.14159265358979323846;
+inline constexpr double PI = 3.14159265358979323846;
 
-    // 相機角度與位置畸變補償函數
-    Point applyCameraCompensation(Point raw_pt);
+bool isFinite(Point point) noexcept;
+bool isFinite(Vector2D vector) noexcept;
 
-    // 計算兩點間的距離
-    double getDistance(double x1, double y1, double x2, double y2);
-    double getDistance(Point p1, Point p2);
-
-    // 計算二維向量長度
-    double getLength(double dx, double dy);
-
-    // 計算兩個向量之間的夾角（度數）
-    double getAngleBetweenVectors(double v1_x, double v1_y, double v2_x, double v2_y);
-
-    // 計算向量相對於 X 軸的角度（度數，等同 RZ，範圍為 -180 到 180）
-    double getVectorAngle(double dx, double dy);
-
-    // 計算起點到終點的二維方向向量
-    Vector2D getVector(Point start, Point end);
-
-    // 計算傾斜擊球時的三維座標增量微量（物理補償與回退）
-    Offset3D getTiltOffset(double arm_rz, double tilt_ry_deg, double move_back_mm);
+std::optional<Vector2D> getVector(Point start, Point end) noexcept;
+std::optional<double> getLength(Vector2D vector) noexcept;
+std::optional<double> getDistance(Point first, Point second) noexcept;
+std::optional<Vector2D> normalize(Vector2D vector) noexcept;
+std::optional<double> getVectorAngleDeg(Vector2D vector) noexcept;
+std::optional<double> getAngleBetweenVectorsDeg(
+    Vector2D first,
+    Vector2D second) noexcept;
 }

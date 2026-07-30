@@ -1,4 +1,4 @@
-// 定義點、球桌邊界、二維向量與三維偏移等基礎幾何型別。
+// 定義點、球桌邊界與二維向量等基礎幾何型別。
 #pragma once
 #include <string>
 
@@ -18,8 +18,9 @@ struct Vector2D {
     double y;
 };
 
-struct Offset3D {
-    double x;
-    double y;
-    double z;
+struct AxisAlignedBounds2D {
+    double minX;
+    double maxX;
+    double minY;
+    double maxY;
 };

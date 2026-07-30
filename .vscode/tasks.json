@@ -125,9 +125,10 @@
                 "/nologo",
                 "/utf-8",
                 "/I", "${workspaceFolder}\\tests",
-                "/Fo${workspaceFolder}\\build\\phase1_core_tests.obj",
+                "/Fo${workspaceFolder}\\build\\",
                 "/Fe:${workspaceFolder}\\bin\\phase1_core_tests.exe",
-                "${workspaceFolder}\\tests\\phase1_core_tests.cpp"
+                "${workspaceFolder}\\tests\\phase1_core_tests.cpp",
+                "${workspaceFolder}\\src\\MathUtils.cpp"
             ],
             "options": {
                 "cwd": "${workspaceFolder}"
