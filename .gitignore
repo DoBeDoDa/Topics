@@ -17,3 +17,4 @@ __pycache__/
 
 # PyTorch / Model files
 best.pt
+/bin/
