@@ -18,6 +18,7 @@
             "args": [
                 "/Zi",
                 "/EHsc",
+                "/std:c++17",
                 "/nologo",
                 "/utf-8",
                 "/FS",
@@ -55,6 +56,7 @@
             "args": [
                 "/Zi",
                 "/EHsc",
+                "/std:c++17",
                 "/nologo",
                 "/utf-8",
                 "/FS",
@@ -86,6 +88,7 @@
             "args": [
                 "/Zi",
                 "/EHsc",
+                "/std:c++17",
                 "/nologo",
                 "/utf-8",
                 "/FS",
@@ -113,6 +116,90 @@
             "detail": "編譯母球定位測試程式"
         },
         {
+            "type": "cppbuild",
+            "label": "Build Phase 1 Core Tests",
+            "command": "cl.exe",
+            "args": [
+                "/EHsc",
+                "/std:c++17",
+                "/nologo",
+                "/utf-8",
+                "/I", "${workspaceFolder}\\tests",
+                "/Fo${workspaceFolder}\\build\\phase1_core_tests.obj",
+                "/Fe:${workspaceFolder}\\bin\\phase1_core_tests.exe",
+                "${workspaceFolder}\\tests\\phase1_core_tests.cpp"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": "Prepare build directories",
+            "problemMatcher": ["$msCompile"],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            }
+        },
+        {
+            "type": "process",
+            "label": "Run Phase 1 Core Tests",
+            "command": "${workspaceFolder}\\bin\\phase1_core_tests.exe",
+            "args": [],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": "Build Phase 1 Core Tests",
+            "dependsOrder": "sequence",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "clear": true,
+                "close": true
+            }
+        },
+        {
+            "type": "cppbuild",
+            "label": "Build Phase 1 Algorithm Regression Tests",
+            "command": "cl.exe",
+            "args": [
+                "/EHsc",
+                "/std:c++17",
+                "/nologo",
+                "/utf-8",
+                "/I", "${workspaceFolder}\\tests",
+                "/Fo${workspaceFolder}\\build\\phase1_algorithm_regression_tests.obj",
+                "/Fe:${workspaceFolder}\\bin\\phase1_algorithm_regression_tests.exe",
+                "${workspaceFolder}\\tests\\phase1_algorithm_regression_tests.cpp"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": "Prepare build directories",
+            "problemMatcher": ["$msCompile"],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            }
+        },
+        {
+            "type": "process",
+            "label": "Run Phase 1 Algorithm Regression Tests",
+            "command": "${workspaceFolder}\\bin\\phase1_algorithm_regression_tests.exe",
+            "args": [],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": "Build Phase 1 Algorithm Regression Tests",
+            "dependsOrder": "sequence",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "clear": true,
+                "close": true
+            }
+        },
+        {
             "type": "cmake",
             "label": "CMake: 設定",
             "command": "configure",
@@ -130,6 +217,7 @@
             "args": [
                 "/Zi",
                 "/EHsc",
+                "/std:c++17",
                 "/nologo",
                 "/Fe${fileDirname}\\${fileBasenameNoExtension}.exe",
                 "${file}"
@@ -153,6 +241,7 @@
             "args": [
                 "-fdiagnostics-color=always",
                 "-g",
+                "-std=c++17",
                 "${file}",
                 "-o",
                 "${fileDirname}\\${fileBasenameNoExtension}.exe"
