@@ -1,12 +1,19 @@
 # Phase 1：MathUtils、CameraCompensator與安全幾何重構規格
 
+> **狀態：Superseded（僅供歷史追溯）**
+> 本文件的 P1-01／P1-02 背景可用於追溯既有成果，但其 CameraCompensator、
+> VisionFrameProcessor 補償責任、舊 Phase／ticket 切分及策略相容條款，已由
+> `billiards-system-refactor-master-spec.md`、`python-cpp-external-contract.md`、
+> `phase-1-shot-brain-spec.md` 與 `phase-2-shot-executor-spec.md` 取代。
+> 後續 To Tickets 與實作不得以本文件覆蓋 active specs。
+
 ## 文件資訊
 
-- 狀態：Ready for Implement
+- 狀態：Superseded；不得供新 tickets 或實作使用
 - 規格版本：1.1
 - 建立日期：2026-07-30
 - 基準 Commit：`b278db0`
-- 上層規格：[`billiards-system-refactor-master-spec.md`](billiards-system-refactor-master-spec.md)
+- 上層規格：[`billiards-system-refactor-master-spec.md`](../../specs/billiards-system-refactor-master-spec.md)
 
 ## 1. 問題陳述
 
