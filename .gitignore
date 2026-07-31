@@ -18,3 +18,9 @@ __pycache__/
 # PyTorch / Model files
 best.pt
 /bin/
+
+# Local lens-calibration photos and generated reports
+calibration/lens/images/*
+!calibration/lens/images/.gitkeep
+calibration/lens/results/*
+!calibration/lens/results/.gitkeep
