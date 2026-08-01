@@ -1,130 +1,108 @@
-# P1-06 — StableFrameValidator與TableState
+# P1-04 — Three-Event Stability Lifecycle
 
-**Status:** ready-for-agent
+**Status:** Planned
 
-**Blocked by:** P1-05 — VisionFrameProcessor與ProcessedVisionFrame
+**Blocked by:** P1-03
 
-## 1. Ticket ID與標題
+## 1. ID
 
-P1-06：以固定三個單幀Valid輸入建立唯一可供策略使用的穩定TableState。
+P1-04
 
-## 2. 目的
+## 2. Title
 
-完成純離線三幀穩定切片：presence pattern一致、各軸中位數與歐氏距離均通過
-後才產生TableState。這張票不負責Socket收集、等待或CompetitionAuto。
+同一shot cycle三事件穩定生命週期與StableTableState。
 
-## 3. 前置依賴
+## 3. Status
 
-- P1-05完成。
-- ProcessedVisionFrame只代表單幀Valid。
+Planned
 
-## 4. 新增檔案
+## 4. Purpose
 
-- `src/StableFrameValidator.h`
-- `src/StableFrameValidator.cpp`
+只在三個合法、連續、同cycle ReceiveEvents的球與六袋都一致時，產生唯一可交給ShotBrain的StableTableState。
 
-## 5. 修改檔案
+## 5. Approved Spec References
 
-- `src/TableState.h`，固定TableState為三幀穩定後型別並移除DetectedPoint。
-- `tests/phase1_core_tests.cpp`
-- `.vscode/tasks.json`，將StableFrameValidator加入core test target。
+- Master Spec §5.2、§6、§9 P1-04。
+- External Contract §6～§10。
+- Phase 1 Spec §4 P1-04、§5～§6。
 
-## 6. 明確不得修改的檔案與行為
+## 6. Existing Responsibility Owners
 
-- 不修改SocketClient、BilliardApp、TargetSelector或Algorithm。
-- 不建立三幀Socket queue或重試狀態機。
-- 不填入正式stableFrameToleranceMm。
-- 不讓Parser或VisionFrameProcessor直接產生TableState。
-- 不使用平均數取代中位數。
+- `TableState.h`、`BilliardConfig.h/.cpp`及現有`BilliardApp`資料生命週期。
+- 只有證明無合理existing owner時，才可新增唯一穩定狀態helper。
 
-## 7. API或資料型別變更
+## 7. Existing Files Expected to Change
 
-- 新增`StableFrameConfig{optional<double> stableFrameToleranceMm}`。
-- 新增`StableFrameStatus`：
-  Stable、Unstable、InvalidInput、InvalidConfiguration、
-  ConfigurationMissing。
-- 新增`StableFrameResult`：
-  Stable必須有TableState；其他status必須為nullopt。
-- `validate(const std::array<ProcessedVisionFrame,3>&)`。
-- TableState與Parsed／Processed為不同具名型別。
+- `TableState.h`、`BilliardConfig.h/.cpp`、必要的`BilliardApp` integration、`tests/phase1_core_tests.cpp`與離線task。
 
-## 8. 逐步實作內容
+## 8. Existing Files Explicitly Not to Duplicate
 
-1. 缺少tolerance回ConfigurationMissing。
-2. tolerance非有限或小於0回InvalidConfiguration。
-3. 防禦性拒絕任何非有限輸入點。
-4. 比較9顆object ball、cue ball及6個pocket的全部presence bits。
-5. 任一presence差異回Unstable。
-6. 對每個三幀皆存在的物件，X與Y分別取三值中位數。
-7. 使用`std::hypot`計算各幀Point到中位數Point的距離。
-8. 任一距離大於tolerance回Unstable；等於tolerance通過。
-9. 三幀皆缺失的物件在TableState保留nullopt。
-10. 全部通過後才一次建立TableState。
+- 不得新增Phase1Pipeline.cpp、第二個Parser、第二個BilliardApp或多個stability owners。
 
-## 9. 測試案例
+## 9. Scope
 
-- 三幀相同。
-- 三幀不同但全部在tolerance內。
-- X與Y中位數分別來自不同幀。
-- object ball、cue ball或pocket presence變動。
-- 任一距離超過tolerance。
-- 距離剛好等於tolerance。
-- tolerance缺失、負值、NaN與Infinity。
-- 輸入Point含NaN或Infinity。
-- 非必要物件三幀皆missing。
-- 任一上游SingleFrameResult非Valid時，pipeline不得呼叫validator。
-- 所有status／optional payload不變量。
+- ReceiveEvent stream、NeedMoreEvents／Stable／Unstable／TimedOut與Phase1PipelineResult。
+- 球及固定ID六袋presence、三幀X/Y median、各自tolerance與完全reset。
+- source event IDs、connection／cycle identity與穩定pocket centers進StableTableState。
 
-## 10. 實際測試或建置命令
+## 10. Out of Scope
 
-```powershell
-cl.exe /std:c++17 /EHsc /nologo /utf-8 /I .\src /I .\tests `
-  .\tests\phase1_core_tests.cpp `
-  .\src\MathUtils.cpp `
-  .\src\CameraCompensator.cpp `
-  .\src\VisionDataParser.cpp `
-  .\src\VisionFrameProcessor.cpp `
-  .\src\StableFrameValidator.cpp `
-  /Fe:.\bin\phase1_core_tests.exe
+- CSV parsing、Socket transport、candidate generation、Robot與硬體。
 
-& .\bin\phase1_core_tests.exe
-```
+## 11. Preconditions
 
-## 11. 驗收條件
+- P1-03合法SingleFrameResult與cycle reset signal可用。
 
-- [ ] 三幀presence演算法完整測試。
-- [ ] X/Y分別取中位數，未使用平均數或整幀Point替代。
-- [ ] tolerance缺失及無效設定明確分流。
-- [ ] 只有Stable攜帶TableState。
-- [ ] TableState只由StableFrameValidator成功產生。
-- [ ] 沒有Socket、H按鈕或CompetitionAuto程式。
+## 12. Dependencies
 
-## 12. 回滾方式
+- Blocked by P1-03；完成後解鎖P1-05。
 
-- Revert本ticket commit。
-- 若P1-08及下游已接受TableState，先回滾下游。
-- P1-05單幀處理可獨立保留。
+## 13. Detailed Requirements
 
-## 13. Safety Critical限制
+1. 恰好三個嚴格遞增event；不得跨connection、cycle或timeout。
+2. 母球與六袋必須符合Approved Contract；1～9號球的presence pattern必須在三個ReceiveEvents間一致，但可以合法為九顆全部absent。
+3. 每個存在物件X/Y分別取median；球與袋口使用各自具名mm tolerance；absent編號球不得生成假Point或default Point。
+4. 任一invalid event、必要母球／六袋缺失、存在物件jump、編號球presence pattern改變、disconnect或timeout清空全部，下一合法event重新算第1幀。
+5. 只有Stable status可攜帶StableTableState。
+6. `CueBall=present`、`Ball1..Ball9=all absent`且六袋合法／穩定時必須可形成StableTableState；這不是NoPlan或Pipeline failure。
 
-- 禁止單幀或兩幀資料直接建立TableState。
-- 禁止presence不一致時合併座標。
-- 禁止tolerance缺失時使用0或猜測值。
-- 禁止failure status攜帶TableState。
+## 14. Fail-Closed Requirements
 
-## 14. 完成後應產生的Git diff範圍
+- 不得以單幀／兩幀、平均值、partial state、舊cycle event或預設Point建立StableTableState。
 
-```text
-A  src/StableFrameValidator.h
-A  src/StableFrameValidator.cpp
-M  src/TableState.h
-M  tests/phase1_core_tests.cpp
-M  .vscode/tasks.json
-```
+## 15. Acceptance Criteria
 
-## 15. 建議commit message
+- [ ] 三event、presence、median、tolerance與reset規則完整。
+- [ ] 三個event皆為zero-object-ball presence pattern時可形成StableTableState，且所有編號球維持absent。
+- [ ] 六袋與球使用同一cycle，無unstable pocket／stable ball混用。
+- [ ] Pipeline failure不成為NoPlan。
+- [ ] StableTableState只有單一production owner。
 
-```text
-refactor(vision): add stable frame validation
-```
+## 16. Test Requirements
 
+- identical／within tolerance／boundary／jump／missing／presence change／cross-cycle／timeout／reconnect fixtures。
+- 驗證X/Y median可來自不同event；所有非Stable status沒有success value。
+- Case A（Stability段）：三個合法ReceiveEvents皆為1～9號球全部absent，可形成StableTableState。
+- Case C：三幀object-ball presence pattern不同，結果為`Unstable`並完全reset；新合法event重新作為第1幀。
+- Case B邊界確認：P1-03拒絕的單邊sentinel不得進入stability accumulation。
+
+## 17. Hardware Level
+
+完全離線，使用fake events。
+
+## 18. Regression Requirements
+
+- P1-03 Parser及P1-01／P1-02保持綠色；不改32值wire。
+
+## 19. Definition of Done
+
+- 離線測試、dependency audit與reset error injection通過；單一commit可回滾。
+
+## 20. Requirement Traceability
+
+- Rename／Refactor舊P1-06 StableFrameValidator。
+- 接收舊P1-05的presence／single-frame failure propagation，但不接收相機補償。
+
+## 21. New File Justification
+
+Default：None expected。若跨幀狀態無合理owner且塞入既有類別會破壞單一責任，才可新增一個唯一helper，ticket內須記錄證據與被取代owner；名稱不預設。

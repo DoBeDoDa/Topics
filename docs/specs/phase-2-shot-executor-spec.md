@@ -3,21 +3,22 @@
 ## 文件資訊
 
 - 狀態：Approved
+- Final Workflow Verification：PASS（2026-08-01）
 - 規格版本：1.0
 - 能力範圍：P2-01 至 P2-03
-- 唯一權威：frame轉換、ExecutionPlan、Pose、ExecutionPolicy、fake狀態機、PTP／LIN、固定力度、雙DO、HRSDK與硬體驗收
+- 唯一權威：Base0 planar XY到ExecutionPlan／Pose、ExecutionPolicy、fake狀態機、PTP／LIN、固定力度、雙DO、HRSDK與硬體驗收
 
 ## 1. Problem Statement
 
-現有流程把二維角度直接混入Euler欄位，沒有明確TableFrame→Base0契約；LIN檢查失敗後仍可能繼續PTP。氣動控制只寫單一DO並忽略回傳碼，無法表示OFF失敗或通訊中斷後的未知危險狀態。
+現有流程把二維角度直接混入Euler欄位，且未明確限制A／B姿態搜尋；LIN檢查失敗後仍可能繼續PTP。氣動控制只寫單一DO並忽略回傳碼，擊球後也沒有先垂直安全抬升，無法表示OFF失敗或通訊中斷後的未知危險狀態。
 
 ## 2. Solution
 
-Phase 2只消費有效ShotPlan，先以已標定frame chain產生ExecutionPlan，再由fake adapters驗證完整狀態機、錯誤注入及雙DO互鎖。最後P2-03才接入HRSDK與真實DO，且只有完成校正envelope的方案可在受控條件執行。
+Phase 2只消費有效的Base0平面XY ShotPlan，由既有MotionPlanner直接以XY、人工校正Strike Z、人工核准小區間A／B搜尋及方向C產生ExecutionPlan，不做TableFrame→Base0或第二次平面映射。再由fake adapters驗證完整狀態機、錯誤注入、雙DO互鎖及垂直safe lift；最後P2-03才接入HRSDK與真實DO。
 
 ## 3. User Stories
 
-1. 作為機械手臂開發者，我要把TableFrame方案轉成Base0中的Tool1 TCP Pose，而不重新計算撞球策略。
+1. 作為機械手臂開發者，我要直接由Base0平面XY方案建立Tool1 TCP Pose，而不重新計算撞球策略或轉換平面座標。
 2. 作為安全審查者，我要在任何真實命令前用fake驗證所有狀態與失敗轉移。
 3. 作為操作者，我要讓未授權LegalContact、未校正力度或無效frame阻止執行。
 4. 作為硬體操作者，我要讓LIN檢查失敗、DO互鎖失敗或通訊中斷停止所有後續正常動作。
@@ -28,10 +29,10 @@ Phase 2只消費有效ShotPlan，先以已標定frame chain產生ExecutionPlan�
 ### P2-01：ExecutionPlan and Pose
 
 - 驗證ShotPlan不變量與calibration revisions。
-- 驗證ShotPlan的AttestedVisionSession／manifest reference與目前部署及calibration revisions一致；缺少或不一致不得建立ExecutionPlan。
+- 驗證ShotPlan的local connection／shot-cycle identity、source event IDs與calibration revisions完整；缺少或不一致不得建立ExecutionPlan。
 - 驗證CommonAuditFields與plan-type-specific variant payload相符；拒絕LegalContact中的Pot-only假成功值。
-- 執行TableFrame→Base0→Tool1/TCP frame chain。
-- 產生approach、strike定位及return語意計畫。
+- 由Base0平面XY、人工Strike Z、核准範圍A／B及方向C建立Tool1/TCP Pose；不得執行TableFrame→Base0。
+- 產生SafeApproachPose、StrikeReadyPose、版本化safe-lift derivation rule／height及CameraPose return語意計畫；最終PostStrikeSafeLiftPose只能在氣動完成後由current actual pose建立。
 - 不連結HRSDK，不執行命令。
 
 ### P2-02：Fake Execution and Dual-DO Safety
@@ -39,6 +40,7 @@ Phase 2只消費有效ShotPlan，先以已標定frame chain產生ExecutionPlan�
 - 定義MotionAdapter與PneumaticAdapter契約。
 - 使用fake adapters執行完整狀態機及錯誤注入。
 - 驗證ExecutionPolicy、固定力度envelope、DO互斥與UnknownUnsafe。
+- 以既有BilliardApp owner驗證StartRequested、CameraPose、capture cycle、planning、execution、safe lift、return及WaitingForStart的完整單cycle流程。
 - 不連結真實HRSDK或DO。
 
 ### P2-03：Real Adapters and Controlled Acceptance
@@ -46,41 +48,72 @@ Phase 2只消費有效ShotPlan，先以已標定frame chain產生ExecutionPlan�
 - 實作HRSDK與真實雙DO adapters。
 - 驗證Tool1／Base0、SDK回傳碼、reachable與LIN。
 - 只有最後驗收步驟可在受控環境使用真實硬體。
+- 以相同BilliardApp流程接入既有RobotController／HRSDK／DO，不承接vision Socket或另建application state machine。
+
+### Existing Responsibility Owners
+
+| ID | 既有owner |
+|---|---|
+| P2-01 | `MotionPlanner`、`BilliardConfig`、`MathUtils`；既有`MotionPlan`原地演進為ExecutionPlan語意 |
+| P2-02 | `BilliardApp`、`MotionPlanner`、`RobotController`介面、`BilliardConfig`及tests中的fake adapters |
+| P2-03 | `RobotController`、`BilliardApp`、`BilliardConfig`，必要時既有`main.cpp` |
+
+ExecutionPlan不要求新增ExecutionPlanner.cpp；Execution State Machine由既有
+BilliardApp與RobotController承接。Fake adapters只可在測試中替代硬體依賴，不得
+複製整套控制器；Real adapters必須強化既有RobotController，不得建立第二個
+RobotController或第二個application。
 
 ## 5. Coordinate Frames
 
 ### 5.1 Required Calibrations
 
-- `T_Base0_Table`：把TableFrame point轉成Base0 point的已標定剛體轉換。
-- TableFrame及其revision：必須與ShotPlan一致。
+- Base0 planar calibration及revision：必須與ShotPlan及受控部署設定一致；V1不依賴runtime attestation。
 - Tool1 TCP：以氣動推桿完全縮回時的實體尖端標定。
+- `cueForwardAxisTool`：版本化人工校正的Tool-local有限單位向量；不得在沒有實機證據時固定宣稱為`+X`。
 - Tool1相對法蘭的controller設定與revision。
+- 人工校正Strike Z、A／B基準與核准搜尋範圍、C Tool offset及safe lift高度的版本化設定。
 
-點使用完整旋轉與平移；方向向量只使用旋轉部分並重新驗證finite與單位長度。
+ShotPlan中的Base0平面XY Point及direction不得再旋轉、平移或補償。方向向量必須重新驗證finite與單位長度。
 
 ### 5.2 Target Pose Semantics
 
 - 擊球方向來自ShotPlan，不由Phase 2重新選擇。
-- Tool1局部`+X`對齊Base0中的擊球方向；`-X`是退桿方向。
-- `RX=-180°`、`RY=0°`是待驗證水平基準。
-- `RZ`由Base0平面中的擊球方向產生。
-- Euler轉換只存在HRSDK adapter邊界；核心Pose使用明確旋轉表示。
+- 經目前A／B／C姿態旋轉後，`cueForwardAxisTool`投影至Base0 XY必須與擊球方向對齊；`+X`只有在版本化校正明確指定時才可作其值。
+- 核心Robot Pose語意為`Pose = (X,Y,Z,A,B,C)`。
+- `A0`、`B0`是人工校正且版本化的基準；A／B只可在人工核准的小區間內搜尋。
+- `C`唯一由Base0平面擊球單位方向`d=(dx,dy)`計算：`C = normalizeAngle(atan2(dy,dx) + CToolOffset)`。
+- HRSDK的RX／RY／RZ表示與A／B／C的確切映射只存在HRSDK adapter邊界，且必須經P2-03驗證。
 - HRSDK目標表示Base0中的Tool1 TCP Pose。adapter設定Tool1後，不得再手動重複套用同一Tool平移。
-- 任一frame、revision、矩陣正交性、方向或Euler分解無效時拒絕ExecutionPlan。
+- 任一revision、方向、姿態設定或adapter角度映射無效時拒絕ExecutionPlan。
 
-## 6. Strike Position and Ready Gap
-
-- GhostBallPoint是首次接觸瞬間的母球球心位置，不是Robot TCP strike position；Phase 2不得直接把GhostBallPoint轉成Robot Pose。
-- ShotPlan中的母球目前中心`C`與擊球方向單位向量`d`位於TableFrame。令`r`為ShotPlan所攜且與TableGeometry revision一致的`ballRadiusMm`、ready gap為`g = readyGapMm`，縮回尖端的strike-ready水平位置唯一為：
+### 5.3 Bounded A/B Search
 
 ```text
-TCPready = C - (r + g) * d
+A ∈ [A0 - deltaA, A0 + deltaA]
+B ∈ [B0 - deltaB, B0 + deltaB]
+```
+
+- `A0`、`B0`、`deltaA`、`deltaB`、搜尋step、順序與tie-break必須finite、版本化且經人工核准。
+- 搜尋必須有限且確定性；不得擴張範圍、產生未核准中繼Pose或以0／任意姿態fallback。
+- 所有候選無效或不可達時回`NoExecutablePlan`，不得繼續Robot命令。
+- 每個A／B候選必須投影已校正`cueForwardAxisTool`至Base0 XY，並滿足`angle(projectedCueForwardAxisXY, d) <= maxCueDirectionErrorDeg`；投影退化、非finite或超限即拒絕該候選。
+- A／B搜尋不得修改由擊球方向唯一算出的C。
+- 禁止無界、未校正或未核准的姿態搜尋；允許上述核准小區間內的確定性可達姿態搜尋。
+- `test_cueball`中的既有A／B prototype若仍有效，後續只可移入／重構至既有MotionPlanner並補測試，不得複製成第二套搜尋實作。
+
+## 6. StrikeReadyPose and Ready Gap
+
+- GhostBallPoint是首次接觸瞬間的母球球心位置，不是Robot TCP位置；Phase 2不得直接把GhostBallPoint轉成Robot Pose。Robot在氣動擊發前到達的是`StrikeReadyPose`，不是TCP接觸點或`StrikePose`。
+- ShotPlan中的母球目前中心`Cball`與擊球方向單位向量`d`位於Robot Base0平面XY。令`r`為ShotPlan所攜且與TableGeometry revision一致的`ballRadiusMm`、ready gap為`g = readyGapMm`，縮回尖端的strike-ready水平位置唯一為：
+
+```text
+TCPready = Cball - (r + g) * d
 ```
 
 - `d`必須finite且在具名容差內為單位向量；無效時拒絕ExecutionPlan。
-- `TCPready`必須使用母球目前中心`C`，不得以`Gpot`、`Gcontact`或`GkickContact`代替。
-- `TCPready`先依已標定TableFrame→Base0轉換建立水平位置；Z由獨立Strike Z校正決定。
-- Tool1局部`+X`沿`d`；氣動伸出後的物理行程由FixedForceEnvelope與氣動校正負責。
+- `TCPready`必須使用母球目前中心`Cball`，不得以`Gpot`、`Gcontact`或`GkickContact`代替。
+- `TCPready`的XY直接是Base0平面位置，不得執行任何座標轉換；Z由獨立、人工核准且版本化的Strike Z校正決定。
+- 校正的`cueForwardAxisTool`沿`d`；氣動伸出後的物理行程由FixedForceEnvelope與氣動校正負責。
 - 縮回尖端到母球表面的距離為`readyGapMm`。
 - 基準關係：`centerToTcpMm = ballRadiusMm + readyGapMm`。
 - 既有50 mm中心距只能作人工可調初始基準，不是通用物理常數。
@@ -96,7 +129,8 @@ ShotPlan驗證必須遵守Phase 1的variant契約：DirectPot只需Common+Pot、
 ExecutionPlan至少包含：
 
 - ShotPlan identity、type及calibration revisions。
-- Base0中的Tool1 TCP safe-approach與strike定位Pose。
+- Base0中的Tool1 TCP SafeApproachPose與StrikeReadyPose。
+- `safeLiftHeightMm`與「氣動完成後由current actual pose保持X／Y／A／B／C、只增加Z」的唯一PostStrikeSafeLiftPose derivation rule；不得預存一個planned lift-start pose取代actual pose。
 - transit joint與camera joint references。
 - 需要執行的PTP／LIN段及其檢查方式。
 - FixedForceEnvelope evaluation結果。
@@ -141,22 +175,45 @@ Phase 1已把超過`maxKickRailAngleDeg`的Kick視為幾何不可行，因此它
 
 ## 10. Motion Sequence
 
-正常順序：
+P2-02以fake、P2-03以real adapters驗證同一個既有`BilliardApp` application cycle；不得新增Start manager或第二個application。正常順序：
 
 ```text
-SafeIdle
-→ validating ShotPlan / policy / calibrations
+WaitingForStart
+→ StartRequested
+→ move to CameraPose
+→ verify CameraPose success and motion stopped
+→ camera settle
+→ flush/discard old Socket buffer and reset stability
+→ open this shot-cycle capture window
+→ receive three valid local events from this cycle
+→ StableTableState → PlanningResult
+→ NoPlan: CycleCompleted → WaitingForStart
+→ ShotPlan: validating policy / calibrations
 → Joint PTP to transit
 → Cartesian PTP to safe approach
 → read actual pose
-→ motion_check_lin(actual, strike pose)
-→ LIN to strike positioning pose
-→ verify motion stopped and strike preconditions
-→ pneumatic strike/retract sequence
+→ motion_check_lin(actual, StrikeReadyPose)
+→ LIN to StrikeReadyPose
+→ verify motion stopped and StrikeReady preconditions
+→ DO1 ON
+→ DO1 OFF
+→ directionChangeDelay
+→ DO2 ON
+→ DO2 OFF
+→ mechanismCompletionWait
 → verify PolicyAcceptedPneumaticCompletion
+→ read current actual pose
+→ derive PostStrikeSafeLiftPose from current actual pose
+→ motion_check_lin(current actual pose, PostStrikeSafeLiftPose)
+→ vertical LIN to PostStrikeSafeLiftPose
+→ verify safe height reached
 → Joint PTP to camera joint
-→ Completed
+→ verify CameraPose and motion stopped
+→ CycleCompleted
+→ WaitingForStart
 ```
+
+一個`StartRequested`只授權上述一個cycle。完成、NoPlan或SafeFailure後不得自動捕捉／規劃／擊發下一球；新cycle必須等待新的StartRequested。UnknownUnsafe維持terminal，不得返回WaitingForStart。
 
 - 正式送出笛卡兒目標前必須設定並確認Tool1與Base0。
 - 每次motion command、position read及SDK診斷都必須檢查具名結果。
@@ -164,6 +221,26 @@ SafeIdle
 - LIN check失敗不得改用PTP下降。
 - `motion_reachable()`成功不代表PTP路徑安全；P2-03需使用可取得的安全檢查及受控驗收。
 - 任一步失敗不得繼續正常strike或DO。
+
+DO序列中Robot保持靜止；實際擊球由氣動推桿完成。擊球後唯一正常第一個Robot motion
+是從DO2與氣動完成後讀取的current actual pose開始垂直LIN安全抬升。令該actual pose為
+`(Xs,Ys,Zs,As,Bs,Cs)`：
+
+```text
+Xlift = Xs
+Ylift = Ys
+Zlift = Zs + safeLiftHeightMm
+Alift = As
+Blift = Bs
+Clift = Cs
+```
+
+- `safeLiftHeightMm`必須finite且嚴格大於0；缺少為`ConfigurationMissing`，非法為`InvalidConfiguration`。
+- P2-03必須以no-fire受控驗收確認Base0 `+Z`是實體安全上方；未確認、方向反轉或校正矛盾時為`CalibrationRequired／InvalidConfiguration`，禁止擊發。
+- 到達安全高度前不得改變X／Y／A／B／C、沿擊球反方向後退或PTP返回CameraPose。
+- safe-lift LIN必須先通過`motion_check_lin()`；失敗不得fallback成PTP。
+- 氣動結果未知或未達`PolicyAcceptedPneumaticCompletion`時進入相應失敗狀態；`UnknownUnsafe`時禁止抬升與返回。
+- 正常流程不得包含strike→ready PTP或strike→camera PTP。
 
 ## 11. Dual-DO Contract
 
@@ -240,20 +317,23 @@ Real adapters只做SDK語意轉換與錯誤映射；不得包含策略、幾何�
 
 ### P2-01
 
-- 完全離線測試frame point／direction轉換、calibration revision、Tool +X對齊、ready gap、Pose有限性及禁止重複Tool transform。
-- 驗證ShotPlan AttestedVisionSession／manifest reference缺失或與目前部署不一致時拒絕ExecutionPlan。
-- 驗證`TCPready = C - (r + g)d`、獨立Strike Z、非finite／非單位`d`拒絕，並防止GhostBallPoint或`Gpot`被誤作TCP位置。
+- 完全離線測試Base0 planar XY原值傳遞、calibration revision、版本化`cueForwardAxisTool`、ready gap、Pose有限性及禁止任何第二次平面座標轉換。
+- 驗證ShotPlan local connection／shot-cycle identity或source event IDs缺失／不一致時拒絕ExecutionPlan。
+- 驗證`TCPready = Cball - (r + g)d`、獨立Strike Z、非finite／非單位`d`拒絕，並防止GhostBallPoint或`Gpot`被誤作TCP位置。
+- 驗證A／B只在版本化人工核准小區間內依固定step與tie-break確定性搜尋，C只由`atan2(dy,dx)+CToolOffset`產生且A／B不得修改C；每個候選投影的cue forward axis與`d`夾角不得超過`maxCueDirectionErrorDeg`，所有候選失敗回NoExecutablePlan且沒有fallback Pose。
 - 驗證四種plan type只接受正確的Common／Pot／Kick／LegalContact payload組合；LegalContact含Pot-only值、NotApplicable被視為成功值或預設欄位時拒絕。
 - 驗證只有ShotPlan成功value可產生ExecutionPlan；NoPlan、pipeline Diagnostic與CandidateDiagnostic皆被拒絕，且不會生成fallback Pose／Plan。
 
 ### P2-02
 
 - 使用fake adapters驗證每一合法狀態轉移與每一錯誤注入點。
+- 驗證一個StartRequested恰好一個cycle、CameraPose stopped／settle前不收frame、舊buffer flush、三幀只屬當前cycle、完成後返回WaitingForStart且不自動下一球。
 - 驗證未授權LegalContact、未校正envelope、非法時間、DO互斥、OFF失敗及UnknownUnsafe。
 - 驗證Phase 1幾何門檻與Phase 2力度門檻來自不同設定來源且保持分離：超過Phase 1 `BrainConfig.maxKickRailAngleDeg`的項目不可能成為輸入ShotPlan；通過Phase 1但超過`FixedForceEnvelopeConfig.maxExecutableKickRailAngleDeg`或其他FixedForceEnvelope範圍者回`NoExecutablePlan`。
 - 驗證Phase 2不得從CandidateDiagnostic復活候選、不得自動增力，也不得在envelope拒絕後建立ExecutionPlan。
 - 驗證全部可執行DirectPot、KickPot及經政策授權的LegalContact使用相同版本化`pneumaticPulseMs`；改變候選距離、角度、分數或plan type不得改變pulse，超出核准envelope只能回`NoExecutablePlan`。
 - 驗證任何失敗後 recorded commands 不包含被禁止的後續動作。
+- 驗證氣動完成後第一個Robot motion只能是已通過`motion_check_lin`的垂直safe lift；X／Y／A／B／C保持不變，確認安全高度前不得出現retract PTP或camera PTP，UnknownUnsafe後不得出現任何motion。
 - fake PneumaticAdapter覆蓋有回授`PhysicalOffConfirmed`、無回授但policy接受`OffCommandAccepted`、無policy授權、OFF失敗、timeout、斷線及結果未知；Completed必須記錄實際採用的完成證據。
 
 ### P2-03
@@ -273,9 +353,10 @@ Real adapters只做SDK語意轉換與錯誤映射；不得包含策略、幾何�
 
 真實硬體執行前必須全部滿足：
 
-- TableFrame→Base0與Tool1 calibration有效且revision一致。
-- RX／RY／RZ及Tool +X方向已以不擊發診斷確認。
-- Strike Z、ready gap、氣動行程及安全高度已人工確認。
+- Base0 planar calibration與Tool1 calibration有效且revision一致；不存在C++ TableFrame→Base0步驟。
+- A／B核准搜尋範圍、C／HRSDK角度映射、`cueForwardAxisTool`、`CToolOffset`及方向投影已以不擊發診斷確認；不得只因程式假設`+X`而通過。
+- Base0 `+Z`已以不擊發受控驗收確認為實體安全上方。
+- Strike Z、ready gap、`safeLiftHeightMm`、氣動行程及安全高度已人工確認。
 - Direct或Kick對應FixedForceEnvelope已校正。
 - PTP／LIN速度、reachable及路徑檢查策略已驗收。
 - DO1／DO2編號、互鎖、脈衝、換向延遲與完成等待已驗收。
@@ -286,10 +367,10 @@ Real adapters只做SDK語意轉換與錯誤映射；不得包含策略、幾何�
 
 - 重新解析Python影像或相機補償。
 - 重新選球、修改ShotPlan或重新評分。
-- 自動尋找力度、姿態或未驗證中繼點。
+- 自動尋找力度、無界／未校正／未核准姿態搜尋或未驗證中繼點；§5.3人工核准小區間內的確定性A／B搜尋不在此排除範圍。
 - 未經政策授權的LegalContact真實執行。
 - 正式連續自動比賽。
 
 ## 17. Further Notes
 
-Base0、Tool1、`RX=-180°`、`RY=0°`是待驗證基準。即使TCP XYZ不變，姿態改變仍可能造成法蘭與關節大幅移動；編譯成功、target reachable或fake成功均不等同實體路徑安全。
+Base0、Tool1、A／B基準、核准搜尋範圍與C adapter映射都必須實機驗證。即使TCP XYZ不變，姿態改變仍可能造成法蘭與關節大幅移動；編譯成功、target reachable或fake成功均不等同實體路徑安全。

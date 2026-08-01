@@ -1,141 +1,107 @@
-# P1-08 — TargetSelector與Algorithm遷移
+# P1-06 — Lowest-Number Target and DirectPot
 
-**Status:** ready-for-agent
+**Status:** Planned
 
-**Blocked by:** P1-06 — StableFrameValidator與TableState；P1-07 — BilliardPhysics安全幾何API
+**Blocked by:** P1-05
 
-## 1. Ticket ID與標題
+## 1. ID
 
-P1-08：讓目標選擇與既有策略只消費穩定TableState及明確幾何結果。
+P1-06
 
-## 2. 目的
+## 2. Title
 
-完成從穩定視覺核心資料到ShotDecisionResult的策略切片。有效幾何維持既有
-直球／反彈策略排序；任何Invalid幾何必須在建立ShotDecision前終止。
+最低號目標資格與六袋DirectPot候選。
 
-## 3. 前置依賴
+## 3. Status
 
-- P1-06完成，TableState只由三幀Stable產生。
-- P1-07完成，Physics不再回bool混合狀態或假Point。
+Planned
 
-## 4. 新增檔案
+## 4. Purpose
 
-- 無。
+由StableTableState固定選最低號存在球，對六個stable wire pocket centers建立完整且可稽核的DirectPot可行候選。
 
-## 5. 修改檔案
+## 5. Approved Spec References
 
-- `src/TargetSelector.h`
-- `src/TargetSelector.cpp`
-- `src/Algorithm.h`
-- `src/Algorithm.cpp`
-- `tests/phase1_algorithm_regression_tests.cpp`
-- `.vscode/tasks.json`，完成algorithm regression target的純模組清單。
+- Master Spec §6、§9 P1-06。
+- Phase 1 Spec §9 Target Qualification、§10 DirectPot。
 
-## 6. 明確不得修改的檔案與行為
+## 6. Existing Responsibility Owners
 
-- 不修改CameraCompensator、Parser、StableFrameValidator或MotionPlanner。
-- TargetSelector不得include、持有、建構、注入或呼叫CameraCompensator。
-- 不接受ParsedVisionFrame或ProcessedVisionFrame。
-- 不修改直球／反彈策略排序、角度門檻、袋口選擇順序或策略文字。
-- 不修正「安全路徑受阻，強制開火」策略；只阻止Invalid幾何進入該分支。
-- 不加入防守球、Base0庫邊重構或其他後續策略。
+- `TargetSelector.h/.cpp`：最低號資格。
+- `Algorithm.h/.cpp`：Direct候選協調。
+- `BilliardPhysics.h/.cpp`：Ghost、路徑與碰撞。
+- `TableState.h`：Stable input及candidate/result型別原地演進。
 
-## 7. API或資料型別變更
+## 7. Existing Files Expected to Change
 
-- `TargetSelector::select`唯一視覺輸入為`const TableState&`。
-- optional球／袋口缺失以選擇失敗或跳過候選表示，不補預設Point。
-- Algorithm所有Physics optional／status必須顯式處理。
-- 新增`ShotDecisionStatus{Success, InvalidGeometry}`。
-- 新增`ShotDecisionResult`：
-  Success必須有ShotDecision；InvalidGeometry必須為nullopt。
+- 上述owners、`tests/phase1_algorithm_regression_tests.cpp`及必要離線task。
 
-## 8. 逐步實作內容
+## 8. Existing Files Explicitly Not to Duplicate
 
-1. 移除TargetSelector內的compensated helper與MathUtils相機補償呼叫。
-2. 直接使用TableState內已補償且穩定的Point。
-3. 依現有行為選最低號存在球、合法袋口及p2／p3反彈邊界。
-4. 方向或夾角API回nullopt時跳過該候選，不以0度替代。
-5. 全部候選無效時回明確selection failure。
-6. 將Algorithm遷移至PathStatus、IntersectionResult與optional Point。
-7. 任一必要幾何為Invalid／nullopt時回InvalidGeometry。
-8. Valid且Blocked的既有策略仍走原本策略順序，包括現有強制開火文字分支。
-9. 建立固定有限、非退化fixture，鎖定既有策略輸出。
+- 不得新增ShotBrain.cpp、第二個TargetSelector／Algorithm／BilliardPhysics或平行candidate engine。
 
-## 9. 測試案例
+## 9. Scope
 
-- TargetSelector選擇最低號存在球。
-- 已落袋球nullopt會被跳過。
-- 無cue ball、無目標球、無有效袋口、缺p2／p3時失敗。
-- 退化夾角候選被跳過；全部退化時選擇失敗。
-- TargetSelector source沒有CameraCompensator依賴。
-- 直球clear fixture保持直球策略。
-- 直球受阻fixture保持切換反彈策略。
-- 現有安全反彈fixture保持策略名稱、aim target及狀態。
-- getGhostBall／intersection／route為Invalid時回InvalidGeometry且無decision。
-- Invalid不得進入強制開火分支。
-- ShotDecisionResult所有status／optional不變量。
+- TargetSelector作為唯一target qualification owner，從StableTableState嚴格選擇最低號存在球；對六袋完整產生DirectPot。
+- 每個候選驗證Gpot、cue path、target path、pocket exit／corridor、entry angle、切球角、障礙與finite。
+- 可行Candidate與CandidateDiagnostic分離。
 
-## 10. 實際測試或建置命令
+## 10. Out of Scope
 
-```powershell
-cl.exe /std:c++17 /EHsc /nologo /utf-8 /I .\src /I .\tests `
-  .\tests\phase1_algorithm_regression_tests.cpp `
-  .\src\MathUtils.cpp `
-  .\src\CameraCompensator.cpp `
-  .\src\VisionDataParser.cpp `
-  .\src\VisionFrameProcessor.cpp `
-  .\src\StableFrameValidator.cpp `
-  .\src\BilliardPhysics.cpp `
-  .\src\TargetSelector.cpp `
-  .\src\Algorithm.cpp `
-  .\src\BilliardConfig.cpp `
-  /Fe:.\bin\phase1_algorithm_regression_tests.exe
+- Kick、共同評分、LegalContact production fallback、Robot與力度。
 
-& .\bin\phase1_algorithm_regression_tests.exe
+## 11. Preconditions
 
-rg -n "CameraCompensator|applyCameraCompensation|ParsedVisionFrame|ProcessedVisionFrame" `
-  .\src\TargetSelector.h .\src\TargetSelector.cpp
-```
+- P1-05共用幾何可用；StableTableState含球與六袋stable centers。
 
-最後一個搜尋不得找到禁止依賴。
+## 12. Dependencies
 
-## 11. 驗收條件
+- Blocked by P1-05；與P1-07可平行；兩者完成後解鎖P1-08。
 
-- [ ] TargetSelector只接受TableState。
-- [ ] TargetSelector完全不依賴CameraCompensator。
-- [ ] 所有optional幾何失敗均被顯式處理。
-- [ ] InvalidGeometry沒有ShotDecision payload。
-- [ ] Invalid不進入強制開火分支。
-- [ ] 有效直球／反彈回歸fixture與既有策略相容。
-- [ ] algorithm regression target不含硬體或Socket依賴。
+## 13. Detailed Requirements
 
-## 12. 回滾方式
+1. 只選最低號存在球，不遍歷其他球作首次接觸目標。
+2. 對Pocket ID 1～6各建立至多一個DirectPot；不得預選單袋。
+3. 母球路徑`C → Gpot`、目標球路徑`T → selected ResolvedPocketModel.VirtualPocketTarget`分開碰撞與region檢查。
+4. 不可行候選只留下具名Diagnostic，不進正式集合。
+5. StableTableState中1～9號球全部absent時回`NoEligibleTarget`；不得forced target、default ball，亦不得改寫成Parser或stability failure。
+6. 無Direct只代表Direct集合空，P1-08仍需與Kick集合整合。
 
-- Revert本ticket commit。
-- P1-06與P1-07可獨立保留。
-- 若P1-10已使用新ShotDecisionResult，先回滾P1-10。
+## 14. Fail-Closed Requirements
 
-## 13. Safety Critical限制
+- 必要資料、方向、路徑、entry angle或configuration無效即拒絕候選；不得forced Direct或預設袋口。
 
-- 禁止用0度、原始Point或任意袋口補償Invalid。
-- 禁止Invalid候選觸發任何決策payload。
-- 禁止趁遷移修改策略排序或實作防守球。
-- regression測試不得link或執行RobotController、SocketClient或HRSDK。
+## 15. Acceptance Criteria
 
-## 14. 完成後應產生的Git diff範圍
+- [ ] lowest-number規則與六袋組合完整。
+- [ ] StableTableState中0顆編號球時，唯一結果為`NoEligibleTarget`；P1-03與P1-04不得提前攔截此合法state。
+- [ ] Direct兩條路徑與障礙端點排除獨立正確。
+- [ ] Gpot為2r且是cue path終點。
+- [ ] 所有不可行候選不進評分集合。
+- [ ] TargetSelector只接受StableTableState且沒有相機補償。
 
-```text
-M  src/TargetSelector.h
-M  src/TargetSelector.cpp
-M  src/Algorithm.h
-M  src/Algorithm.cpp
-M  tests/phase1_algorithm_regression_tests.cpp
-M  .vscode/tasks.json
-```
+## 16. Test Requirements
 
-## 15. 建議commit message
+- 最低號、missing balls、六袋、clear／blocked cue path、clear／blocked target path、錯誤出口、entry threshold、degenerate／nonfinite。
+- Case A（Target段）：P1-03接受九顆paired sentinel、P1-04產生zero-object-ball StableTableState後，P1-06回`NoEligibleTarget`且沒有fallback target。
 
-```text
-refactor(algorithm): consume validated table state
-```
+## 17. Hardware Level
 
+完全離線。
+
+## 18. Regression Requirements
+
+- 保留TargetSelector最低號有效行為；移除舊單袋／強制開火與CameraCompensator依賴。
+
+## 19. Definition of Done
+
+- Direct候選與Diagnostic fixture全綠、無硬體／Socket依賴、單一commit。
+
+## 20. Requirement Traceability
+
+- Split／Refactor自舊P1-08 TargetSelector與Algorithm遷移中的最低號及Direct有效要求。
+- 共同評分移至P1-08；整合Result移至P1-09。
+
+## 21. New File Justification
+
+None expected；使用既有TargetSelector、Algorithm與BilliardPhysics。

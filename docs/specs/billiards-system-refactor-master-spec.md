@@ -3,10 +3,11 @@
 ## 文件資訊
 
 - 狀態：Approved
+- Final Workflow Verification：PASS（2026-08-01）
 - 規格版本：2.0
 - 基準 commit：`216bcb7`
 - 適用系統：Python 視覺、C++ 擊球大腦、C++ 擊球手
-- 下一步：To Tickets；本文件不構成實作或真實硬體操作授權
+- 下一步：To Tickets／Existing Ticket Refactor；本文件不構成實作或真實硬體操作授權
 
 ## 1. 權威與文件關係
 
@@ -23,7 +24,7 @@
 
 Active specs：
 
-- `python-cpp-external-contract.md`：wire、TableFrame 與 Parser 邊界。
+- `python-cpp-external-contract.md`：wire、Robot Base0 planar XY 與 Parser 邊界。
 - `phase-1-shot-brain-spec.md`：C++ 擊球大腦。
 - `phase-2-shot-executor-spec.md`：C++ 擊球手。
 
@@ -43,18 +44,18 @@ Active specs：
 
 系統採兩個 Phase、十二個主要能力切片：
 
-- Phase 1 只消費 TableFrame 毫米資料，產生可稽核 `ShotPlan | NoPlan`。
-- Phase 2 將 ShotPlan 經標定轉換為 Base0 中的 Tool1 TCP 執行計畫，先以 fake 驗證，再由最後一張 ticket 接入 HRSDK 與真實雙 DO。
+- Phase 1只消費Python已完成校正與轉換的Robot Base0平面XY毫米資料，直接在同一平面產生可稽核`ShotPlan | NoPlan`。
+- Phase 2直接使用ShotPlan的Base0平面XY，以人工校正Z、核准範圍內的A／B搜尋及由擊球方向計算的C建立Tool1 TCP執行計畫；不得再做TableFrame→Base0或第二次平面映射。計畫先以fake驗證，再由最後一張ticket接入HRSDK與真實雙DO。
 - 所有可能失敗的邊界使用具名結果；禁止預設成功、強制 fallback 或失敗後繼續正常流程。
 
 ## 4. User Stories
 
 1. 作為視覺開發者，我要讓 Python 成為全部相機校正與補償的唯一責任端，避免 double compensation。
-2. 作為演算法開發者，我要只接收 TableFrame 毫米座標，讓 Phase 1 不依賴相機或機械手臂。
+2. 作為演算法開發者，我要只接收Robot Base0平面XY毫米座標，讓Phase 1不依賴相機處理或機械手臂API。
 3. 作為測試者，我要從receive-event stream離線重現Phase1PipelineResult，並在Stable seam以StableTableState獨立重現PlanningResult。
 4. 作為操作者，我要在沒有合法方案時看到具名原因，而不是讓系統強制擊球。
 5. 作為安全審查者，我要能由 ShotPlan 查明路徑、角度、淨空、分數與設定版本。
-6. 作為機械手臂開發者，我要由 ExecutionPlan 得到已標定 frame 與 Pose，而不重新計算撞球策略。
+6. 作為機械手臂開發者，我要由ExecutionPlan取得以Base0平面XY、人工Strike Z、核准A／B及方向C建立的Pose，而不重新計算撞球策略或轉換平面座標。
 7. 作為硬體操作者，我要讓未校正力度、未知 DO 狀態或失敗路徑阻止一切後續動作。
 8. 作為 ticket 作者，我要能依十二個能力邊界建立可獨立驗證、commit 與回滾的工作。
 
@@ -62,9 +63,9 @@ Active specs：
 
 ### 5.1 Python 視覺
 
-唯一負責：影像擷取、球體辨識、鏡頭校正、perspective transform、homography、pixel 轉 TableFrame 毫米、固定 offset 與相機殘差補償。
+唯一負責：影像擷取、球體辨識、鏡頭校正、perspective transform、homography、pixel轉Robot Base0平面XY毫米、固定offset與相機殘差補償，並以既有newline-delimited 32值CSV送出當次球與六袋Base0平面XY。
 
-Python 不負責撞球候選、碰撞安全、robot frame、Pose、HRSDK 或 DO。
+Python 不負責撞球候選、碰撞安全、Base0 XY之後的Robot Pose／Tool姿態、HRSDK 或 DO。
 
 ### 5.2 C++ Phase 1
 
@@ -72,26 +73,38 @@ Phase 1由兩個不可混用的責任層組成：
 
 - `Phase1Pipeline`：接收ReceiveEvent stream，執行SingleFrameResult、
   StabilityResult及Phase1PipelineResult生命週期。P1-03負責External Contract、
-  Attested Session Boundary、Parser與單幀驗證；P1-04只負責三幀穩定生命週期。
+  既有32值External Contract、本地shot-cycle/session邊界、Parser與單幀驗證；P1-04只負責三幀穩定生命週期。
 - `ShotBrain`：只接受StableTableState、TableGeometryConfig與BrainConfig，負責
-  撞球幾何、DirectPot、一次母球KickPot、評分、LegalContact及PlanningResult。
+  撞球幾何、DirectPot、一次母球KickPot、共同評分及PlanningResult。V1預設`PlanningMode = PotOnly`；LegalContact只可作顯式manual／research能力。
   P1-09整合此層，但不接收CSV或ReceiveEvent。
 
 ShotBrain不得負責Parser、receive freshness、timeout或三幀累積；只有
 StabilityResult中的Stable success value可以呼叫ShotBrain。
 
-Phase 1 P1-01至P1-09完全離線，不得執行相機補償、TableFrame到robot frame轉換、真實production Socket、HRSDK、RobotController、DO或真實機械手臂。P1-03只定義transport-neutral contract、session state、attestation gate及adapter interface，並以fake byte／connection／session source驗證；Phase1Pipeline與ShotBrain核心不得依賴production transport。
+Phase 1 P1-01至P1-09的核心演算法與驗收完全離線，不得執行相機補償、任何平面座標轉換、真實production Socket、HRSDK、RobotController、DO或真實機械手臂。P1-03以fake byte／connection／cycle source驗證既有32值contract、本地session／shot-cycle gate及parser；同一ticket可原地補強既有SocketClient與BilliardApp的production framing、stale-buffer protection及connection lifecycle，但不得在離線驗收中開啟Socket。Phase1Pipeline與ShotBrain核心不得依賴SocketClient。
 
 ### 5.3 C++ Phase 2：Shot Executor
 
-唯一負責：已標定的 TableFrame 到 Base0 轉換、Base0 中的 Tool1 TCP Pose、ExecutionPolicy、ExecutionPlan、PTP／LIN、fake 與 real adapters、雙 DO 與安全終止。
+唯一負責：由Base0平面XY ShotPlan建立Base0中的Tool1 TCP Pose、ExecutionPolicy、ExecutionPlan、PTP／LIN、fake與real adapters、雙DO與安全終止。StrikeReadyPose的X／Y由母球中心及擊球方向直接計算，Z來自人工校正Strike Z，A／B只可在版本化且人工核准的小區間內確定性搜尋，C由平面擊球方向計算；每個A／B候選還必須驗證校正球桿forward axis投影與擊球方向一致。
 
-Robot frame 轉換不是相機補償。Phase 2 必須執行必要的標定轉換，但不得重新套用鏡頭補償。
+Phase 2不得執行TableFrame→Base0、相機補償、camera offset correction或第二次平面座標映射。
+
+### 5.4 概念責任與既有檔案映射
+
+Spec中的概念名稱不強制對應同名cpp；本專案採repository-constrained原地重構：
+
+- `ShotBrain`概念由既有`Algorithm + BilliardPhysics + TargetSelector`承接。
+- `Phase1Pipeline`概念由既有`BilliardApp`協調、`VisionDataParser`及唯一三幀穩定狀態物件共同承接。
+- `ExecutionPlan`概念由既有`MotionPlan／MotionPlanner`原地演進。
+- Execution State Machine由既有`BilliardApp + RobotController`承接。
+- Production Transport由既有`SocketClient + BilliardApp`整合承接。
+
+不得因概念名稱新增`ShotBrain.cpp`、`Phase1Pipeline.cpp`、`ExecutionPlanner.cpp`、第二個MotionPlanner、第二個RobotController、第二個SocketClient、第二個VisionDataParser、CameraCompensator、TableFrameToBase0Converter、第二個BilliardApp或第二套MathUtils／BilliardPhysics。
 
 ## 6. 全域資料流
 
 ```text
-Python calibrated TableFrame-mm CSV
+Python calibrated Robot Base0 planar-XY-mm CSV
 → ReceiveEvent
 → Phase1Pipeline
    → SingleFrameResult
@@ -107,10 +120,44 @@ Python calibrated TableFrame-mm CSV
          ├─ NoPlan: stop before Phase 2
          └─ ShotPlan success value
             → ExecutionPolicy
-            → calibrated TableFrame→Base0→Tool1/TCP ExecutionPlan
+            → Base0 XY + calibrated Z/A/B/C → Tool1/TCP ExecutionPlan
 → fake state machine
 → HRSDK / dual-DO adapters
 → Completed | SafeFailure | UnknownUnsafe
+```
+
+使用者操作與真實執行的唯一端到端順序為；一個`StartRequested`只允許一個shot cycle，完成後不得自動開始下一球：
+
+```text
+WaitingForStart
+→ StartRequested
+→ BilliardApp協調手臂移至CameraPose
+→ 確認CameraPose成功且Robot motion stopped
+→ 等待camera settle
+→ SocketClient丟棄／flush CameraPose前的舊buffer
+→ 重置三幀累積並開啟本shot-cycle capture window
+→ Python拍照、辨識及pixel→Robot Base0 planar XY
+→ SocketClient接收已轉換完成的newline-delimited 32值XY
+→ VisionDataParser嚴格解析
+→ 同一connection與shot cycle內、capture window開啟後的三個本地ReceiveEvent
+→ 球與六袋資料一致性及三幀穩定
+→ 最低號目標球
+→ 六袋GhostBallPoint
+→ DirectPot及一次母球碰庫KickPot
+→ 碰撞檢查及共同評分（Direct顯著soft preference；高品質Kick可勝出）
+├─ PotOnly無可行Direct／Kick：NoPlan(NoPotCandidate)
+│  → CycleCompleted → WaitingForStart；不得自動LegalContact
+└─ Base0 planar XY ShotPlan
+   → MotionPlanner以Base0 XY、人工Strike Z、核准A/B及方向C建立Pose
+   → Robot移至StrikeReadyPose並確認停止
+   → DO1 ON → DO1 OFF → directionChangeDelay → DO2 ON → DO2 OFF
+   → mechanismCompletionWait
+   → PolicyAcceptedPneumaticCompletion
+   → 讀取actual pose，保持X/Y/A/B/C不變，檢查並垂直LIN至PostStrikeSafeLiftPose
+   → 確認安全高度
+   → PTP返回CameraPose並確認停止
+   → CycleCompleted
+   → WaitingForStart
 ```
 
 NoPlan只表示合法StableTableState已交給ShotBrain，但沒有合法撞球規劃結果。
@@ -132,15 +179,24 @@ Executor Spec建立TCP strike-ready位置。
 旋轉、桌布摩擦或庫邊材質差異。Phase 1只依幾何門檻建立候選；Phase 2只以實驗核准
 的單一固定力度envelope作fail-closed執行gate，不得對個別候選動態調整力度。
 
-32值wire不攜帶calibration revision。靜態Deployment Calibration Manifest只能驗證
-部署設定，不能證明正在送frame的Python process實際載入哪個revision。每個receive
-session在第一個32值frame前，Python必須透過版本化RuntimeCalibrationAttestation
-控制握手聲明實際載入revision及session identity；C++只在runtime attested revision、
-C++ active revision、manifest expected revision及manifest ID全部一致後接受該session。
-不可重用session ID是AttestedVisionSession的主要identity；Python process ID只作
-Diagnostic metadata，不能延續attestation或三幀累積。
-完整manifest、attestation與connection lifecycle契約唯一由Python–C++ External
-Contract定義。若缺少承載runtime attestation handshake的production transport integration，production維持IntegrationRequired；CalibrationRequired只表示校正或力度envelope尚未完成。
+V1維持既有newline-delimited 32值CSV，不新增mandatory Python control handshake、
+sender frame ID或sender timestamp。freshness由既有`BilliardApp + SocketClient`在本地
+建立：connection identity、shot-cycle identity、嚴格遞增ReceiveEvent ID、CameraPose
+settle後才開啟的capture window、舊buffer flush及三幀累積reset。disconnect、reconnect、
+timeout或Parser failure均使本cycle累積失效；只有同一cycle中capture window開啟後的
+三個有效event可形成StableTableState。RuntimeCalibrationAttestation、
+AttestedVisionSession及versioned control message只列於External Contract的
+`Future Hardening / Optional Future Protocol`，不是V1 production gate、ticket或驗收依賴。
+
+32值wire中的六袋XY是本cycle規劃使用的唯一pocket center來源，必須與動態球一起通過
+presence、finite、固定Pocket ID及三幀一致性／median規則。`TableGeometryConfig`只擁有
+Pocket ID／type、rail topology、inward／outward normals、effective rails、capture corridor、
+exit、collision與revision，並可對wire位置做容差驗證；它不得以另一組static pocket center
+取代當次wire pocket center，也不得把不穩定單幀袋口與Stable球狀態混用。
+
+Tool1的物理球桿forward axis是版本化人工校正屬性，不預設為局部`+X`。P2-03必須在
+no-fire驗收中確認Tool1 TCP、forward axis、`CToolOffset`、A／B／C映射及Base0 `+Z`
+確為物理安全上方；任一未確認即`CalibrationRequired`且禁止擊發。
 
 ShotPlan稽核採`CommonAuditFields + plan-type-specific variant payload`。Pot、Kick及
 LegalContact欄位的唯一適用性契約位於Phase 1 Shot Brain Spec；不適用欄位不得以0、
@@ -161,6 +217,7 @@ LegalContact欄位的唯一適用性契約位於Phase 1 Shot Brain Spec；不適
   機械手臂動作。
 - 無DO回讀時，成功寫入OFF只能記為`OffCommandAccepted`；是否允許繼續取決於
   P2-03硬體安全案例與ExecutionPolicy，不得宣稱`PhysicalOffConfirmed`。
+- 擊球後第一個Robot motion只能是保持X／Y／A／B／C不變且已通過`motion_check_lin()`的垂直safe lift；確認安全高度前禁止任何retract PTP或camera PTP。氣動狀態未知時禁止抬升與返回。
 
 ## 8. 結果與設定語意
 
@@ -188,18 +245,57 @@ LegalContact欄位的唯一適用性契約位於Phase 1 Shot Brain Spec；不適
 |---|---|---|
 | P1-01 | C++17 與離線測試框架 | Brain |
 | P1-02 | 安全型別、GeometryResults 與純 MathUtils | Brain |
-| P1-03 | External Contract、Attested Session Boundary、嚴格 Parser 與單幀驗證 | Brain |
+| P1-03 | 既有32值External Contract、本地Cycle／Session Boundary、嚴格 Parser 與單幀驗證 | Brain |
 | P1-04 | 三幀穩定生命週期與 StableTableState | Brain |
 | P1-05 | 桌面、袋口、庫邊與碰撞幾何 | Brain |
 | P1-06 | 最低號球資格與 DirectPot | Brain |
 | P1-07 | 一次母球 KickPot | Brain |
-| P1-08 | 正規化評分、確定性選擇與 LegalContact | Brain |
+| P1-08 | Direct／Kick共同評分、確定性選擇與 PotOnly；LegalContact為選配研究能力 | Brain |
 | P1-09 | ShotBrain 與 ShotPlan／NoPlan | Brain |
-| P2-01 | ShotPlan→ExecutionPlan、frame 與 Pose | Executor |
+| P2-01 | ShotPlan→ExecutionPlan、StrikeReadyPose 與球桿方向驗證 | Executor |
 | P2-02 | fake adapters、狀態機與雙 DO 安全 | Executor |
 | P2-03 | HRSDK／真實 DO adapters 與受控驗收 | Executor |
 
 不得為單一函式、enum、測試、build 修正或單一檔案另建主要 ticket。
+
+### 9.1 Existing Responsibility Owners
+
+| ID | 必須優先原地修改的既有owner |
+|---|---|
+| P1-01 | 既有離線建置與測試框架；已完成 |
+| P1-02 | `Point`、`GeometryResults`、`MathUtils`；已完成 |
+| P1-03 | `SocketClient`、`VisionDataParser`、`TableState`、`BilliardConfig`及必要的`BilliardApp` session integration |
+| P1-04 | `TableState`、`BilliardConfig`及唯一三幀穩定狀態物件 |
+| P1-05 | `BilliardPhysics`、`Point`、`GeometryResults`、`BilliardConfig` |
+| P1-06 | `TargetSelector`、`Algorithm`、`BilliardPhysics`、`TableState` |
+| P1-07 | `Algorithm`、`BilliardPhysics`、`Point` |
+| P1-08 | `Algorithm`、`BilliardPhysics`、`TargetSelector`、`BilliardConfig` |
+| P1-09 | `Algorithm`、`TableState`、`BilliardApp` |
+| P2-01 | `MotionPlanner`、`BilliardConfig`、`MathUtils` |
+| P2-02 | `BilliardApp`、`MotionPlanner`、`RobotController`介面、`BilliardConfig`及tests中的fake adapters |
+| P2-03 | `RobotController`、`BilliardApp`、`BilliardConfig`，必要時既有`main.cpp` |
+
+P1-04是Phase 1唯一可能合理新增production cpp的切片，但仍須先證明責任目前不存在、沒有合理既有owner、新檔不形成重複且會成為唯一owner。其他ticket不得以概念名稱強迫拆檔或建立平行實作。
+
+### 9.2 Repository-Constrained Refactor治理
+
+1. 每張ticket先列Existing Responsibility Owners、相關headers／tests及允許修改的責任。
+2. 優先修改既有函式、類別與資料型別；不建立平行v2系統。
+3. 不得保留舊實作再新增同功能實作；拆檔必須搬移責任，不得複製責任。
+4. 新檔案必須證明責任目前不存在、沒有合理既有owner、不會形成重複，且新檔會成為唯一owner。
+5. 不要求每個cpp都修改；只在現有缺口確實需要時改動。
+6. 所有變更維持可編譯、可獨立review與回滾的小步commit。
+7. 不得為符合概念架構而改變使用者指定的實際擊球流程。
+
+### 9.3 Existing Ticket Refactoring治理
+
+- To Tickets先建立完整Existing Ticket Inventory，再逐張與四份active specs及既有C++ owners比較。
+- 每張舊ticket必須標記`Keep | Refactor | Rename | Move | Merge | Split | Superseded | Completed`；只有確有未覆蓋能力缺口時才可標記`New`。
+- 有效需求、診斷、失敗處理與測試必須保留並追蹤；過時責任必須移除，驗收條件及owner必須重新綁定。rename／move／merge／split只在能力邊界確實需要時執行。
+- 不得將舊tickets整批archive後另造十二張平行文件。十二個ID是固定能力identity，不代表必須建立十二份全新Markdown。
+- P1-01與P1-02標記`Completed`，保留implementation commit、已完成scope、tests及依active specs重新驗證的結果；後續只開delta work，不重寫其歷史。
+- CameraCompensator或VisionFrameProcessor等舊ticket中的C++相機補償責任失效，但其中仍有效的validation、diagnostics、failure handling及tests必須先遷移並建立trace，整張ticket才可Superseded／archive。
+- To Tickets的權威allowlist仍只有本Master及三份active specs；`docs/archive`及superseded spec不得成為需求來源。
 
 ## 10. Testing Decisions
 
@@ -223,8 +319,8 @@ ShotPlan + ExecutionPolicy + calibrations → ExecutionResult + recorded command
 - Executor seam驗證全部可執行方案只使用同一個已校正固定氣動脈衝；超出FixedForceEnvelope時fail-closed，且不依候選距離或角度動態改變力度。
 
 - P1-01至P1-09全部完全離線，不載入HRSDK、production Socket、RobotController或DO，沒有真實transport例外。
-- P1-03核心contract、control／data parsers、session state、attestation gate與transport adapter interface全部使用fake byte／session source離線驗證，不開真實Socket。
-- 獨立application／infrastructure邊界`ProductionVisionTransportAdapter`只接收versioned control message與32值data frame，再把bytes交給P1-03定義的純interface；它不得包含規劃／硬體邏輯、不得成為Phase1Pipeline／ShotBrain依賴，也不得移入P2-03 HRSDK／DO adapter。
+- P1-03以fake byte／connection／cycle source離線驗證newline framing、最大frame長度、嚴格32值Parser、本地ReceiveEvent、disconnect語意、cycle/session reset與stale-buffer protection，不開真實Socket。
+- 既有`SocketClient + BilliardApp` production transport integration只接收既有32值data frame，執行本地capture-window gate後把bytes交給P1-03邊界；它不得包含規劃／硬體邏輯、不得成為ShotBrain依賴，也不得移入P2-03 HRSDK／DO adapter。
 - P2-01、P2-02 只使用 fake／mock。
 - P2-03 先通過 adapter contract 與錯誤注入，最後才允許氣壓斷電、低速、單球、人工急停環境的受控硬體驗收。
 - 測試驗證外部行為與安全不變量，不綁定私有函式或容器順序。
@@ -233,19 +329,21 @@ ShotPlan + ExecutionPolicy + calibrations → ExecutionResult + recorded command
 
 ```text
 Operating-system Socket
-→ ProductionVisionTransportAdapter
-→ P1-03 control/data/session interface
-→ AttestedVisionSession
+→ existing SocketClient + BilliardApp integration
+→ CameraPose settled + stale-buffer flush + shot-cycle gate
+→ P1-03 data/session interface
 → ReceiveEvent
 → Phase1Pipeline
 ```
 
-- 若repository已有ProductionVisionTransportAdapter，只需在獨立application／infrastructure整合中依P1-03 interface完成相容性驗證。
-- 若沒有合格adapter，它是端到端production operation的外部整合前置依賴，不得宣稱已由Phase 1離線驗收完成。
-- Adapter未整合或未驗收時，Phase 1與ShotBrain仍可完全離線完成，但production端到端operation狀態為`IntegrationRequired`並禁止啟用。
-- 此前置依賴不新增第13張主要ticket；To Tickets仍只產生既定12張，並在production readiness清單追蹤integration狀態。
-- `CalibrationRequired`只用於校正／FixedForceEnvelope未完成；不得用於transport integration缺失。
-- ProductionVisionTransportAdapter不屬於P2-03；P2-03只負責HRSDK、真實DO及受控機械手臂驗收。
+- 現有`SocketClient`是唯一production transport owner；P1-03可原地擴充其最大frame長度、newline framing、connection lifecycle、本地identity及clean close／error區分。
+- 該integration不得被宣稱由P1-03離線fake驗收自動完成；未整合或未驗收時，Phase 1與ShotBrain仍可完全離線完成，但production端到端operation狀態為`IntegrationRequired`並禁止啟用。
+- 此production readiness前置依賴不新增第13個主要能力identity。
+- To Tickets必須以Existing Ticket Refactoring方式，透過`Keep | Refactor | Rename | Move | Merge | Split | Superseded | Completed`，使最終active ticket set完整覆蓋既定12個能力identity。
+- 十二個ID代表能力coverage，不代表必須重新產生12份新的Markdown ticket。
+- 只有在完整Existing Ticket Inventory與coverage分析後，確認沒有任何existing ticket可以合理承接某能力時，才允許建立`New` ticket。
+- `CalibrationRequired`只用於校正／FixedForceEnvelope未完成；transport integration缺失使用`IntegrationRequired`。
+- Production vision Socket責任不屬於P2-03；P2-03只負責HRSDK、真實DO及受控機械手臂驗收。不得另建`ProductionVisionTransportAdapter.cpp`包裝或重複既有SocketClient；只有在明確取代並移除舊owner責任時才可另案審查。
 
 ## 11. Out of Scope
 
@@ -259,5 +357,5 @@ Operating-system Socket
 
 - 評分權重為 `Initial Experimental Weights`，不是 production 最佳值。
 - 暫定 `0 mm` 碰撞 margin 只可作離線實驗；真實執行前必須校正。
-- Base0、Tool1、`RX=-180°`、`RY=0°` 是待驗證基準，不等同已證明所有姿態與路徑安全。
+- Base0、Tool1、人工Strike Z、A／B基準及核准搜尋範圍、C adapter映射與safe-lift高度均須驗證，不等同已證明所有姿態與路徑安全。
 - To Tickets 必須引用 active specs，不得以 superseded spec 或舊 tickets 覆蓋本文件。

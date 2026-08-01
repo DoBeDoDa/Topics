@@ -1,122 +1,106 @@
-# P1-07 — BilliardPhysics安全幾何API
+# P1-05 — Table, Pocket, Rail and Collision Geometry
 
-**Status:** ready-for-agent
+**Status:** Planned
 
-**Blocked by:** P1-02 — 基礎型別、GeometryResults與MathUtils
+**Blocked by:** P1-04
 
-## 1. Ticket ID與標題
+## 1. ID
 
-P1-07：將BilliardPhysics改為具名狀態與optional結果，拒絕所有退化假成功。
+P1-05
 
-## 2. 目的
+## 2. Title
 
-提供可單獨測試的撞球幾何切片，讓路徑、鬼球、鏡射與交點計算明確區分成功、
-阻擋、無解及無效輸入，不再回傳假Point或混合bool語意。
+Base0平面桌面、袋口、effective rail、GhostBall與碰撞幾何。
 
-## 3. 前置依賴
+## 3. Status
 
-- P1-02完成。
-- GeometryResults及安全Math API可用。
+Planned
 
-## 4. 新增檔案
+## 4. Purpose
 
-- 無。
+在既有BilliardPhysics與安全Math primitives中建立Direct／Kick共用、可離線驗證且fail-closed的唯一幾何基礎。
 
-## 5. 修改檔案
+## 5. Approved Spec References
 
-- `src/BilliardPhysics.h`
-- `src/BilliardPhysics.cpp`
-- `tests/phase1_core_tests.cpp`
-- `.vscode/tasks.json`，將BilliardPhysics加入core test target。
+- Master Spec §6～§9 P1-05。
+- Phase 1 Spec §7～§8、§16幾何測試。
 
-## 6. 明確不得修改的檔案與行為
+## 6. Existing Responsibility Owners
 
-- 不修改Algorithm策略順序或TargetSelector。
-- 不填入production球路安全餘量及未校正容差。
-- 不處理Base0桌面幾何、正式庫邊模型或防守球。
-- 不把Invalid轉成Clear、Blocked或假Point。
-- 不加入HRSDK或運動程式。
+- `BilliardPhysics.h/.cpp`、`Point.h`、`GeometryResults.h`、`BilliardConfig.h/.cpp`。
+- `MathUtils`只提供純數學，不擁有撞球規則或production參數。
 
-## 7. API或資料型別變更
+## 7. Existing Files Expected to Change
 
-- 新增`CollisionParameters`，區分mm與無因次容差。
-- `checkPath`與`checkRoute`回`PathStatus`。
-- `getGhostBall`、`getPerpendicularTarget`、
-  `getSlantedBankTarget`回`std::optional<Point>`。
-- `getIntersection`回`IntersectionResult`。
-- PathStatus：Clear、Blocked、Invalid。
-- IntersectionStatus：Intersects、NoIntersection、Invalid。
+- 上述owners、`tests/phase1_core_tests.cpp`與必要離線task source清單。
 
-## 8. 逐步實作內容
+## 8. Existing Files Explicitly Not to Duplicate
 
-1. 集中驗證CollisionParameters有限值及有效範圍。
-2. checkPath先拒絕非有限與退化路徑，再計算有限線段最短距離。
-3. 阻擋門檻固定為`ballDiameterMm + clearanceMarginMm`。
-4. checkRoute先驗證路徑與參數，再處理障礙列表。
-5. 有效空障礙列表回Clear；退化路徑或無效參數即使空列表也回Invalid。
-6. route合併優先順序為Invalid、Blocked、Clear。
-7. 鬼球及鏡射方向退化時回nullopt。
-8. 交點區分唯一交點、合法無交點及重合／退化Invalid。
-9. 不保留回傳輸入Point的legacy fallback。
+- 不得新增第二套BilliardPhysics／MathUtils、TableFrameToBase0Converter、CameraCompensator或平行geometry tree。
 
-## 9. 測試案例
+## 9. Scope
 
-- Clear、Blocked及剛好等於門檻。
-- clearanceMargin fixture為0與大於0。
-- start=end、非有限Point、非法參數。
-- 有效空列表Clear、退化空列表Invalid、非法參數空列表Invalid。
-- route同時含Blocked與Invalid時Invalid優先。
-- 有效鬼球與destination==target退化。
-- railA==railB退化。
-- 唯一交點、平行無交點、交點在線段外、重合線及非有限輸入。
-- 所有IntersectionResult status／optional不變量。
+- PlayableBallCenterRegion、PocketExitSegment、PocketCaptureCorridor、RailReflectionRegion。
+- PhysicalRailSegment與向內平移一次球半徑的EffectiveCueBallRailSegment。
+- stable wire pocket center與PocketModelConfig解析成ResolvedPocketModel。
+- `G = T - 2r*normalize(P-T)`、BallSurfaceContactPoint diagnostic、線段碰撞、鏡射、ray／segment交點。
 
-## 10. 實際測試或建置命令
+## 10. Out of Scope
 
-```powershell
-cl.exe /std:c++17 /EHsc /nologo /utf-8 /I .\src /I .\tests `
-  .\tests\phase1_core_tests.cpp `
-  .\src\MathUtils.cpp `
-  .\src\BilliardPhysics.cpp `
-  /Fe:.\bin\phase1_core_tests.exe
+- 選球、評分、Robot Pose、力度、旋轉、摩擦、恢復係數、jaw完整物理與兩庫以上。
 
-& .\bin\phase1_core_tests.exe
-```
+## 11. Preconditions
 
-## 11. 驗收條件
+- P1-02安全primitives Completed；P1-04提供StableTableState與六袋stable centers。
 
-- [ ] PathStatus與IntersectionStatus全部測試通過。
-- [ ] 零長度路徑永不回Clear。
-- [ ] 空列表前先驗證路徑及參數。
-- [ ] 退化鬼球、鏡射及交點不回假Point。
-- [ ] 不存在混合Clear／Invalid語意的bool路徑API。
-- [ ] 未填任何production容差。
+## 12. Dependencies
 
-## 12. 回滾方式
+- Blocked by P1-04；完成後P1-06與P1-07可平行。
 
-- Revert本ticket commit。
-- 若P1-08已遷移Algorithm，先回滾P1-08及下游。
-- 不只回滾header而保留不相容實作。
+## 13. Detailed Requirements
 
-## 13. Safety Critical限制
+1. 母球／Ghost point留在PlayableBallCenterRegion；目標球只可經選定PocketExitSegment進對應corridor。
+2. Pocket corridor、出口正向穿越、outward normal、entry angle與virtual target符合Approved Spec唯一公式。
+3. Effective rail由physical rail沿finite單位inward normal平移`r`一次；collision margin不得重複加入offset。
+4. 所有線段最近距離處理端點；不同路徑有明確障礙端點排除。
+5. 零長度、重疊、平行／無交點／重合、非finite與非法configuration具名區分。
 
-- Invalid必須比Blocked優先傳播。
-- 不得以空障礙列表掩蓋無效路徑。
-- 不得將無唯一解的重合線回報為有效交點。
-- 不得因保持舊策略相容而恢復假成功。
+## 14. Fail-Closed Requirements
 
-## 14. 完成後應產生的Git diff範圍
+- 不得回原Point、`Point{0,0}`、0度或假交點；Invalid優先於Blocked／Clear。
+- CandidateDiagnostic不得成為success geometry value。
 
-```text
-M  src/BilliardPhysics.h
-M  src/BilliardPhysics.cpp
-M  tests/phase1_core_tests.cpp
-M  .vscode/tasks.json
-```
+## 15. Acceptance Criteria
 
-## 15. 建議commit message
+- [ ] `||T-G|| = 2r`且G/T/P共線、方向正確。
+- [ ] physical/effective rails與排除區映射正確，ball radius只加入一次。
+- [ ] pocket corridor／exit／entry-angle與錯誤出口完整測試。
+- [ ] 路徑碰撞、退化及Result payload不變量通過。
+- [ ] Phase 1只使用Base0 XY。
 
-```text
-refactor(physics): return explicit geometry results
-```
+## 16. Test Requirements
 
+- Ghost 2r、K diagnostic、regions、0／threshold／180° entry angle。
+- effective rail、normal reversal、empty segment、collision margin、segment endpoints。
+- ConfigurationMissing／InvalidConfiguration／NoIntersection／Blocked／Clear fixtures。
+
+## 17. Hardware Level
+
+完全離線純幾何。
+
+## 18. Regression Requirements
+
+- P1-02 API與舊有效collision fixtures保持綠色；不得恢復bool混合語意或舊假Point fallback。
+
+## 19. Definition of Done
+
+- 所有幾何與error-injection測試通過；BilliardPhysics是唯一撞球幾何owner；單一commit。
+
+## 20. Requirement Traceability
+
+- Rename／Refactor舊P1-07 BilliardPhysics安全幾何API。
+- 接收舊P1-05仍有效的bounds／configuration validation；相機補償不遷移。
+
+## 21. New File Justification
+
+None expected；原地演進既有BilliardPhysics與domain headers。

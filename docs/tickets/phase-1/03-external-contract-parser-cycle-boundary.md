@@ -1,134 +1,122 @@
-# P1-04 — ParsedVisionFrame與嚴格VisionDataParser
+# P1-03 — Existing 32-Value Contract, Parser and Cycle Boundary
 
-**Status:** ready-for-agent
+**Status:** Ready for Implementation
 
-**Blocked by:** P1-02 — 基礎型別、GeometryResults與MathUtils
+**Blocked by:** P1-02 — Completed
 
-## 1. Ticket ID與標題
+## 1. ID
 
-P1-04：建立ParsedVisionFrame及精確、transaction式的32欄CSV Parser。
+P1-03
 
-## 2. 目的
+## 2. Title
 
-在wire protocol邊界消除`DetectedPoint{bool, Point}`與範圍式sentinel判斷。
-完成後，Parser只產生已完成語法、有限值及sentinel處理的
-`ParsedVisionFrame`，不產生補償座標或核心TableState。
+既有32值External Contract、本地Cycle／Session Boundary、嚴格Parser與單幀驗證。
 
-## 3. 前置依賴
+## 3. Status
 
-- P1-02完成。
-- Point與status+optional Result不變量已固定。
+Ready for Implementation；這是下一個未完成能力。
 
-## 4. 新增檔案
+## 4. Purpose
 
-- 無；`ParsedVisionFrame`放入既有純資料型別檔案。
+在不改Python wire的前提下，讓既有SocketClient、VisionDataParser與BilliardApp只把CameraPose settle後、本cycle的新32值Base0 XY frame轉成可稽核ReceiveEvent與SingleFrameResult。
 
-## 5. 修改檔案
+## 5. Approved Spec References
 
-- `src/TableState.h`
-- `src/VisionDataParser.h`
-- `src/VisionDataParser.cpp`
-- `tests/phase1_core_tests.cpp`
-- `.vscode/tasks.json`，將Parser source加入core test target。
+- Master Spec §5.1～§6、§9 P1-03、§10.1。
+- Python–C++ External Contract §4～§10。
+- Phase 1 Shot Brain Spec §4 P1-03、§5 Data Lifecycle。
 
-## 6. 明確不得修改的檔案與行為
+## 6. Existing Responsibility Owners
 
-- 不修改Python 32欄順序、sentinel值或換行框架。
-- 不修改CameraCompensator、TargetSelector、Algorithm、MotionPlanner。
-- 不執行相機補償、桌面bounds驗證或必要球驗證。
-- 不使用`MISSING_COORDINATE_LIMIT`或`<-9000`判斷missing。
-- 不開Socket、不執行SocketClient。
+- `SocketClient.h/.cpp`：唯一production TCP transport、newline framing、buffer flush與disconnect結果。
+- `VisionDataParser.h/.cpp`：嚴格32值Parser。
+- `TableState.h`：Parsed／Validated frame、ReceiveEvent與Result domain types的原地演進。
+- `BilliardConfig.h/.cpp`：最大frame長度、timeout、觀測bounds及必要config。
+- `BilliardApp.h/.cpp`：CameraPose後capture-window gate及必要整合。
 
-## 7. API或資料型別變更
+## 7. Existing Files Expected to Change
 
-- 新增`ParsedVisionFrame`，包含9顆object ball、cue ball及6個pocket的
-  `std::optional<Point>`。
-- 新增`VisionParseStatus`：
-  Success、InvalidFieldCount、InvalidToken、NonFiniteValue、
-  InvalidSentinelPair。
-- 新增`VisionParseResult`：
-  Success必須有ParsedVisionFrame，其他status必須為nullopt。
-- Parser成功輸出只能是ParsedVisionFrame。
-- wire層只保留：
-  `inline constexpr double MISSING_COORDINATE_SENTINEL = -9999.0;`
+- 上述既有owner、`tests/phase1_core_tests.cpp`及必要的`.vscode/tasks.json`離線target清單。
 
-## 8. 逐步實作內容
+## 8. Existing Files Explicitly Not to Duplicate
 
-1. 依現有順序定義ParsedVisionFrame，不改32欄mapping。
-2. 精確分割32個token，拒絕不足、過多及空token。
-3. 每個token必須完整轉換，不接受尾隨字元。
-4. 拒絕NaN、Infinity及數值轉換overflow。
-5. 只有`x == -9999.0 && y == -9999.0`轉為nullopt。
-6. 單軸精確等於`-9999.0`回InvalidSentinelPair。
-7. 其他任何有限值，包括`-9998.0`及小於`-9000.0`的值，保留為present Point。
-8. 先建構局部結果；任一欄失敗時不得回傳partial frame。
-9. 將Parser加入core test target。
+- 不得新增第二個SocketClient、VisionDataParser、BilliardApp、`ProductionVisionTransportAdapter`、AttestedVisionSession服務或平行v2 input tree。
 
-## 9. 測試案例
+## 9. Scope
 
-- 32個合法有限值及欄位mapping。
-- 31欄、33欄。
-- 空token。
-- `1.0abc`等尾隨字元。
-- NaN、+Infinity、-Infinity及overflow。
-- 精確成對`(-9999.0,-9999.0)`轉nullopt。
-- X-only及Y-only sentinel均為InvalidSentinelPair。
-- `(-9998.0,-9998.0)`仍是present。
-- 其他小於`-9000.0`有限座標仍是present。
-- 所有success／failure status與optional payload不變量。
+- 保留newline-delimited 32-value CSV與既有欄位順序。
+- exact token count、non-empty token、完整數值消費、finite、overflow、paired `-9999`及single-side sentinel拒絕。
+- maximum frame byte length、clean close與transport error區分。
+- 本地connection identity、shot-cycle identity、嚴格遞增ReceiveEvent ID與monotonic receive time。
+- CameraPose成功／stopped／settle後flush舊buffer、reset累積並開capture window。
+- 六袋wire XY與球資料進入ValidatedVisionFrame；具名Result與Diagnostic分離。
 
-## 10. 實際測試或建置命令
+## 10. Out of Scope
 
-```powershell
-cl.exe /std:c++17 /EHsc /nologo /utf-8 /I .\src /I .\tests `
-  .\tests\phase1_core_tests.cpp `
-  .\src\MathUtils.cpp `
-  .\src\VisionDataParser.cpp `
-  /Fe:.\bin\phase1_core_tests.exe
+- Python protocol重設、mandatory RuntimeCalibrationAttestation、sender frame ID／timestamp、相機補償、三幀演算法、ShotBrain、HRSDK、DO與真實硬體。
 
-& .\bin\phase1_core_tests.exe
+## 11. Preconditions
 
-rg -n "MISSING_COORDINATE_LIMIT|[<>]=?\\s*-9000\\.0" `
-  .\src\VisionDataParser.h .\src\VisionDataParser.cpp
-```
+- P1-01、P1-02 Completed；四份Approved Specs是唯一需求權威。
 
-最後一個搜尋不得找到門檻式missing判斷。
+## 12. Dependencies
 
-## 11. 驗收條件
+- Blocked by P1-02；完成後解鎖P1-04。
 
-- [ ] 32欄合法frame正確產生ParsedVisionFrame。
-- [ ] 所有格式及非有限輸入fail closed。
-- [ ] 只有精確成對`-9999.0`成為nullopt。
-- [ ] 單軸sentinel使整幀失敗。
-- [ ] `-9998.0`及其他小於`-9000.0`的有限值不被當成missing。
-- [ ] Parser沒有補償、bounds或策略責任。
+## 13. Detailed Requirements
 
-## 12. 回滾方式
+1. 只接受恰好32個完整finite數值token，index 0–17為1～9號球、18–19為母球、20–31為六袋。
+2. 成對`(-9999,-9999)`轉nullopt；單邊sentinel整frame拒絕；Parser後不保留sentinel語意。
+3. 1～9號球各自都可合法使用paired sentinel表示不存在；九顆全部不存在仍可形成ValidatedVisionFrame，不是Parser failure。
+4. Parser只負責wire與single-frame validation，不選target、不判斷lowest-number target，也不產生`NoEligibleTarget`。
+5. Parser不得修改Base0 planar XY原值，不得做bounds以外的幾何可行性、相機補償或座標轉換。
+6. 一個Start建立一個shot-cycle identity；CameraPose gate開啟前資料全部丟棄。
+7. reconnect、timeout、Parser failure、cycle change或flush使舊event失效並通知P1-04 reset。
+8. V1 freshness只證明本地receive事件；無法證明不同camera exposure，記為Known Non-Blocking V1 Limitation。
 
-- Revert本ticket commit。
-- 若P1-05及下游已使用ParsedVisionFrame，先反向回滾下游。
-- 不修改Python做回滾配合。
+## 14. Fail-Closed Requirements
 
-## 13. Safety Critical限制
+- malformed、partial、超長、NaN、Infinity、overflow、必要母球／六袋缺失，或任一座標格式／sentinel規則非法，均不得產生ValidatedVisionFrame。
+- 合法paired sentinel所表示的編號球absence不是失敗；不得因不存在任何編號球而拒絕frame或產生target層結果。
+- Diagnostic不得被當作Point、frame、StableTableState或Plan；不得以0、raw Point或partial frame fallback。
 
-- 禁止容忍partial frame。
-- 禁止把非法token轉成0或sentinel。
-- 禁止以近似浮點比較辨認sentinel。
-- sentinel不得流入MathUtils、Physics、Algorithm或MotionPlanner。
+## 15. Acceptance Criteria
 
-## 14. 完成後應產生的Git diff範圍
+- [ ] 既有32值wire與Python完全相容，無新control handshake。
+- [ ] 只有capture window開啟後、同connection／cycle的合法frame可形成ReceiveEvent。
+- [ ] Parser完整覆蓋格式、finite與exact sentinel規則。
+- [ ] 1～9號球全部為合法paired sentinel時Parser成功；Target qualification留給P1-06。
+- [ ] 六袋wire XY保留固定ID並可進P1-04。
+- [ ] SocketClient clean close、error、timeout及stale buffer可區分且會reset。
+- [ ] Phase 1離線測試不開真實Socket。
 
-```text
-M  src/TableState.h
-M  src/VisionDataParser.h
-M  src/VisionDataParser.cpp
-M  tests/phase1_core_tests.cpp
-M  .vscode/tasks.json
-```
+## 16. Test Requirements
 
-## 15. 建議commit message
+- fake byte／connection／cycle source；覆蓋31／32／33欄、空token、尾隨字元、sentinel、非finite、超長frame。
+- Case A（Parser段）：1～9號球全部為paired sentinel且母球／六袋合法，結果為成功ValidatedVisionFrame並可進P1-04。
+- Case B：任一Point只有單邊sentinel，結果為`InvalidFormat`且不得進P1-04。
+- 覆蓋CameraPose前frame、flush、event ID、跨cycle、disconnect／reconnect與相同payload的新本地event。
+- 證明Parser沒有CameraCompensator、TableFrame→Base0、ShotBrain或硬體依賴。
 
-```text
-refactor(vision): parse strict optional frames
-```
+## 17. Hardware Level
 
+完全離線；production Socket integration只做compile／contract驗證，不執行真實連線。
+
+## 18. Regression Requirements
+
+- 保留現有32值欄位順序、newline framing及Base0 XY原值。
+- P1-01／P1-02測試保持綠色；不得破壞SocketClient既有唯一owner地位。
+
+## 19. Definition of Done
+
+- AC與錯誤注入全部通過；source／dependency audit無重複transport或相機補償；單一可回滾commit。
+
+## 20. Requirement Traceability
+
+- Refactor／Rename自舊P1-04 strict parser。
+- Merge舊P1-03仍有效的finite、fail-closed、diagnostics與tests；C++ CameraCompensator核心責任Superseded。
+- Merge舊P1-05仍有效的單幀validation、bounds、Result與Diagnostic；補償與新VisionFrameProcessor責任Superseded。
+
+## 21. New File Justification
+
+None expected。優先原地修改既有owners；不得先建立新production helper再找理由。

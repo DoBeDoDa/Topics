@@ -1,8 +1,17 @@
 # P1-05 — VisionFrameProcessor與ProcessedVisionFrame
 
-**Status:** ready-for-agent
+**Status:** Superseded — historical only, do not implement
 
 **Blocked by:** P1-03 — CameraCompensator；P1-04 — ParsedVisionFrame與嚴格Parser
+
+## Superseded Classification and Requirement Migration
+
+- Classification：Superseded；核心「C++單幀相機補償」與新增`VisionFrameProcessor.cpp/.h`責任被Approved Specs禁止。
+- strict single-frame validation、bounds config、success value／Diagnostic、partial payload禁止：遷移至active P1-03。
+- 三event presence／median／reset：遷移至active P1-04。
+- PlayableBallCenterRegion及table／pocket safety geometry：遷移至active P1-05。
+- CameraCompensator dependency、raw→compensated Point及ProcessedVisionFrame補償語意：obsolete，不遷移。
+- 本文件只供Git歷史追溯，不是Approved需求、active ticket或實作依據。
 
 ## 1. Ticket ID與標題
 
@@ -122,4 +131,3 @@ M  .vscode/tasks.json
 ```text
 refactor(vision): validate processed frames
 ```
-

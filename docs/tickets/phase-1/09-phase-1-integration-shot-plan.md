@@ -1,139 +1,104 @@
-# P1-10 — BilliardApp、test_cueball與完整編譯相容
+# P1-09 — Phase 1 Integration and Auditable ShotPlan/NoPlan
 
-**Status:** ready-for-agent
+**Status:** Planned
 
-**Blocked by:** P1-08 — TargetSelector與Algorithm遷移；P1-09 — MotionProfile與MotionPlanner相容遷移
+**Blocked by:** P1-08
 
-## 1. Ticket ID與標題
+## 1. ID
 
-P1-10：收斂Phase 1新API呼叫端，恢復主程式、calibration及test_cueball編譯相容。
+P1-09
 
-## 2. 目的
+## 2. Title
 
-完成Phase 1的compile-only整合切片。BilliardApp及test_cueball必須理解新的
-Parser、單幀處理、穩定TableState與幾何Result；尚未實作的Socket三幀收集不得
-用單幀或假資料繞過。
+Phase 1 pipeline／ShotBrain概念整合與可稽核ShotPlan／NoPlan。
 
-## 3. 前置依賴
+## 3. Status
 
-- P1-08完成。
-- P1-09完成。
-- 兩個離線測試target在各自分支均為綠色。
+Planned
 
-## 4. 新增檔案
+## 4. Purpose
 
-- 無。
+由既有BilliardApp、TableState與Algorithm原地整合P1-03～P1-08，使合法StableTableState產生完整PlanningResult，且所有pipeline failure與NoPlan分層清楚。
 
-## 5. 修改檔案
+## 5. Approved Spec References
 
-- `src/BilliardApp.cpp`
-- `src/test_cueball.cpp`
-- `.vscode/tasks.json`，更新主程式／cueball source清單及Phase 1新source。
-- `src/BilliardApp.h`只有在新API宣告無法以現有成員完成編譯時才可做最小修改；
-  若不需要則不得變更。
+- Master Spec §5.2、§6、§9 P1-09。
+- Phase 1 Spec §5、§14～§17。
 
-## 6. 明確不得修改的檔案與行為
+## 6. Existing Responsibility Owners
 
-- 不修改RobotController、SocketClient、main或calibrate內容。
-- 不修改Python。
-- 不實作三幀Socket收集、H按鈕或CompetitionAuto。
-- 不執行main、calibrate或test_cueball。
-- 不送reachable、LIN、PTP、DO或任何HRSDK命令。
-- 不改test_cueball既有輸出文字、換行或無關診斷。
-- 不製造TableState來繞過StableFrameValidator。
+- `BilliardApp.h/.cpp`：Phase1Pipeline協調。
+- `Algorithm.h/.cpp`：ShotBrain概念整合。
+- `TableState.h`與既有domain headers：PlanningResult、ShotPlan、NoPlan與audit型別。
 
-## 7. API或資料型別變更
+## 7. Existing Files Expected to Change
 
-- BilliardApp處理VisionParseResult、SingleFrameResult、
-  StableFrameResult、Target selection failure及ShotDecisionResult。
-- 尚缺production bounds、stable tolerance或三幀收集時必須fail closed。
-- test_cueball移除舊Math／Physics／MotionProfile符號，改用新介面。
-- build task加入CameraCompensator、VisionFrameProcessor、
-  StableFrameValidator及其他必要Phase 1 sources。
+- 上述owners、Phase 1離線tests與必要task source清單。
 
-## 8. 逐步實作內容
+## 8. Existing Files Explicitly Not to Duplicate
 
-1. 將BilliardApp Parser呼叫改成VisionParseResult。
-2. 將成功ParsedVisionFrame交給VisionFrameProcessor；失敗狀態直接停止。
-3. 不在本ticket建立Socket三幀buffer；沒有三個Valid ProcessedVisionFrame時，
-   不得呼叫TargetSelector。
-4. 若production bounds／tolerance未設定，明確回報ConfigurationMissing並停止。
-5. 將TargetSelector及Algorithm新Result錯誤傳遞至現有流程邊界。
-6. 將test_cueball舊`-9000`判斷、Math相機補償、Physics bool／假Point及
-   MotionProfile欄位改為新API的compile-only相容。
-7. 保留test_cueball既有輸出格式及使用者換行修改。
-8. 更新三個既有build task的C++17及必要source，但不新增run task。
-9. 確認兩個離線測試target仍不含BilliardApp／控制依賴。
+- 不得新增ShotBrain.cpp、Phase1Pipeline.cpp、第二個BilliardApp、第二個Algorithm或平行v2 source tree。
 
-## 9. 測試案例
+## 9. Scope
 
-- Parser失敗、單幀失敗與stable資料不可用均fail closed。
-- 沒有三個Valid frame時不進TargetSelector。
-- InvalidGeometry不進MotionPlanner。
-- test_cueball所有舊符號已遷移且編譯成功。
-- 兩個離線測試仍全部通過。
-- main、calibrate、test_cueball只做build驗證。
-- 比較test_cueball修改前後輸出字串及換行，除必要錯誤狀態外不變。
+- `ReceiveEvent stream → Phase1PipelineResult`與獨立`StableTableState + configs → PlanningResult` seams。
+- ShotPlan Common／Pot／Kick audit fields、source event／cycle identity、FixedForceMode與CandidateDiagnostics摘要。
+- `PlanningResult = ShotPlan | NoPlan`；pipeline errors不成為NoPlan。
 
-## 10. 實際測試或建置命令
+## 10. Out of Scope
 
-先執行允許的離線測試：
+- Robot Pose、Z／A／B／C、Socket執行、HRSDK、DO、main／calibrate／test_cueball執行。
 
-```powershell
-& .\bin\phase1_core_tests.exe
-& .\bin\phase1_algorithm_regression_tests.exe
-```
+## 11. Preconditions
 
-再使用VS Code build task，只編譯、不執行：
+- P1-03～P1-08完成且離線tests綠色。
 
-```text
-Build with HRSDK (MSVC)
-Build Calibration Tool (MSVC)
-Build Cueball Test (MSVC)
-```
+## 12. Dependencies
 
-建置完成後只檢查檔案存在，不啟動：
+- Blocked by P1-08；完成後解鎖P2-01。
 
-```powershell
-Get-Item .\bin\main.exe,.\bin\calibrate.exe,.\bin\test_cueball.exe
-```
+## 13. Detailed Requirements
 
-## 11. 驗收條件
+1. ShotBrain API只接受StableTableState、TableGeometryConfig、BrainConfig。
+2. CSV、freshness、timeout、Parser與三幀累積留在pipeline owner。
+3. ShotPlan只含Base0 planar XY撞球語意，不含Robot Pose／硬體欄位。
+4. NoPlan只由合法StableTableState後的規劃層產生且無fallback plan。
+5. BilliardApp整合不執行production Socket、RobotController或硬體於Phase 1驗收。
 
-- [ ] 兩個離線測試仍通過。
-- [ ] main、calibrate、test_cueball均可編譯。
-- [ ] 三個控制／診斷執行檔完全未執行。
-- [ ] BilliardApp不以單幀或假TableState進入策略。
-- [ ] test_cueball只做必要介面遷移並保留輸出格式。
-- [ ] 測試targets仍沒有HRSDK、RobotController、SocketClient、BilliardApp或DO。
+## 14. Fail-Closed Requirements
 
-## 12. 回滾方式
+- Parser／stability／planning任一failure停止；Diagnostic不得轉成Point、Candidate、ShotPlan或ExecutionPlan。
 
-- Revert本ticket commit。
-- 保留P1-01至P1-09的純模組與測試。
-- 不還原或覆寫test_cueball原有輸出換行修改。
+## 15. Acceptance Criteria
 
-## 13. Safety Critical限制
+- [ ] Pipeline與Brain seams可分別離線重現。
+- [ ] PotOnly ShotPlan／NoPotCandidate及所有variant audit完整。
+- [ ] pipeline failures不列為NoPlanReason。
+- [ ] ShotPlan無Robot Z／Pose／HRSDK／DO。
+- [ ] 無ShotBrain.cpp或Phase1Pipeline.cpp要求。
 
-- 編譯控制程式不等於授權執行。
-- 不得為恢復舊流程而跳過三幀Stable邊界。
-- 不得在ConfigurationMissing時使用0或猜測production值。
-- 不得觸碰RobotController運動安全缺陷；那不屬於Phase 1。
+## 16. Test Requirements
 
-## 14. 完成後應產生的Git diff範圍
+- end-to-end fake events到PlanningResult；Parser error、NeedMore、Unstable、timeout、NoPlan、Direct與Kick success。
+- variant payload、success value／Diagnostic與CandidateDiagnostic isolation。
 
-```text
-M  src/BilliardApp.cpp
-M  src/test_cueball.cpp
-M  .vscode/tasks.json
-M  src/BilliardApp.h  # 僅在編譯介面確實需要時
-```
+## 17. Hardware Level
 
-不得包含RobotController、SocketClient、main、calibrate、Python或HRSDK檔案。
+完全離線；不開production Socket、不link或執行RobotController。
 
-## 15. 建議commit message
+## 18. Regression Requirements
 
-```text
-refactor(app): migrate phase 1 result APIs
-```
+- P1-01～P1-08測試保持綠色；既有main／diagnostic call sites的後續compile migration不得用fallback繞過新契約。
 
+## 19. Definition of Done
+
+- Phase 1全離線coverage與dependency audit通過；單一可回滾commit；P2-01可只消費ShotPlan。
+
+## 20. Requirement Traceability
+
+- Refactor／Split自舊P1-10 BilliardApp integration。
+- Merge舊P1-11的Phase 1 acceptance與dependency audit；硬體驗收移至P2-03。
+
+## 21. New File Justification
+
+None expected；概念責任由既有BilliardApp、Algorithm與TableState承接。

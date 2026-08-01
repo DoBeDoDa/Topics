@@ -1,139 +1,105 @@
-# P1-09 — MotionProfile與MotionPlanner相容遷移
+# P2-01 — Existing MotionPlanner to ExecutionPlan
 
-**Status:** ready-for-agent
+**Status:** Planned
 
-**Blocked by:** P1-02 — 基礎型別、GeometryResults與MathUtils
+**Blocked by:** P1-09
 
-## 1. Ticket ID與標題
+## 1. ID
 
-P1-09：移除姿態／幾何混合欄位，固定五欄MotionProfile並遷移MotionPlanner。
+P2-01
 
-## 2. 目的
+## 2. Title
 
-完成最小機械姿態相容切片：MotionPlanner改用安全Math API，RZ只由二維
-shot direction決定，移除getTiltOffset與moveBackMm，同時逐欄保留現有RX／RY值。
+既有MotionPlanner原地演進：StrikeReadyPose、校正姿態、cue-axis驗證與ExecutionPlan。
 
-## 3. 前置依賴
+## 3. Status
 
-- P1-02完成。
-- 新MathUtils optional API已固定。
+Planned
 
-## 4. 新增檔案
+## 4. Purpose
 
-- 無。
+把Base0 planar XY ShotPlan轉成可離線驗證的SafeApproachPose、StrikeReadyPose及safe-lift derivation contract，不重新做撞球策略或座標轉換。
 
-## 5. 修改檔案
+## 5. Approved Spec References
 
-- `src/BilliardConfig.h`
-- `src/BilliardConfig.cpp`
-- `src/MotionPlanner.h`
-- `src/MotionPlanner.cpp`
-- `tests/phase1_core_tests.cpp`，只加入純設定／規劃相容測試。
+- Master Spec §5.3、§6、§9 P2-01。
+- Phase 2 Spec §4 P2-01、§5～§9、§14 P2-01。
 
-## 6. 明確不得修改的檔案與行為
+## 6. Existing Responsibility Owners
 
-- 不修改RobotController、BilliardApp、main、calibrate或test_cueball。
-- 不改PRODUCTION_MOTION或TEST_MOTION現有RX／RY數值。
-- 不實作RX／RY候選搜尋、CartesianPose、50 mm新strike TCP模型或HRSDK Euler。
-- 不執行MotionPlanner產生的任何運動計畫。
-- 不將LIN、PTP或reachable邏輯加入MotionPlanner。
+- `MotionPlanner.h/.cpp`與既有`MotionPlan`原地演進為ExecutionPlan語意。
+- `BilliardConfig.h/.cpp`：manual Strike Z、A/B bounds、CToolOffset、cueForwardAxisTool、ready gap與safe lift設定。
+- `MathUtils.h/.cpp`：純方向／旋轉數學。
 
-## 7. API或資料型別變更
+## 7. Existing Files Expected to Change
 
-MotionProfile欄位及順序固定為：
+- 上述owners、`tests/phase1_core_tests.cpp`或新增的tests內Phase 2離線fixture、必要build task。
+- `test_cueball.cpp`既有A/B prototype只可在本票實作時搬移至MotionPlanner，不得複製；本輪ticket refactor不修改該程式。
 
-```text
-strikeZ
-safeZ
-rxDeg
-ryDeg
-standoffExtraMm
-```
+## 8. Existing Files Explicitly Not to Duplicate
 
-- 移除`tiltRyDeg`。
-- 移除`moveBackMm`。
-- 移除`YAW_OFFSET_DEG`使用；若無其他合法呼叫端，連同未使用常數移除。
-- MotionPlanner處理Math optional失敗並回既有明確規劃失敗。
+- 不得新增ExecutionPlanner、第二個MotionPlanner、TableFrameToBase0Converter、第二套MathUtils或parallel pose tree。
 
-## 8. 逐步實作內容
+## 9. Scope
 
-1. 將MotionProfile改成規格指定的五欄及順序。
-2. PRODUCTION逐欄遷移為`{-216.0,-160.0,0.0,-180.0,0.0}`。
-3. TEST逐欄遷移為`{-140.0,-150.0,-10.0,180.0,0.0}`。
-4. 以欄位註解核對aggregate initializer，禁止placeholder。
-5. 將`tiltRyDeg`所有本ticket呼叫改成純Pose語意`ryDeg`。
-6. 完全移除moveBackMm與getTiltOffset呼叫；strike X/Y不再加該offset。
-7. RZ使用`getVectorAngleDeg(aimTarget-cueBall)`，不加YAW_OFFSET_DEG。
-8. Math optional無值時規劃失敗，不產生MotionPlan。
-9. 保留現有ready／strike結構、Z值、RX／RY值及standoff計算。
+- `TCPreadyXY = Cball - (r + readyGapMm)d`、人工`ZstrikeManual`。
+- finite bounded deterministic A/B search；C=`normalizeAngle(atan2(dy,dx)+CToolOffset)`且A/B不得改C。
+- 每個候選驗證投影cueForwardAxis與d的角差。
+- SafeApproach、StrikeReady、transit／Camera references、safeLiftHeight與actual-pose derivation rule的ExecutionPlan。
 
-## 9. 測試案例
+## 10. Out of Scope
 
-- MotionProfile欄位數與欄位順序編譯驗證。
-- PRODUCTION五欄值逐一比對。
-- TEST五欄值逐一比對。
-- +X、+Y、-X、-Y及四象限aim direction產生對應RZ。
-- cueBall==aimTarget或非有限方向使規劃失敗。
-- RZ沒有固定yaw加法。
-- moveBackMm為0的舊有效fixture，strike X/Y在移除offset後保持相容。
-- 搜尋source不存在tiltRyDeg、moveBackMm或getTiltOffset。
+- coordinate conversion、選球、Ghost／Kick／scoring、camera compensation、real HRSDK、real DO與執行狀態機。
 
-## 10. 實際測試或建置命令
+## 11. Preconditions
 
-```powershell
-cl.exe /std:c++17 /EHsc /nologo /utf-8 /I .\src /I .\tests `
-  .\tests\phase1_core_tests.cpp `
-  .\src\MathUtils.cpp `
-  .\src\BilliardConfig.cpp `
-  .\src\MotionPlanner.cpp `
-  /Fe:.\bin\phase1_core_tests.exe
+- P1-09提供成功ShotPlan；必要校正設定具有版本與人工核准狀態。
 
-& .\bin\phase1_core_tests.exe
+## 12. Dependencies
 
-rg -n "tiltRyDeg|moveBackMm|getTiltOffset|YAW_OFFSET_DEG" `
-  .\src\BilliardConfig.h .\src\BilliardConfig.cpp `
-  .\src\MotionPlanner.h .\src\MotionPlanner.cpp
-```
+- Blocked by P1-09；完成後解鎖P2-02。
 
-除非規格允許保留未使用的YAW constant定義，其他禁止符號不得出現；任何
-YAW_OFFSET_DEG呼叫一律不允許。
+## 13. Detailed Requirements
 
-## 11. 驗收條件
+1. ShotPlan XY原值直用，不做TableFrame→Base0或第二次映射。
+2. GhostBallPoint不得當TCP；d必須finite且為單位向量。
+3. A/B只在核准有限範圍、固定step／order／tie-break搜尋。
+4. cueForwardAxisTool是校正屬性，不預設+X；投影退化或超`maxCueDirectionErrorDeg`拒絕。
+5. PostStrikeSafeLiftPose不預存planned start；只記錄由氣動後current actual pose保持X/Y/A/B/C、Z+height的規則。
 
-- [ ] MotionProfile精確為五欄指定順序。
-- [ ] 兩個aggregate initializer逐欄正確，RX／RY值未改。
-- [ ] tiltRyDeg、moveBackMm及getTiltOffset呼叫消失。
-- [ ] RZ不加入YAW_OFFSET_DEG。
-- [ ] 退化方向fail closed。
-- [ ] 未加入任何Phase 2姿態搜尋或HRSDK功能。
-- [ ] 文件／註解明示PRODUCTION_MOTION尚未實機驗證。
+## 14. Fail-Closed Requirements
 
-## 12. 回滾方式
+- 缺校正、nonfinite、unreachable或所有A/B候選失敗回NoExecutablePlan，無任意Pose／0角／範圍擴張fallback。
 
-- Revert本ticket commit。
-- 若P1-10已遷移test_cueball或BilliardApp，先回滾P1-10。
-- 必須整體回滾header、initializers與MotionPlanner，避免欄位錯位。
+## 15. Acceptance Criteria
 
-## 13. Safety Critical限制
+- [ ] StrikeReady XY、manual Z、A/B、C與cue-axis公式完整。
+- [ ] MotionPlanner沒有平面座標轉換或策略責任。
+- [ ] ExecutionPlan只含已驗證Pose／rules及具名失敗。
+- [ ] safe lift明確從runtime actual pose推導。
+- [ ] 沒有第二個planner。
 
-- 禁止把現有`RX=0, RY=-180`改成訪談預期值；Phase 1只改語意，不改值。
-- 禁止使用RY做XY三角位移。
-- 禁止將編譯成功宣告為姿態安全。
-- 禁止執行任何產生的MotionPlan。
+## 16. Test Requirements
 
-## 14. 完成後應產生的Git diff範圍
+- Base0 XY原值、四象限C、A/B bounds/order/tie、cue-axis alignment、ready gap、Ghost/TCP分離、missing calibration與all-candidate failure。
 
-```text
-M  src/BilliardConfig.h
-M  src/BilliardConfig.cpp
-M  src/MotionPlanner.h
-M  src/MotionPlanner.cpp
-M  tests/phase1_core_tests.cpp
-```
+## 17. Hardware Level
 
-## 15. 建議commit message
+完全離線；fake reachability／pose validation，不link HRSDK。
 
-```text
-refactor(motion): clarify motion profile fields
-```
+## 18. Regression Requirements
 
+- 保留既有MotionPlanner唯一owner；移除舊tilt／moveBack混合責任時不得以未驗證姿態維持相容。
+
+## 19. Definition of Done
+
+- P2-01離線tests及source audit通過；ExecutionPlan可供fake executor消費；單一commit。
+
+## 20. Requirement Traceability
+
+- Move／Rename／Refactor自舊P1-09 MotionProfile與MotionPlanner相容遷移。
+- 舊A/B prototype責任從`test_cueball`移入既有MotionPlanner；不複製。
+
+## 21. New File Justification
+
+None expected；只原地演進既有MotionPlanner與config／math owners。

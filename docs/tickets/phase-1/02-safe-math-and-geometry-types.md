@@ -1,6 +1,6 @@
 # P1-02 — 基礎型別、GeometryResults與MathUtils
 
-**Status:** ready-for-agent
+**Status:** Completed
 
 **Blocked by:** P1-01 — C++17建置與離線測試框架
 
@@ -102,14 +102,14 @@ rg -n "BilliardConfig|applyCameraCompensation|getTiltOffset|Offset3D" `
 
 ## 11. 驗收條件
 
-- [ ] 所有MathUtils測試通過。
-- [ ] MathUtils不include BilliardConfig。
-- [ ] 零向量不產生假角度。
-- [ ] 非有限或溢位運算不產生成功值。
-- [ ] GeometryResults不變量有測試。
-- [ ] CameraCompensation、getTiltOffset及Offset3D已離開MathUtils。
+- [x] 所有MathUtils測試通過。
+- [x] MathUtils不include BilliardConfig。
+- [x] 零向量不產生假角度。
+- [x] 非有限或溢位運算不產生成功值。
+- [x] GeometryResults不變量有測試。
+- [x] CameraCompensation、getTiltOffset及Offset3D已離開MathUtils。
 
-完整主程式編譯相容由P1-09與P1-10收斂；本ticket不得加入危險legacy wrapper
+後續呼叫端與完整流程相容由P1-03至P1-09及P2-01至P2-03收斂；本ticket不得加入危險legacy wrapper
 來掩蓋尚未遷移的呼叫端。
 
 ## 12. 回滾方式
@@ -141,3 +141,32 @@ M  .vscode/tasks.json
 refactor(math): add safe geometry primitives
 ```
 
+## 16. Approved Spec References
+
+- Master Spec §9 P1-02、§7安全不變量。
+- Phase 1 Shot Brain Spec §4 P1-02、§8 Geometry and Collision。
+
+## 17. Existing Responsibility Owners
+
+- `Point.h`、`GeometryResults.h`、`MathUtils.h/.cpp`及`phase1_core_tests`。
+- Existing Files Explicitly Not to Duplicate：不得建立第二套Point、GeometryResults、MathUtils或production math tree。
+
+## 18. Hardware Level與Regression Requirements
+
+- Hardware Level：完全離線純數學。
+- Regression：後續幾何、策略與MotionPlanner只能消費已完成安全API；不得恢復CameraCompensation、假Point或0度fallback。
+
+## 19. Definition of Done與完成證據
+
+- Implementation commit：`216bcb7`。
+- Completed scope與existing tests保留，不重建、不重新實作。
+- Approved Specs revalidation：PASS（2026-08-01）；後續新增幾何型別若屬其他能力，由其ticket以delta方式擴充。
+
+## 20. Requirement Traceability
+
+- 舊P1-02全部有效要求由本Completed ticket保留。
+- 十二能力coverage：P1-02，Coverage Complete = YES。
+
+## 21. New File Justification
+
+- None expected；本票已完成，禁止建立第二套數學primitive ticket或production模組。

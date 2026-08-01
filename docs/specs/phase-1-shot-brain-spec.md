@@ -3,10 +3,11 @@
 ## 文件資訊
 
 - 狀態：Approved
+- Final Workflow Verification：PASS（2026-08-01）
 - 規格版本：1.0
 - 基準 commit：`216bcb7`
 - 能力範圍：P1-01 至 P1-09
-- 唯一權威：Parser後資料生命週期、TableGeometry、候選、評分、LegalContact、ShotPlan／NoPlan
+- 唯一權威：Parser後資料生命週期、StableTableState、TableGeometry、Pot候選、評分、PotOnly、選配LegalContact、ShotPlan／NoPlan
 
 ## 1. Problem Statement
 
@@ -14,10 +15,14 @@
 
 ## 2. Solution
 
-Phase 1建立兩個完全離線的責任層：Phase1Pipeline負責嚴格輸入與三個receive
-events的動態球穩定；ShotBrain只接受StableTableState、TableGeometryConfig與
-BrainConfig，負責DirectPot、一次母球KickPot、實驗性正規化評分、最低限度
-LegalContact及完整`ShotPlan | NoPlan`。
+Phase 1建立兩個完全離線的責任層：Phase1Pipeline負責嚴格輸入與同一shot cycle三個receive
+events的球及六袋穩定；ShotBrain只接受StableTableState、TableGeometryConfig與
+BrainConfig，負責DirectPot、一次母球KickPot、實驗性正規化評分及完整
+`ShotPlan | NoPlan`。V1預設`PlanningMode = PotOnly`；LegalContact只保留為顯式manual／research能力。
+
+這兩層是概念責任而非同名cpp要求。Phase1Pipeline由既有BilliardApp協調、
+VisionDataParser及唯一三幀穩定狀態物件共同承接；ShotBrain由既有Algorithm、
+BilliardPhysics及TargetSelector原地重構承接。
 
 ## 3. User Stories
 
@@ -27,7 +32,7 @@ LegalContact及完整`ShotPlan | NoPlan`。
 4. 作為策略開發者，我要比較全部可行DirectPot與一次KickPot，而不是預選單一袋口。
 5. 作為安全審查者，我要讓每段路徑及退化幾何具有具名結果。
 6. 作為研究者，我要看到每個候選的原始量、正規化成本、權重與總成本。
-7. 作為操作者，我要在沒有進球方案時得到誠實的LegalContact或NoPlan，而不是假安全球。
+7. 作為操作者，我要在PotOnly沒有進球方案時得到`NoPlan(NoPotCandidate)`，而不是自動fallback或假安全球。
 8. 作為Phase 2開發者，我要收到不含Robot Pose的完整ShotPlan。
 
 ## 4. Capability Boundaries
@@ -42,28 +47,28 @@ LegalContact及完整`ShotPlan | NoPlan`。
 
 ### P1-03
 
-能力名稱：`External Contract、Attested Session Boundary、嚴格Parser與單幀驗證`。
+能力名稱：`既有32值External Contract、本地Cycle／Session Boundary、嚴格Parser與單幀驗證`。
 
-P1-03包含RuntimeCalibrationAttestation資料契約、versioned control-message schema與
-parser、static manifest與runtime attestation validation、AttestedVisionSession狀態模型、
-以不可重用session ID為主要identity的connection／session綁定與session gate、
-reconnect／session ID改變時
-失效及重置、32值data frame只在attested session下形成ReceiveEvent、全部錯誤的具名
-Result／Diagnostic、transport adapter interface及fake byte／session source完整離線測試。
-Python process ID只作可能重用的Diagnostic metadata，不得延續attestation或三幀累積。
+P1-03包含既有newline-delimited 32值protocol、maximum frame length、嚴格Parser、exact
+sentinel、finite validation、clean disconnect／transport error區分、本地ReceiveEvent、
+connection／shot-cycle identity、CameraPose後capture-window gate、reconnect／cycle reset、
+stale-buffer protection、全部錯誤的具名Result／Diagnostic及fake byte／connection／cycle
+source完整離線測試。V1不新增Python control handshake、runtime attestation或sender metadata。
 
 P1-03不包含ShotBrain、三幀穩定演算法、相機補償、RobotController、HRSDK、DO、
-真實機械手臂、production策略決策、真實TCP Socket、production Socket連線、
-production SocketClient具體實作或application orchestration。P1-03只定義
-transport-neutral interface；ProductionVisionTransportAdapter是獨立application／
-infrastructure前置依賴，不屬於P1-03離線核心驗收，不得成為Phase1Pipeline／ShotBrain
-依賴或移至P2-03。其integration未完成時production為IntegrationRequired。
+真實機械手臂或production策略決策。P1-03核心及測試保持transport-neutral並使用fake
+byte／connection／cycle source，不開啟真實TCP Socket；但既有SocketClient是唯一production
+transport owner，同一ticket可原地擴充其最大frame長度、newline framing、
+connection lifecycle、本地identity及clean close／error區分，並做必要的BilliardApp
+capture-window integration。不得新增第二個transport／parser或只包裝SocketClient的
+`ProductionVisionTransportAdapter.cpp`。SocketClient不得成為ShotBrain或撞球幾何依賴，
+production integration亦不得移至P2-03；未完成時production為IntegrationRequired。
 
 ### P1-04
 
-實作Phase1Pipeline的receive-event生命週期、StabilityResult、三幀動態球
-presence、median與完全重置；只有Stable success value才產生StableTableState。
-P1-04不解析control message或32值CSV，也不建立／驗證AttestedVisionSession。
+實作Phase1Pipeline的receive-event生命週期、StabilityResult、三幀動態球與六袋
+presence、median／一致性與完全重置；只有Stable success value才產生StableTableState。
+P1-04不解析32值CSV，也不擁有Socket或capture-window gate。
 
 ### P1-05
 
@@ -81,7 +86,7 @@ EffectiveCueBallRailSegment、GhostBallPoint、球體碰撞、鏡射及交點。
 
 ### P1-08
 
-驗證與正規化評分、確定性決勝；無Pot候選時產生LegalContact。
+驗證DirectPot與KickPot、共同正規化評分及確定性決勝；預設PotOnly無候選時產生`NoPlan(NoPotCandidate)`。LegalContact只作顯式manual／research選配能力，不得成為V1 production fallback。
 
 ### P1-09
 
@@ -89,7 +94,32 @@ EffectiveCueBallRailSegment、GhostBallPoint、球體碰撞、鏡射及交點。
 PlanningResult。P1-09不接收CSV、ReceiveEvent，不負責freshness、timeout、Parser
 或三幀累積。
 
+### Existing Responsibility Owners
+
+| ID | 既有owner |
+|---|---|
+| P1-01 | 既有離線建置與測試框架；已完成 |
+| P1-02 | `Point`、`GeometryResults`、`MathUtils`；已完成 |
+| P1-03 | `SocketClient`、`VisionDataParser`、`TableState`、`BilliardConfig`及必要的`BilliardApp` session integration |
+| P1-04 | `TableState`、`BilliardConfig`及唯一三幀穩定狀態物件 |
+| P1-05 | `BilliardPhysics`、`Point`、`GeometryResults`、`BilliardConfig` |
+| P1-06 | `TargetSelector`、`Algorithm`、`BilliardPhysics`、`TableState` |
+| P1-07 | `Algorithm`、`BilliardPhysics`、`Point` |
+| P1-08 | `Algorithm`、`BilliardPhysics`、`TargetSelector`、`BilliardConfig` |
+| P1-09 | `Algorithm`、`TableState`、`BilliardApp` |
+
+P1-04是Phase 1唯一可能合理新增production cpp的切片；新增前必須證明沒有合理既有
+owner、不會與Parser或BilliardApp重複，且新狀態物件會成為三幀穩定的唯一owner。
+不得新增ShotBrain.cpp、Phase1Pipeline.cpp、CameraCompensator、第二個VisionDataParser、
+第二個SocketClient、第二套BilliardPhysics／MathUtils或第二個完整application。
+
 ## 5. Data Lifecycle
+
+Phase 1所有Point、StableTableState、TableGeometry、GhostBallPoint、路徑與ShotPlan
+平面座標均直接使用Python wire提供的Robot Base0 planar XY mm。VisionDataParser只能
+解析及驗證，不得旋轉、平移、補償或重新映射座標；Phase 1不得執行任何相機或frame轉換。
+Phase 1幾何型別語意為`Point2D(x,y)`；不得加入或推導Robot Z、A、B、C、RX／RY／RZ、
+TCP Pose、HRSDK或DO。ShotPlan只攜帶Base0 planar XY撞球語意。
 
 ```text
 Phase1Pipeline:
@@ -121,51 +151,51 @@ StableTableState + TableGeometryConfig + BrainConfig
 paired sentinel錯誤、NeedMoreEvents、timeout、Unstable、receive event錯誤及
 connection reset不得成為NoPlanReason。
 
-Phase1Pipeline及ShotBrain啟用前必須已通過External Contract的static manifest與
-runtime session雙重gate：Python runtime attested、C++ active與manifest expected
-revision及manifest ID全部一致。manifest中的Python expected欄位不是runtime evidence；
-缺少attestation、revision不一致、session改變或schema不支援不得進入規劃，並依
-External Contract清除三幀累積。單一32值payload不得被視為revision一致的證據。
-在P1-03 RuntimeCalibrationAttestation契約尚未完成前，P1-03能力本身未完成；若純契約已完成但ProductionVisionTransportAdapter尚未整合／驗收，production維持IntegrationRequired。CalibrationRequired只用於校正缺失。
+Phase1Pipeline只接受External Contract所定義、屬於同一connection與shot-cycle且在
+CameraPose settle、舊buffer flush與累積reset後建立的ReceiveEvent。disconnect、reconnect、
+timeout、Parser failure、cycle identity改變或任何球／袋口不一致都清空累積。V1不依賴
+RuntimeCalibrationAttestation或Python control message；既有SocketClient與BilliardApp的
+capture-window integration未完成／未驗收時production維持`IntegrationRequired`。
 
 - Parsed／Validated／Stable型別不得隱式互轉。
 - 所有Result的成功status必須有success value；非成功status不得有success value。
   成功與失敗都可以有Diagnostic metadata，但Diagnostic不得被轉型或視為合法
   Point、StableTableState、Candidate、ShotPlan或ExecutionPlan，也不得包含
   fallback成功值。
-- StableTableState只含動態球的穩定中位數與來源event metadata；袋口來自TableGeometryConfig。
-- 任一格式錯誤、必要球缺失、presence改變、位置超限、timeout或event ID錯誤會清空整個累積器。
+- StableTableState含動態球及固定ID六袋的穩定中位數、connection／shot-cycle identity與來源event metadata。
+- 任一格式錯誤、必要球／袋口缺失、presence改變、位置超限、timeout、跨cycle或event ID錯誤會清空整個累積器。
 - 異常後第一個有效event重新算第1幀。
 - 暫時以三幀presence判定在場球；無法區分已進袋與連續漏偵測，不能宣稱完整比賽狀態驗證。
 
 ## 6. StableTableState
 
 - 必須恰由三個合法、連續receive events產生。
-- 比較母球及1至9號球presence；袋口不參與。
-- 每個三幀皆存在球分別取X中位數及Y中位數。
-- 每幀點到medianPoint的歐氏距離不得大於`stableFrameToleranceMm`；等於門檻通過。
+- 比較母球、1至9號球presence及固定Pocket ID 1至6；六袋每幀皆必須存在。
+- 每個三幀皆存在球與每個袋口分別取X中位數及Y中位數。
+- 每幀球到medianPoint的歐氏距離不得大於`stableFrameToleranceMm`；每幀袋口到其medianPoint不得大於`pocketStabilityToleranceMm`；等於門檻通過。
 - 三幀皆缺失的編號球保留nullopt。
-- 母球與至少一顆編號球必須存在。
-- tolerance缺失回`ConfigurationMissing`；負值或非有限回`InvalidConfiguration`。
+- 母球、至少一顆編號球及六袋必須存在；不得把不穩定單幀袋口與stable balls混用。
+- `stableFrameToleranceMm`或`pocketStabilityToleranceMm`缺失回`ConfigurationMissing`；負值或非有限回`InvalidConfiguration`。
 
 ## 7. TableGeometry and PocketModel
 
-TableGeometryConfig 是六袋、六段PhysicalRailSegment及三種合法區域的唯一規劃
-權威，至少包含：
+TableGeometryConfig 是袋口／庫邊拓撲與安全幾何的唯一設定權威；StableTableState中的
+stable wire pocket center則是當次規劃唯一的袋口中心來源。TableGeometryConfig至少包含：
 
-- TableFrame revision。
+- Base0 planar calibration revision。
 - PlayableBallCenterRegion。
-- 六個具名PocketModel及其PocketExitSegment與PocketCaptureCorridor。
+- 六個具名PocketModel的ID／type、expected-center validation（可選）及其PocketExitSegment與PocketCaptureCorridor參數。
 - 六段具名PhysicalRailSegment、桌內單位法線及端點／袋口排除區。
 - 由physical rails推導的RailReflectionRegion。
 - 球半徑、球直徑與球對球collision margin。
 
-PocketModel包含：
+`PocketModelConfig`包含除當次中心以外的下列版本化設定；ShotBrain以它和
+StableTableState中的同ID stable wire center建立僅供本次規劃的`ResolvedPocketModel`：
 
 - pocket ID與corner／side類型。
-- TableFrame中的入口中心Point。
+- `ResolvedPocketModel`中的Base0平面XY入口中心Point必須來自StableTableState；config不得以static center取代。
 - 單位外向法線。
-- finite且嚴格大於0的`virtualTargetOffsetMm`及VirtualPocketTarget。
+- finite且嚴格大於0的`virtualTargetOffsetMm`；VirtualPocketTarget由當次stable入口中心與外向法線唯一建立。
 - 與該pocket ID唯一綁定的PocketExitSegment。
 - 與該pocket ID唯一綁定的PocketCaptureCorridor。
 - 必要、finite且嚴格大於0的`corridorHalfWidthMm`。
@@ -361,6 +391,8 @@ entryAngle = acos(clamp(dot(uPocket, pocket.outwardUnitNormal), -1, 1))
 ## 12. Scoring Model
 
 只有完整可行候選可以評分。全部項目轉成`[0,1]`成本，越低越好；任何raw、normalized或total非有限時候選Invalid。
+所有可行DirectPot與KickPot放入同一正式評分集合。Direct只透過kick penalty形成soft
+preference，不是硬優先；總成本較低的Kick可以勝過Direct，候選生成不得預先刪除Kick。
 
 ### 12.1 Initial Experimental Weights
 
@@ -415,7 +447,8 @@ entryAngle = acos(clamp(dot(uPocket, pocket.outwardUnitNormal), -1, 1))
 
 ## 13. LegalContact
 
-只有沒有任何可行Pot候選時才生成：
+LegalContact不是V1 PotOnly正常流程，也不是automatic fallback或SafetyShot。只有
+`PlanningMode`明確設為manual／research mode時，才可在沒有任何可行Pot候選後生成：
 
 - `DirectLegalContact`
 - `KickLegalContact`
@@ -443,7 +476,8 @@ actual cue-ball center path = C → R → GkickContact
 
 多個候選依序選：Direct優先、最小淨空較大、總路徑較短、rail ID較小。LegalContact不使用Pot評分權重。
 
-ShotPlan必須標示它需要Phase 2 ExecutionPolicy顯式授權。
+ShotPlan必須標示它需要Phase 2 ExecutionPolicy顯式授權；real hardware預設OFF。
+PotOnly不得呼叫本節生成器，不得因LegalContact存在而改變`NoPlan(NoPotCandidate)`。
 
 ## 14. ShotPlan and NoPlan
 
@@ -451,11 +485,11 @@ ShotPlan必須標示它需要Phase 2 ExecutionPolicy顯式授權。
 
 ShotPlan語意固定為`CommonAuditFields + plan-type-specific variant payload`。實際C++型別名稱可由To Tickets與實作決定，但欄位適用性不得改變。
 
-`CommonAuditFields`供所有`DirectPot | KickPot | DirectLegalContact | KickLegalContact`使用，至少包含：
+`CommonAuditFields`供`DirectPot | KickPot`，以及只在顯式manual／research mode出現的`DirectLegalContact | KickLegalContact`使用，至少包含：
 
 - plan identity與plan type。
-- source event IDs、AttestedVisionSession identity及attestation／manifest reference。
-- TableFrame及TableGeometry revisions。
+- source event IDs、local connection identity及shot-cycle identity。
+- Base0 planar calibration及TableGeometry revisions。
 - cue ball snapshot、target ball ID與snapshot，以及與TableGeometry revision一致的`ballRadiusMm`。
 - finite二維擊球單位方向、GhostBallPoint、cue path segments及minimum clearance。
 - relevant geometry configuration revisions、limitations及Diagnostic metadata。
@@ -474,14 +508,16 @@ ShotPlan不得包含Robot TCP位置、Robot Pose、RX／RY／RZ、HRSDK、DO編�
 `NoPlan`只可由已取得合法`StableTableState`後的ShotBrain規劃層產生。`NoPlanReason`只保留：
 
 - `NoEligibleTarget`
+- `NoPotCandidate`
 - `NoLegalContact`
 - `InvalidBrainConfiguration`
 - `NumericalPlanningFailure`
 
-沒有可行Pot不是最終NoPlanReason；`NoPotCandidate`只可作為中間Planning
-Diagnostic標籤。此時Planning Diagnostic必須記錄
-`feasiblePotCount = 0`、Pot CandidateDiagnostics及
-`proceededToLegalContact = true`，然後繼續評估LegalContact；不得因沒有Pot而跳過。
+在預設`PlanningMode = PotOnly`中，沒有可行DirectPot或KickPot時必須回
+`NoPlan(NoPotCandidate)`，並記錄`feasiblePotCount = 0`及Pot CandidateDiagnostics；
+不得自動產生LegalContact、fallback ShotPlan或強制擊發。只有顯式manual／research
+mode可記錄`proceededToLegalContact = true`並進入§13；若該模式仍無候選才可回
+`NoPlan(NoLegalContact)`，且不得影響正常PotOnly結果。
 
 Parser錯誤、receive錯誤、`NeedMoreEvents`、不穩定資料或timeout屬於`SingleFrameResult`、`StabilityResult`或`Phase1PipelineResult`，不得包裝成NoPlan。NoPlan不得攜帶fallback ShotPlan；拒絕摘要只能是Diagnostic metadata，不能被型別化為Candidate或Plan。
 
@@ -492,8 +528,8 @@ Phase 1不最佳化力度，只表示`FixedForceMode`。這不代表所有候選
 ## 16. Testing Decisions
 
 - P1-01至P1-09全部完全離線；Phase 1任何驗收或測試不得開production Socket。
-- P1-03以fake byte／session source驗證control parser、data parser、manifest／attestation validation、session state、identity binding、gate、reconnect失效及具名Result／Diagnostic。
-- Pipeline seam：`ReceiveEvent stream → Phase1PipelineResult`，測試fixture顯式提供InputContractConfig與StabilityConfig；覆蓋Parser拒絕、`NeedMoreEvents`、timeout、`PlanningCompleted`、缺少runtime attestation、revision／manifest ID不一致、connection reset、session ID改變及process ID重用／改變後清空累積並重新handshake，且證明相同process ID不能延續舊session、非planning的pipeline結果不成為NoPlan。
+- P1-03以fake byte／connection／cycle source驗證newline framing、最大frame、data parser、本地ReceiveEvent、capture-window gate、stale-buffer protection、disconnect／reconnect reset及具名Result／Diagnostic。
+- Pipeline seam：`ReceiveEvent stream → Phase1PipelineResult`，測試fixture顯式提供InputContractConfig與StabilityConfig；覆蓋Parser拒絕、`NeedMoreEvents`、timeout、`PlanningCompleted`、CameraPose settle前frame、connection reset、跨cycle event、stale buffer及球／袋口不穩定後清空累積，且證明非planning的pipeline結果不成為NoPlan。
 - Brain seam：`StableTableState + TableGeometryConfig + BrainConfig → PlanningResult`；ShotBrain測試不得提供CSV、ReceiveEvent、freshness或三幀累積責任。
 - P1-05額外使用安全幾何單元測試覆蓋退化、平行、端點、等於門檻及非法設定；並覆蓋Physical rail向桌內平移`r`、桌內法線方向錯誤、非單位／非有限法線、排除區映射、零長度與平移後空區段、CueBallReboundPoint確實位於effective rail、球半徑／collision margin未重複加入，以及六段physical rail ID在推導後保持穩定。
 - GhostBallPoint測試必須驗證`||T-G|| = 2r`（具名容差內）、`G/T/P`共線、`G`位於目標球的袋口反方向、零長度或非有限方向、兩球重疊、初始球心距離小於`2r`、Direct終點為`G`、Kick第二段終點為`G`，以及不得以`T`或`K`替代`G`。
@@ -501,9 +537,9 @@ Phase 1不最佳化力度，只表示`FixedForceMode`。這不代表所有候選
 - Direct測試獨立驗證`C → Gpot`與`T → P`，包含唯一合法PocketExitSegment、正向合法穿越、法線反向、沿出口切行、由corridor反向進桌、`E`不在segment相對內部、出口附近corridor／playable方向錯置、兩者間空隙、過度重疊、多重出口、錯誤PocketExitSegment／corridor、一般庫邊穿出、母球利用出口／corridor越界，以及virtual target不會被一般playable bounds誤殺；PocketExitSegment或相關epsilon缺失為`ConfigurationMissing`，錯誤ID、非法epsilon、零長度／零面積／非有限幾何為`InvalidConfiguration`。
 - Kick測試覆蓋六個effective rail segments、映射後排除區、每段碰撞、Phase 1 `maxKickRailAngleDeg`硬拒絕及禁止第二次庫邊；並驗證`dOutgoing == idealReflected`與入射角等於反射角（各自在具名容差內）、非法法線／非finite角度fail-closed，以及候選結果不受恢復係數、速度衰減、旋轉、桌布摩擦、庫邊材質或力度參數影響。
 - Scoring測試覆蓋每個公式、clamp、缺range、負值／NaN／Infinity raw weight、raw總和不等於1時正規化、effective總和在epsilon內為1、總和為0、總和overflow、raw/effective稽核資料及確定性平手。
-- LegalContact測試證明只在無Pot時出現，且不宣稱SafetyShot。
+- LegalContact測試證明PotOnly永不自動產生它；只有顯式manual／research mode且無Pot時才可出現，並且不宣稱SafetyShot、real hardware預設OFF。
 - KickLegalContact測試對每個effective rail驗證`Cmirror`、`vKickContact`、`GkickContact`與唯一交點`R`，兩段碰撞／region、`||T-GkickContact|| = 2r`、每rail最多一候選，以及平行、無交點、零長度、非有限、重疊、排除區與以`T`／BallSurfaceContactPoint作終點時全部拒絕。
-- 無Pot測試驗證`feasiblePotCount = 0`、Pot CandidateDiagnostics及`proceededToLegalContact = true`，且`NoPotCandidate`不會成為NoPlanReason。
+- 無Pot測試驗證PotOnly回`NoPlan(NoPotCandidate)`、`feasiblePotCount = 0`及Pot CandidateDiagnostics，且`proceededToLegalContact = false`；manual／research mode另驗證顯式進入LegalContact。
 - PocketModel參數測試分別覆蓋`virtualTargetOffsetMm`與`corridorHalfWidthMm`的正常正值、0、負值、NaN及Infinity。
 - ShotPlan variant測試證明DirectPot具有Pot欄位、KickPot具有Pot與Kick欄位、DirectLegalContact沒有Pot-only欄位、KickLegalContact只有LegalContact與Kick欄位；不適用欄位不得填0／預設值，LegalContact仍可攜帶Pot搜尋失敗Diagnostic。
 - 被拒候選只能出現在`CandidateDiagnostic`，不得進入可行候選或評分集合。
@@ -512,9 +548,9 @@ Phase 1不最佳化力度，只表示`FixedForceMode`。這不代表所有候選
 
 ## 17. Out of Scope
 
-- 所有真實Socket／production application orchestration、ProductionVisionTransportAdapter具體實作或整合、RobotController、HRSDK、DO、main、calibrate、test_cueball。P1-03只提供transport-neutral interface及fake離線驗收。
+- Phase 1離線驗收中執行真實Socket、production application、RobotController、HRSDK、DO、main、calibrate或test_cueball。P1-03可以原地修改既有SocketClient／BilliardApp的production integration，但不得在離線驗收中執行它們。
 - CameraCompensator或任何相機補償。
-- TableFrame→Base0。
+- C++中的pixel→XY、TableFrame→Base0、CameraCompensator或任何第二次平面座標映射。
 - target-bank、組合球、借球、跳球、多庫。
 - 母球後續、洗袋、完整物理或自動力度。
 
