@@ -164,7 +164,7 @@ Result不變量：
 - Diagnostic不得被轉型或視為合法Point、ValidatedVisionFrame、
   StableTableState、Candidate或Plan，也不得包含partial／fallback成功值。
 
-必要資料：母球、至少一顆編號球及固定ID的完整六袋。任一必要資料缺失時拒絕該frame並重置本cycle累積。
+必要資料：母球及固定ID的完整六袋。1～9號編號球可全部缺失；只要其他單幀驗證合法，仍產生`ValidatedVisionFrame SUCCESS`。必要母球或任一袋口缺失時拒絕該frame並重置本cycle累積。
 
 `TableObservationBounds`只表示active Base0 planar calibration可接受的輸入觀測範圍，不是Phase 1規劃用的`PlayableBallCenterRegion`、`PocketCaptureCorridor`或`RailReflectionRegion`，不得用它預先判定進袋路徑可行性。
 

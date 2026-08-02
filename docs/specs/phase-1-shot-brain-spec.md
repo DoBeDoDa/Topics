@@ -174,7 +174,7 @@ capture-window integration未完成／未驗收時production維持`IntegrationRe
 - 每個三幀皆存在球與每個袋口分別取X中位數及Y中位數。
 - 每幀球到medianPoint的歐氏距離不得大於`stableFrameToleranceMm`；每幀袋口到其medianPoint不得大於`pocketStabilityToleranceMm`；等於門檻通過。
 - 三幀皆缺失的編號球保留nullopt。
-- 母球、至少一顆編號球及六袋必須存在；不得把不穩定單幀袋口與stable balls混用。
+- 母球及六袋必須存在；1～9號編號球的presence pattern須一致，但可合法全部absent並形成`StableTableState`。不得把不穩定單幀袋口與stable balls混用。
 - `stableFrameToleranceMm`或`pocketStabilityToleranceMm`缺失回`ConfigurationMissing`；負值或非有限回`InvalidConfiguration`。
 
 ## 7. TableGeometry and PocketModel
@@ -340,7 +340,7 @@ entryAngle = acos(clamp(dot(uPocket, pocket.outwardUnitNormal), -1, 1))
 - 不遍歷其他編號球作為第一接觸目標。
 - 對全部六個PocketModel建立候選。
 - 沒有編號球時回`NoPlan(NoEligibleTarget)`，不得建立預設目標。
-- `NoEligibleTarget`保留為defensive status及future ExpectedBallSet compatibility；在目前「StableTableState必有至少一顆編號球」的正式不變量下正常不可達。正常Phase1Pipeline整合fixture不得產生它；直接呼叫ShotBrain且輸入違反上層假設時可作防禦測試。
+- `TargetSelector`是target qualification的唯一責任owner；當StableTableState中的1～9號球全部absent時回`NoPlan(NoEligibleTarget)`，不得由Parser或stability層提前拒絕。
 - 本期不使用ExpectedBallSet；此限制必須出現在診斷與文件。
 
 ## 10. DirectPot
