@@ -24,6 +24,11 @@ const std::optional<std::size_t> VISION_MAX_FRAME_BYTES = std::nullopt;
 const std::optional<unsigned long> VISION_RECEIVE_TIMEOUT_MS = std::nullopt;
 const std::optional<AxisAlignedBounds2D> VISION_OBSERVATION_BOUNDS = std::nullopt;
 
+// P1-04不猜測production穩定參數；部署核准前保持ConfigurationMissing。
+const std::optional<double> STABLE_FRAME_TOLERANCE_MM = std::nullopt;
+const std::optional<double> POCKET_STABILITY_TOLERANCE_MM = std::nullopt;
+const std::optional<unsigned long> MAX_INTER_FRAME_INTERVAL_MS = std::nullopt;
+
 const double CAMERA_OFFSET_X_MM = 0.0;
 const double CAMERA_OFFSET_Y_MM = 0.0;
 const double CAMERA_REFERENCE_X_MM = -400.0;

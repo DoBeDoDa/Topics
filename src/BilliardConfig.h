@@ -36,6 +36,9 @@ extern const double MAX_REACH_RADIUS_MM;
 extern const std::optional<std::size_t> VISION_MAX_FRAME_BYTES;
 extern const std::optional<unsigned long> VISION_RECEIVE_TIMEOUT_MS;
 extern const std::optional<AxisAlignedBounds2D> VISION_OBSERVATION_BOUNDS;
+extern const std::optional<double> STABLE_FRAME_TOLERANCE_MM;
+extern const std::optional<double> POCKET_STABILITY_TOLERANCE_MM;
+extern const std::optional<unsigned long> MAX_INTER_FRAME_INTERVAL_MS;
 
 extern const double CAMERA_OFFSET_X_MM;
 extern const double CAMERA_OFFSET_Y_MM;

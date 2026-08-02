@@ -3,6 +3,7 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <string>
 
 #include "Algorithm.h"
@@ -18,6 +19,8 @@ private:
     SocketClient visionClient;
     VisionDataParser visionParser;
     ReceiveEventFactory receiveEventFactory;
+    ThreeEventStability stability;
+    std::optional<StableTableState> pendingStableTableState;
     TargetSelector targetSelector;
     MotionPlanner motionPlanner;
     bool needCameraMove;

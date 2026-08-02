@@ -2,7 +2,9 @@
 #pragma once
 
 #include <array>
+#include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -229,6 +231,515 @@ private:
     ReceiveEventStatus status_;
     std::optional<ReceiveEvent> value_;
     std::optional<ReceiveEventDiagnostic> diagnostic_;
+};
+
+// P1-04唯一的三事件穩定設定。production值由BilliardConfig提供；
+// 離線測試可明確注入fixture，不使用隱含預設值。
+struct StabilityConfig {
+    std::optional<double> stableFrameToleranceMm;
+    std::optional<double> pocketStabilityToleranceMm;
+    std::optional<std::chrono::milliseconds> maxInterFrameInterval;
+};
+
+struct StableSourceEventMetadata {
+    ReceiveEventId eventId;
+    std::chrono::steady_clock::time_point receivedAt;
+};
+
+class StableTableState {
+public:
+    StableTableState(
+        std::array<std::optional<Point>, 9> numberedBalls,
+        Point stableCueBall,
+        std::array<Point, 6> stablePockets,
+        ConnectionIdentity sourceConnectionIdentity,
+        ShotCycleIdentity sourceShotCycleIdentity,
+        std::array<StableSourceEventMetadata, 3> sourceEventMetadata)
+        : objectBalls(std::move(numberedBalls)),
+          cueBall(stableCueBall),
+          pockets(std::move(stablePockets)),
+          connectionIdentity(sourceConnectionIdentity),
+          shotCycleIdentity(sourceShotCycleIdentity),
+          sourceEvents(std::move(sourceEventMetadata))
+    {
+    }
+
+    std::array<std::optional<Point>, 9> objectBalls;
+    Point cueBall;
+    std::array<Point, 6> pockets;
+    ConnectionIdentity connectionIdentity;
+    ShotCycleIdentity shotCycleIdentity;
+    std::array<StableSourceEventMetadata, 3> sourceEvents;
+};
+
+enum class StabilityStatus {
+    NeedMoreEvents,
+    Stable,
+    Unstable,
+    TimedOut,
+    InvalidConfiguration
+};
+
+enum class StabilityFailureReason {
+    AwaitingEvents,
+    ConfigurationMissing,
+    InvalidConfiguration,
+    InvalidEvent,
+    ConnectionChanged,
+    CycleChanged,
+    EventIdNotIncreasing,
+    ReceiveTimeWentBackward,
+    TimedOut,
+    PresenceChanged,
+    BallMoved,
+    PocketMoved,
+    Disconnected,
+    Reconnected,
+    ParserFailure,
+    ExplicitReset
+};
+
+struct StabilityDiagnostic {
+    StabilityStatus status;
+    StabilityFailureReason reason;
+    std::size_t acceptedEventCount;
+    bool resetRequired;
+};
+
+class StabilityResult {
+public:
+    static StabilityResult needMoreEvents(std::size_t acceptedEventCount)
+    {
+        return StabilityResult(
+            StabilityStatus::NeedMoreEvents,
+            std::nullopt,
+            StabilityDiagnostic{
+                StabilityStatus::NeedMoreEvents,
+                StabilityFailureReason::AwaitingEvents,
+                acceptedEventCount,
+                false});
+    }
+
+    static StabilityResult stable(StableTableState state)
+    {
+        return StabilityResult(
+            StabilityStatus::Stable,
+            std::optional<StableTableState>{std::move(state)},
+            std::nullopt);
+    }
+
+    static StabilityResult failure(
+        StabilityStatus status,
+        StabilityFailureReason reason,
+        std::size_t acceptedEventCount)
+    {
+        return StabilityResult(
+            status,
+            std::nullopt,
+            StabilityDiagnostic{status, reason, acceptedEventCount, true});
+    }
+
+    [[nodiscard]] StabilityStatus status() const noexcept
+    {
+        return status_;
+    }
+
+    [[nodiscard]] const std::optional<StableTableState>& value() const noexcept
+    {
+        return value_;
+    }
+
+    [[nodiscard]] const std::optional<StabilityDiagnostic>& diagnostic() const noexcept
+    {
+        return diagnostic_;
+    }
+
+    [[nodiscard]] bool isValid() const noexcept
+    {
+        const bool stableStatus = status_ == StabilityStatus::Stable;
+        return value_.has_value() == stableStatus &&
+            diagnostic_.has_value() != stableStatus &&
+            (!diagnostic_ || diagnostic_->status == status_);
+    }
+
+private:
+    StabilityResult(
+        StabilityStatus status,
+        std::optional<StableTableState> value,
+        std::optional<StabilityDiagnostic> diagnostic)
+        : status_(status),
+          value_(std::move(value)),
+          diagnostic_(std::move(diagnostic))
+    {
+    }
+
+    StabilityStatus status_;
+    std::optional<StableTableState> value_;
+    std::optional<StabilityDiagnostic> diagnostic_;
+};
+
+enum class Phase1PipelineStatus {
+    Waiting,
+    InputFailure,
+    StabilityFailure,
+    PlanningCompleted
+};
+
+struct Phase1PipelineDiagnostic {
+    Phase1PipelineStatus status;
+    std::optional<SingleFrameDiagnostic> inputDiagnostic;
+    std::optional<StabilityDiagnostic> stabilityDiagnostic;
+};
+
+// P1-04只建立非規劃結果。Stable不在此被錯標為PlanningCompleted，
+// 而是繼續以StableTableState交給後續ShotBrain seam。
+class Phase1PipelineResult {
+public:
+    static Phase1PipelineResult inputFailure(SingleFrameDiagnostic diagnostic)
+    {
+        return Phase1PipelineResult{
+            Phase1PipelineStatus::InputFailure,
+            Phase1PipelineDiagnostic{
+                Phase1PipelineStatus::InputFailure,
+                std::optional<SingleFrameDiagnostic>{std::move(diagnostic)},
+                std::nullopt}};
+    }
+
+    [[nodiscard]] static std::optional<Phase1PipelineResult> fromStability(
+        const StabilityResult& result)
+    {
+        if (result.status() == StabilityStatus::Stable) {
+            return std::nullopt;
+        }
+
+        const Phase1PipelineStatus pipelineStatus =
+            result.status() == StabilityStatus::NeedMoreEvents
+            ? Phase1PipelineStatus::Waiting
+            : Phase1PipelineStatus::StabilityFailure;
+        std::optional<StabilityDiagnostic> diagnostic = result.diagnostic();
+        if (!result.isValid() || !diagnostic) {
+            diagnostic = StabilityDiagnostic{
+                StabilityStatus::Unstable,
+                StabilityFailureReason::InvalidEvent,
+                0,
+                true};
+        }
+        return Phase1PipelineResult{
+            pipelineStatus,
+            Phase1PipelineDiagnostic{
+                pipelineStatus,
+                std::nullopt,
+                std::move(diagnostic)}};
+    }
+
+    [[nodiscard]] Phase1PipelineStatus status() const noexcept
+    {
+        return status_;
+    }
+
+    [[nodiscard]] const Phase1PipelineDiagnostic& diagnostic() const noexcept
+    {
+        return diagnostic_;
+    }
+
+    [[nodiscard]] bool isValid() const noexcept
+    {
+        if (diagnostic_.status != status_) {
+            return false;
+        }
+        if (status_ == Phase1PipelineStatus::InputFailure) {
+            return diagnostic_.inputDiagnostic.has_value() &&
+                !diagnostic_.stabilityDiagnostic.has_value();
+        }
+        if (status_ == Phase1PipelineStatus::Waiting) {
+            return !diagnostic_.inputDiagnostic.has_value() &&
+                diagnostic_.stabilityDiagnostic.has_value() &&
+                diagnostic_.stabilityDiagnostic->status == StabilityStatus::NeedMoreEvents;
+        }
+        if (status_ == Phase1PipelineStatus::StabilityFailure) {
+            return !diagnostic_.inputDiagnostic.has_value() &&
+                diagnostic_.stabilityDiagnostic.has_value() &&
+                diagnostic_.stabilityDiagnostic->status != StabilityStatus::NeedMoreEvents &&
+                diagnostic_.stabilityDiagnostic->status != StabilityStatus::Stable;
+        }
+        return false;
+    }
+
+private:
+    Phase1PipelineResult(
+        Phase1PipelineStatus status,
+        Phase1PipelineDiagnostic diagnostic)
+        : status_(status),
+          diagnostic_(std::move(diagnostic))
+    {
+    }
+
+    Phase1PipelineStatus status_;
+    Phase1PipelineDiagnostic diagnostic_;
+};
+
+// TableState既有owner中的唯一三事件狀態物件；不解析CSV、不選target，
+// 也不建立任何幾何、規劃或硬體結果。
+class ThreeEventStability {
+public:
+    explicit ThreeEventStability(StabilityConfig config)
+        : config_(std::move(config)),
+          lastResetReason_(StabilityFailureReason::ExplicitReset)
+    {
+        events_.reserve(3);
+    }
+
+    [[nodiscard]] StabilityResult accept(ReceiveEvent event)
+    {
+        const auto configurationFailure = validateConfiguration();
+        if (configurationFailure) {
+            reset(*configurationFailure);
+            return StabilityResult::failure(
+                StabilityStatus::InvalidConfiguration,
+                *configurationFailure,
+                0);
+        }
+        if (!validEvent(event)) {
+            reset(StabilityFailureReason::InvalidEvent);
+            return StabilityResult::failure(
+                StabilityStatus::Unstable,
+                StabilityFailureReason::InvalidEvent,
+                0);
+        }
+
+        if (!events_.empty()) {
+            const ReceiveEvent& previous = events_.back();
+            if (event.connectionIdentity != previous.connectionIdentity) {
+                return rejectAndReset(
+                    StabilityStatus::Unstable,
+                    StabilityFailureReason::ConnectionChanged);
+            }
+            if (event.shotCycleIdentity != previous.shotCycleIdentity) {
+                return rejectAndReset(
+                    StabilityStatus::Unstable,
+                    StabilityFailureReason::CycleChanged);
+            }
+            if (event.eventId <= previous.eventId) {
+                return rejectAndReset(
+                    StabilityStatus::Unstable,
+                    StabilityFailureReason::EventIdNotIncreasing);
+            }
+            if (event.receivedAt < previous.receivedAt) {
+                return rejectAndReset(
+                    StabilityStatus::Unstable,
+                    StabilityFailureReason::ReceiveTimeWentBackward);
+            }
+            if (event.receivedAt - previous.receivedAt > *config_.maxInterFrameInterval) {
+                return rejectAndReset(
+                    StabilityStatus::TimedOut,
+                    StabilityFailureReason::TimedOut);
+            }
+            if (!samePresence(events_.front().frame, event.frame)) {
+                return rejectAndReset(
+                    StabilityStatus::Unstable,
+                    StabilityFailureReason::PresenceChanged);
+            }
+        }
+
+        events_.push_back(std::move(event));
+        if (events_.size() < 3) {
+            return StabilityResult::needMoreEvents(events_.size());
+        }
+
+        const auto stableState = buildStableState();
+        if (!stableState.state) {
+            return rejectAndReset(StabilityStatus::Unstable, stableState.reason);
+        }
+
+        StableTableState result = std::move(*stableState.state);
+        reset(StabilityFailureReason::ExplicitReset);
+        return StabilityResult::stable(std::move(result));
+    }
+
+    void reset(StabilityFailureReason reason) noexcept
+    {
+        events_.clear();
+        lastResetReason_ = reason;
+    }
+
+    [[nodiscard]] std::size_t accumulatedEventCount() const noexcept
+    {
+        return events_.size();
+    }
+
+    [[nodiscard]] StabilityFailureReason lastResetReason() const noexcept
+    {
+        return lastResetReason_;
+    }
+
+    [[nodiscard]] std::optional<StabilityFailureReason> configurationFailure() const noexcept
+    {
+        return validateConfiguration();
+    }
+
+private:
+    struct StableBuildResult {
+        std::optional<StableTableState> state;
+        StabilityFailureReason reason;
+    };
+
+    [[nodiscard]] std::optional<StabilityFailureReason> validateConfiguration() const noexcept
+    {
+        if (!config_.stableFrameToleranceMm ||
+            !config_.pocketStabilityToleranceMm ||
+            !config_.maxInterFrameInterval) {
+            return StabilityFailureReason::ConfigurationMissing;
+        }
+        if (!std::isfinite(*config_.stableFrameToleranceMm) ||
+            !std::isfinite(*config_.pocketStabilityToleranceMm) ||
+            *config_.stableFrameToleranceMm < 0.0 ||
+            *config_.pocketStabilityToleranceMm < 0.0 ||
+            config_.maxInterFrameInterval->count() <= 0) {
+            return StabilityFailureReason::InvalidConfiguration;
+        }
+        return std::nullopt;
+    }
+
+    [[nodiscard]] static bool finitePoint(Point point) noexcept
+    {
+        return std::isfinite(point.x) && std::isfinite(point.y);
+    }
+
+    [[nodiscard]] static bool validEvent(const ReceiveEvent& event) noexcept
+    {
+        if (event.connectionIdentity == 0 || event.shotCycleIdentity == 0 ||
+            event.eventId == 0 || !finitePoint(event.frame.cueBall)) {
+            return false;
+        }
+        for (const auto& ball : event.frame.objectBalls) {
+            if (ball && !finitePoint(*ball)) {
+                return false;
+            }
+        }
+        for (const Point pocket : event.frame.pockets) {
+            if (!finitePoint(pocket)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    [[nodiscard]] static bool samePresence(
+        const ValidatedVisionFrame& first,
+        const ValidatedVisionFrame& current) noexcept
+    {
+        for (std::size_t index = 0; index < first.objectBalls.size(); ++index) {
+            if (first.objectBalls[index].has_value() !=
+                current.objectBalls[index].has_value()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    [[nodiscard]] static double median(double first, double second, double third) noexcept
+    {
+        std::array<double, 3> values{first, second, third};
+        std::sort(values.begin(), values.end());
+        return values[1];
+    }
+
+    [[nodiscard]] static Point medianPoint(Point first, Point second, Point third) noexcept
+    {
+        return {
+            median(first.x, second.x, third.x),
+            median(first.y, second.y, third.y)};
+    }
+
+    [[nodiscard]] static bool withinTolerance(
+        Point point,
+        Point center,
+        double tolerance) noexcept
+    {
+        const double distance = std::hypot(point.x - center.x, point.y - center.y);
+        return std::isfinite(distance) && distance <= tolerance;
+    }
+
+    [[nodiscard]] StableBuildResult buildStableState() const
+    {
+        std::array<std::optional<Point>, 9> balls{};
+        for (std::size_t index = 0; index < balls.size(); ++index) {
+            if (!events_[0].frame.objectBalls[index]) {
+                balls[index] = std::nullopt;
+                continue;
+            }
+            const Point center = medianPoint(
+                *events_[0].frame.objectBalls[index],
+                *events_[1].frame.objectBalls[index],
+                *events_[2].frame.objectBalls[index]);
+            for (const ReceiveEvent& event : events_) {
+                if (!event.frame.objectBalls[index] ||
+                    !withinTolerance(
+                        *event.frame.objectBalls[index],
+                        center,
+                        *config_.stableFrameToleranceMm)) {
+                    return {std::nullopt, StabilityFailureReason::BallMoved};
+                }
+            }
+            balls[index] = center;
+        }
+
+        const Point cueBall = medianPoint(
+            events_[0].frame.cueBall,
+            events_[1].frame.cueBall,
+            events_[2].frame.cueBall);
+        for (const ReceiveEvent& event : events_) {
+            if (!withinTolerance(
+                    event.frame.cueBall,
+                    cueBall,
+                    *config_.stableFrameToleranceMm)) {
+                return {std::nullopt, StabilityFailureReason::BallMoved};
+            }
+        }
+
+        std::array<Point, 6> pockets{};
+        for (std::size_t index = 0; index < pockets.size(); ++index) {
+            pockets[index] = medianPoint(
+                events_[0].frame.pockets[index],
+                events_[1].frame.pockets[index],
+                events_[2].frame.pockets[index]);
+            for (const ReceiveEvent& event : events_) {
+                if (!withinTolerance(
+                        event.frame.pockets[index],
+                        pockets[index],
+                        *config_.pocketStabilityToleranceMm)) {
+                    return {std::nullopt, StabilityFailureReason::PocketMoved};
+                }
+            }
+        }
+
+        std::array<StableSourceEventMetadata, 3> sourceEvents{};
+        for (std::size_t index = 0; index < sourceEvents.size(); ++index) {
+            sourceEvents[index] = {events_[index].eventId, events_[index].receivedAt};
+        }
+        return {
+            StableTableState{
+                std::move(balls),
+                cueBall,
+                std::move(pockets),
+                events_[0].connectionIdentity,
+                events_[0].shotCycleIdentity,
+                std::move(sourceEvents)},
+            StabilityFailureReason::AwaitingEvents};
+    }
+
+    [[nodiscard]] StabilityResult rejectAndReset(
+        StabilityStatus status,
+        StabilityFailureReason reason)
+    {
+        const std::size_t acceptedEventCount = events_.size();
+        reset(reason);
+        return StabilityResult::failure(status, reason, acceptedEventCount);
+    }
+
+    StabilityConfig config_;
+    std::vector<ReceiveEvent> events_;
+    StabilityFailureReason lastResetReason_;
 };
 
 // 從 TableState 選出的本次擊球目標與障礙資料。

@@ -10,8 +10,44 @@
 
 using namespace std;
 
+namespace {
+
+StabilityConfig productionStabilityConfig()
+{
+    std::optional<std::chrono::milliseconds> maximumInterval;
+    if (BilliardConfig::MAX_INTER_FRAME_INTERVAL_MS) {
+        maximumInterval = std::chrono::milliseconds{
+            *BilliardConfig::MAX_INTER_FRAME_INTERVAL_MS};
+    }
+    return {
+        BilliardConfig::STABLE_FRAME_TOLERANCE_MM,
+        BilliardConfig::POCKET_STABILITY_TOLERANCE_MM,
+        maximumInterval};
+}
+
+StabilityFailureReason stabilityResetReason(ReceiveEventInvalidationReason reason)
+{
+    switch (reason) {
+    case ReceiveEventInvalidationReason::Disconnect:
+        return StabilityFailureReason::Disconnected;
+    case ReceiveEventInvalidationReason::Reconnect:
+        return StabilityFailureReason::Reconnected;
+    case ReceiveEventInvalidationReason::ParserFailure:
+        return StabilityFailureReason::ParserFailure;
+    case ReceiveEventInvalidationReason::Timeout:
+        return StabilityFailureReason::TimedOut;
+    case ReceiveEventInvalidationReason::CycleChanged:
+        return StabilityFailureReason::CycleChanged;
+    default:
+        return StabilityFailureReason::ExplicitReset;
+    }
+}
+
+}  // namespace
+
 BilliardApp::BilliardApp()
     : receiveEventFactory(visionParser),
+      stability(productionStabilityConfig()),
       needCameraMove(true),
       nextShotCycleIdentity(1)
 {
@@ -30,6 +66,15 @@ bool BilliardApp::initialize() {
     }
     if (visionParser.configurationStatus() == SingleFrameStatus::InvalidConfiguration) {
         cout << "[InvalidConfiguration] P1-03 Base0 observation bounds are invalid." << endl;
+        return false;
+    }
+    if (const auto stabilityConfigurationFailure = stability.configurationFailure()) {
+        cout << "["
+             << (*stabilityConfigurationFailure == StabilityFailureReason::ConfigurationMissing
+                     ? "ConfigurationMissing"
+                     : "InvalidConfiguration")
+             << "] P1-04 stability tolerances or maximum event interval are not approved."
+             << endl;
         return false;
     }
 
@@ -86,7 +131,9 @@ void BilliardApp::run() {
                 break;
             }
             if (eventResult.status() == ReceiveEventStatus::Success && eventResult.value()) {
-                processReceiveEvent(*eventResult.value());
+                if (!processReceiveEvent(*eventResult.value())) {
+                    break;
+                }
             } else {
                 cout << "[影像資料拒絕] status="
                      << static_cast<int>(eventResult.status())
@@ -94,6 +141,7 @@ void BilliardApp::run() {
                      << (eventResult.resetRequired() ? "true" : "false")
                      << endl;
                 if (eventResult.resetRequired()) {
+                    invalidateVisionCycle(ReceiveEventInvalidationReason::ParserFailure);
                     needCameraMove = true;
                 }
             }
@@ -146,6 +194,9 @@ bool BilliardApp::openCaptureWindowAfterCameraPose()
         return false;
     }
 
+    stability.reset(StabilityFailureReason::ExplicitReset);
+    pendingStableTableState.reset();
+
     if (nextShotCycleIdentity == 0) {
         cout << "[系統] shot-cycle identity已耗盡。" << endl;
         invalidateVisionCycle(ReceiveEventInvalidationReason::CycleChanged);
@@ -169,17 +220,47 @@ bool BilliardApp::openCaptureWindowAfterCameraPose()
 
 bool BilliardApp::processReceiveEvent(const ReceiveEvent& event)
 {
-    cout << "[P1-03] 接受ReceiveEvent id=" << event.eventId
-         << ", connection=" << event.connectionIdentity
-         << ", cycle=" << event.shotCycleIdentity
-         << "。等待P1-04三event stability；本ticket不進行選球或移動。"
-         << endl;
+    const StabilityResult result = stability.accept(event);
+    if (!result.isValid()) {
+        cout << "[P1-04] StabilityResult invariant失敗。" << endl;
+        invalidateVisionCycle(ReceiveEventInvalidationReason::CycleChanged);
+        return false;
+    }
+    const std::optional<Phase1PipelineResult> pipelineResult =
+        Phase1PipelineResult::fromStability(result);
+    if (pipelineResult && !pipelineResult->isValid()) {
+        cout << "[P1-04] Phase1PipelineResult invariant失敗。" << endl;
+        invalidateVisionCycle(ReceiveEventInvalidationReason::CycleChanged);
+        return false;
+    }
+    if (pipelineResult && pipelineResult->status() == Phase1PipelineStatus::Waiting) {
+        cout << "[P1-04] ReceiveEvent id=" << event.eventId
+             << " accepted; waiting for three-event stability." << endl;
+        return true;
+    }
+    if (result.status() == StabilityStatus::Stable && result.value()) {
+        pendingStableTableState = *result.value();
+        cout << "[P1-04] StableTableState ready for the later planning seam; "
+             << "P1-05 and later work is not implemented here." << endl;
+        return false;
+    }
+
+    cout << "[P1-04] Stability failure status=" << static_cast<int>(result.status())
+         << ", reason="
+         << static_cast<int>(result.diagnostic()->reason)
+         << "; current cycle is invalidated." << endl;
+    // ThreeEventStability已以精確原因完成reset；此處只關閉P1-03 event gate，
+    // 不再次覆寫stability diagnostic。
+    receiveEventFactory.invalidate(ReceiveEventInvalidationReason::CycleChanged);
+    needCameraMove = true;
     return true;
 }
 
 void BilliardApp::invalidateVisionCycle(ReceiveEventInvalidationReason reason)
 {
     receiveEventFactory.invalidate(reason);
+    stability.reset(stabilityResetReason(reason));
+    pendingStableTableState.reset();
 }
 
 bool BilliardApp::executeMotionPlan(const MotionPlan& plan) {

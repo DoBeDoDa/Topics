@@ -230,6 +230,49 @@
             }
         },
         {
+            "type": "cppbuild",
+            "label": "Build P1-04 Stability Tests",
+            "command": "cl.exe",
+            "args": [
+                "/EHsc",
+                "/std:c++17",
+                "/nologo",
+                "/utf-8",
+                "/I", "${workspaceFolder}\\tests",
+                "/I", "${workspaceFolder}\\src",
+                "/Fo${workspaceFolder}\\build\\p1_04_stability_tests.obj",
+                "/Fe:${workspaceFolder}\\bin\\p1_04_stability_tests.exe",
+                "${workspaceFolder}\\tests\\p1_04_stability_tests.cpp"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": "Prepare build directories",
+            "problemMatcher": ["$msCompile"],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            }
+        },
+        {
+            "type": "process",
+            "label": "Run P1-04 Stability Tests",
+            "command": "${workspaceFolder}\\bin\\p1_04_stability_tests.exe",
+            "args": [],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": "Build P1-04 Stability Tests",
+            "dependsOrder": "sequence",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "clear": true,
+                "close": true
+            }
+        },
+        {
             "type": "process",
             "label": "Run Phase 1 Algorithm Regression Tests",
             "command": "${workspaceFolder}\\bin\\phase1_algorithm_regression_tests.exe",
