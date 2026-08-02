@@ -1,8 +1,23 @@
 # P1-03 — Existing 32-Value Contract, Parser and Cycle Boundary
 
-**Status:** Ready for Implementation
+Status: Completed
 
-**Blocked by:** P1-02 — Completed
+Implementation commit:
+21ebb8394f8f53645c5fd6290ffa280913341cb8
+
+Verification:
+- P1-01 regression: PASS
+- P1-02 regression: PASS
+- P1-03 tests: PASS
+- P1-03 production units compile: PASS
+- Critical: None
+- High: None
+- Medium: None
+
+Known deployment gate:
+maximum frame bytes、receive timeout、Base0 observation bounds
+尚未核准時 production 維持 fail-closed ConfigurationMissing。
+此項不阻擋 P1-03 Completed。
 
 ## 1. ID
 

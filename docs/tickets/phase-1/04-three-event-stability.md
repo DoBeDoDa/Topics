@@ -1,8 +1,7 @@
 # P1-04 — Three-Event Stability Lifecycle
 
-**Status:** Planned
-
-**Blocked by:** P1-03
+Status: Ready for Implementation
+Blocked by: P1-03 — Completed
 
 ## 1. ID
 
