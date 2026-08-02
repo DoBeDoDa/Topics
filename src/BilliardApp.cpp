@@ -1,6 +1,7 @@
 // 協調視覺解析、目標選擇、擊球規劃與手臂動作，不實作個別演算法細節。
 #include "BilliardApp.h"
 
+#include <chrono>
 #include <iomanip>
 #include <iostream>
 #include <limits>
@@ -9,9 +10,29 @@
 
 using namespace std;
 
-BilliardApp::BilliardApp() : needCameraMove(true) {}
+BilliardApp::BilliardApp()
+    : receiveEventFactory(visionParser),
+      needCameraMove(true),
+      nextShotCycleIdentity(1)
+{
+}
 
 bool BilliardApp::initialize() {
+    if (visionClient.configurationStatus() == SocketConfigurationStatus::ConfigurationMissing ||
+        visionParser.configurationStatus() == SingleFrameStatus::ConfigurationMissing) {
+        cout << "[ConfigurationMissing] P1-03 production vision frame size、"
+             << "receive timeout或Base0 observation bounds尚未核准。" << endl;
+        return false;
+    }
+    if (visionClient.configurationStatus() == SocketConfigurationStatus::InvalidConfiguration) {
+        cout << "[InvalidConfiguration] P1-03 frame size or receive timeout is invalid." << endl;
+        return false;
+    }
+    if (visionParser.configurationStatus() == SingleFrameStatus::InvalidConfiguration) {
+        cout << "[InvalidConfiguration] P1-03 Base0 observation bounds are invalid." << endl;
+        return false;
+    }
+
     if (!robot.connect(BilliardConfig::ARM_IP)) {
         cout << "[錯誤] 手臂連線失敗。" << endl;
         return false;
@@ -21,106 +42,144 @@ bool BilliardApp::initialize() {
     robot.setOverrideRatio(BilliardConfig::NORMAL_SPEED_RATIO);
     robot.setToolNumber(BilliardConfig::TOOL_NUMBER);
 
-    moveToCameraPosition();
-    needCameraMove = false;
-
     cout << "[系統] 等待 Python 連線..." << endl;
-    while (!visionClient.connectToServer(
-        BilliardConfig::VISION_SERVER_IP,
-        BilliardConfig::VISION_SERVER_PORT
-    )) {
+    while (visionClient.connectToServerResult(
+               BilliardConfig::VISION_SERVER_IP,
+               BilliardConfig::VISION_SERVER_PORT)
+               .status != SocketConnectStatus::Success) {
         Sleep(1000);
     }
     cout << "[系統] 與 Python 服務連線成功！" << endl;
+    needCameraMove = true;
     return true;
 }
 
 void BilliardApp::run() {
     while (true) {
         if (needCameraMove) {
-            moveToCameraPosition();
-            visionClient.flushBuffer();
+            if (!waitForStartRequest() ||
+                !moveToCameraPosition() ||
+                !openCaptureWindowAfterCameraPose()) {
+                cout << "[系統] 無法安全開啟影像capture window，停止本次執行。" << endl;
+                break;
+            }
             needCameraMove = false;
         }
 
         robot.setToolNumber(BilliardConfig::TOOL_NUMBER);
 
-        string message;
-        int bytes = visionClient.receiveLine(message);
-        if (bytes > 0) {
-            processVisionData(message);
-        } else if (bytes == 0) {
+        const SocketReceiveResult received = visionClient.receiveFrame();
+        if (!received.isValid()) {
+            cout << "[系統] SocketReceiveResult invariant錯誤。" << endl;
+            invalidateVisionCycle(ReceiveEventInvalidationReason::Disconnect);
+            break;
+        }
+
+        if (received.status == SocketReceiveStatus::FrameReady && received.frame) {
+            const ReceiveEventResult eventResult = receiveEventFactory.accept(
+                *received.frame,
+                visionClient.connectionIdentity(),
+                chrono::steady_clock::now());
+            if (!eventResult.isValid()) {
+                cout << "[系統] ReceiveEventResult invariant錯誤。" << endl;
+                invalidateVisionCycle(ReceiveEventInvalidationReason::ParserFailure);
+                break;
+            }
+            if (eventResult.status() == ReceiveEventStatus::Success && eventResult.value()) {
+                processReceiveEvent(*eventResult.value());
+            } else {
+                cout << "[影像資料拒絕] status="
+                     << static_cast<int>(eventResult.status())
+                     << ", resetRequired="
+                     << (eventResult.resetRequired() ? "true" : "false")
+                     << endl;
+                if (eventResult.resetRequired()) {
+                    needCameraMove = true;
+                }
+            }
+        } else if (received.status == SocketReceiveStatus::CleanClose) {
             cout << "[系統] 影像端 Socket 連線正常關閉。" << endl;
+            invalidateVisionCycle(ReceiveEventInvalidationReason::Disconnect);
+            break;
+        } else if (received.status == SocketReceiveStatus::TimedOut) {
+            cout << "[系統] 等待影像frame逾時，本cycle失效。" << endl;
+            invalidateVisionCycle(ReceiveEventInvalidationReason::Timeout);
             break;
         } else {
-            cout << "[系統] 影像端 Socket 發生錯誤或斷線。" << endl;
+            cout << "[系統] 影像端framing／Socket錯誤，status="
+                 << static_cast<int>(received.status)
+                 << ", socketError=" << received.socketError << endl;
+            invalidateVisionCycle(ReceiveEventInvalidationReason::Disconnect);
             break;
         }
     }
 }
 
-void BilliardApp::moveToCameraPosition() {  // 移動至拍照點
-    cout << "\n[安全鎖] 準備返回拍照點..." << endl;
-    cout << "請確認手臂前方安全無障礙物，隨後在【此視窗】按下 [Enter] 鍵繼續: ";
+bool BilliardApp::waitForStartRequest()
+{
+    cout << "\n[WaitingForStart] 請確認本次shot cycle可安全開始，"
+         << "並在【此視窗】按下 [Enter]：";
     cin.clear();
-    string confirm;
-    getline(cin, confirm);
-
-    cout << "[動作] 移動至拍照點..." << endl;
-    robot.moveToAxis(BilliardConfig::CAMERA_JOINT.data());
-    Sleep(BilliardConfig::CAMERA_SETTLE_MS);
+    string input;
+    return static_cast<bool>(getline(cin, input));
 }
 
-bool BilliardApp::processVisionData(const std::string& dataString) {
-    string error;
-    TableState table;
-    if (!visionParser.parse(dataString, table, error)) {
-        cout << "\r[影像資料錯誤] " << error << "                  " << flush;
+bool BilliardApp::moveToCameraPosition() {  // 移動至拍照點
+    cout << "\n[安全鎖] 準備返回拍照點..." << endl;
+    cout << "[動作] 移動至拍照點..." << endl;
+    if (!requireMotionSuccess(
+            "PTP to camera joint pose",
+            robot.moveToAxis(BilliardConfig::CAMERA_JOINT.data(), true))) {
+        return false;
+    }
+    Sleep(BilliardConfig::CAMERA_SETTLE_MS);
+    return true;
+}
+
+bool BilliardApp::openCaptureWindowAfterCameraPose()
+{
+    const SocketOperationResult flushResult = visionClient.flushBuffer();
+    if (flushResult.status != SocketOperationStatus::Success) {
+        cout << "[系統] 清除舊Socket buffer失敗，socketError="
+             << flushResult.socketError << endl;
+        invalidateVisionCycle(ReceiveEventInvalidationReason::ExplicitFlush);
         return false;
     }
 
-    TargetSelection target;
-    if (!targetSelector.select(table, target, error)) {
-        cout << "\r[狀態] " << error << "                  " << flush;
+    if (nextShotCycleIdentity == 0) {
+        cout << "[系統] shot-cycle identity已耗盡。" << endl;
+        invalidateVisionCycle(ReceiveEventInvalidationReason::CycleChanged);
         return false;
     }
-
-    cout << "\n[目標] 選擇 " << target.targetName
-         << "，球袋 p" << target.pocketNumber
-         << "（夾角: " << target.pocketAngleDeg << " 度）" << endl;
-
-    ShotDecision shot = BilliardAlgorithm::decideShot(target);
-
-    MotionPlan motion;
-    if (!motionPlanner.createPlan(
-        target.cueBall,
-        shot.best_aim_target,
-        BilliardConfig::PRODUCTION_MOTION,
-        motion,
-        error
-    )) {
-        cout << "[動作規劃錯誤] " << error << endl;
+    const ShotCycleIdentity cycleIdentity = nextShotCycleIdentity++;
+    receiveEventFactory.beginCycle(
+        visionClient.connectionIdentity(),
+        cycleIdentity);
+    if (!receiveEventFactory.openCaptureWindow(
+            visionClient.connectionIdentity(),
+            cycleIdentity)) {
+        cout << "[系統] capture window identity不一致。" << endl;
+        invalidateVisionCycle(ReceiveEventInvalidationReason::CaptureWindowRestart);
         return false;
     }
+    cout << "[系統] 已開啟shot cycle " << cycleIdentity
+         << "的capture window。" << endl;
+    return true;
+}
 
-    cout << "\n--- 幾何決策面板 ---" << endl;
-    cout << "[分析] 軌跡夾角: " << shot.angle_deg << " 度" << endl;
-    cout << "[決策] 執行策略: " << shot.strategy_name << endl;
-    cout << "[姿態] 手臂 RZ: " << motion.aimAngleDeg << " 度" << endl;
+bool BilliardApp::processReceiveEvent(const ReceiveEvent& event)
+{
+    cout << "[P1-03] 接受ReceiveEvent id=" << event.eventId
+         << ", connection=" << event.connectionIdentity
+         << ", cycle=" << event.shotCycleIdentity
+         << "。等待P1-04三event stability；本ticket不進行選球或移動。"
+         << endl;
+    return true;
+}
 
-    cout << "出發至預備點? (y:確認 / n:重算 / r:重拍): ";
-    char confirm;
-    cin >> confirm;
-    cin.ignore((numeric_limits<streamsize>::max)(), '\n');
-    if (confirm == 'r' || confirm == 'R') {
-        needCameraMove = true;
-        return false;
-    }
-    if (confirm != 'y' && confirm != 'Y') {
-        return false;
-    }
-
-    return executeMotionPlan(motion);
+void BilliardApp::invalidateVisionCycle(ReceiveEventInvalidationReason reason)
+{
+    receiveEventFactory.invalidate(reason);
 }
 
 bool BilliardApp::executeMotionPlan(const MotionPlan& plan) {

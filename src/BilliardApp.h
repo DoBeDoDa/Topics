@@ -2,6 +2,7 @@
 #pragma once
 
 #include <array>
+#include <cstdint>
 #include <string>
 
 #include "Algorithm.h"
@@ -16,9 +17,11 @@ private:
     RobotController robot;
     SocketClient visionClient;
     VisionDataParser visionParser;
+    ReceiveEventFactory receiveEventFactory;
     TargetSelector targetSelector;
     MotionPlanner motionPlanner;
     bool needCameraMove;
+    ShotCycleIdentity nextShotCycleIdentity;
 
 public:
     BilliardApp();
@@ -27,8 +30,11 @@ public:
     void run();
 
 private:
-    void moveToCameraPosition();
-    bool processVisionData(const std::string& dataString);
+    bool waitForStartRequest();
+    bool moveToCameraPosition();
+    bool openCaptureWindowAfterCameraPose();
+    bool processReceiveEvent(const ReceiveEvent& event);
+    void invalidateVisionCycle(ReceiveEventInvalidationReason reason);
     bool executeMotionPlan(const MotionPlan& plan);
     bool requireReachable(
         const std::string& pointName,

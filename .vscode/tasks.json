@@ -160,6 +160,53 @@
         },
         {
             "type": "cppbuild",
+            "label": "Build P1-03 Input Tests",
+            "command": "cl.exe",
+            "args": [
+                "/EHsc",
+                "/std:c++17",
+                "/nologo",
+                "/utf-8",
+                "/I", "${workspaceFolder}\\tests",
+                "/I", "${workspaceFolder}\\src",
+                "/Fo${workspaceFolder}\\build\\",
+                "/Fe:${workspaceFolder}\\bin\\p1_03_input_tests.exe",
+                "${workspaceFolder}\\tests\\p1_03_input_tests.cpp",
+                "${workspaceFolder}\\src\\VisionDataParser.cpp",
+                "${workspaceFolder}\\src\\SocketClient.cpp",
+                "${workspaceFolder}\\src\\BilliardConfig.cpp",
+                "Ws2_32.lib"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": "Prepare build directories",
+            "problemMatcher": ["$msCompile"],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            }
+        },
+        {
+            "type": "process",
+            "label": "Run P1-03 Input Tests",
+            "command": "${workspaceFolder}\\bin\\p1_03_input_tests.exe",
+            "args": [],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": "Build P1-03 Input Tests",
+            "dependsOrder": "sequence",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "clear": true,
+                "close": true
+            }
+        },
+        {
+            "type": "cppbuild",
             "label": "Build Phase 1 Algorithm Regression Tests",
             "command": "cl.exe",
             "args": [

@@ -2,6 +2,10 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
+#include <optional>
+
+#include "Point.h"
 
 namespace BilliardConfig {
 
@@ -28,6 +32,10 @@ extern const double BALL_DIAMETER_MM;
 extern const double YAW_OFFSET_DEG;
 extern const double MIN_AIM_DISTANCE_MM;
 extern const double MAX_REACH_RADIUS_MM;
+
+extern const std::optional<std::size_t> VISION_MAX_FRAME_BYTES;
+extern const std::optional<unsigned long> VISION_RECEIVE_TIMEOUT_MS;
+extern const std::optional<AxisAlignedBounds2D> VISION_OBSERVATION_BOUNDS;
 
 extern const double CAMERA_OFFSET_X_MM;
 extern const double CAMERA_OFFSET_Y_MM;

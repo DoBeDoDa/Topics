@@ -18,6 +18,12 @@ const double YAW_OFFSET_DEG = 0.0;      // RZ 瞄準角的固定補償量
 const double MIN_AIM_DISTANCE_MM = 5.0; // 拒絕建立路徑的最小瞄準向量長度
 const double MAX_REACH_RADIUS_MM = 850.0;
 
+// P1-03不猜測production輸入邊界。部署前須填入經核准的具名值；
+// 缺少時BilliardApp fail closed，不會開啟production vision session。
+const std::optional<std::size_t> VISION_MAX_FRAME_BYTES = std::nullopt;
+const std::optional<unsigned long> VISION_RECEIVE_TIMEOUT_MS = std::nullopt;
+const std::optional<AxisAlignedBounds2D> VISION_OBSERVATION_BOUNDS = std::nullopt;
+
 const double CAMERA_OFFSET_X_MM = 0.0;
 const double CAMERA_OFFSET_Y_MM = 0.0;
 const double CAMERA_REFERENCE_X_MM = -400.0;
