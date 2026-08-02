@@ -1,8 +1,20 @@
 # P1-04 — Three-Event Stability Lifecycle
 
-Status: Ready for Implementation
-Blocked by: P1-03 — Completed
+Status: Completed
+Implementation commit: 5bdf999c738c3afeac30a6c99b54ff39d62f7800
 
+AC: PASS
+Scope: PASS
+Tests: PASS
+Compile: PASS
+Critical: None
+High: None
+Medium: None
+
+Production stability parameters remain ConfigurationMissing fail-closed
+until approved deployment values are provided.
+
+PlanningCompleted actual planning result is deferred to P1-09.
 ## 1. ID
 
 P1-04
@@ -13,7 +25,7 @@ P1-04
 
 ## 3. Status
 
-Planned
+Completed
 
 ## 4. Purpose
 
@@ -71,11 +83,11 @@ Planned
 
 ## 15. Acceptance Criteria
 
-- [ ] 三event、presence、median、tolerance與reset規則完整。
-- [ ] 三個event皆為zero-object-ball presence pattern時可形成StableTableState，且所有編號球維持absent。
-- [ ] 六袋與球使用同一cycle，無unstable pocket／stable ball混用。
-- [ ] Pipeline failure不成為NoPlan。
-- [ ] StableTableState只有單一production owner。
+- [x] 三event、presence、median、tolerance與reset規則完整。
+- [x] 三個event皆為zero-object-ball presence pattern時可形成StableTableState，且所有編號球維持absent。
+- [x] 六袋與球使用同一cycle，無unstable pocket／stable ball混用。
+- [x] Pipeline failure不成為NoPlan。
+- [x] StableTableState只有單一production owner。
 
 ## 16. Test Requirements
 

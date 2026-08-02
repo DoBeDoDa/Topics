@@ -1,6 +1,6 @@
 # P1-05 — Table, Pocket, Rail and Collision Geometry
 
-**Status:** Planned
+**Status:** Ready for Implementation
 
 **Blocked by:** P1-04
 
