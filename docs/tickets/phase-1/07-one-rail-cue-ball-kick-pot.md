@@ -1,8 +1,22 @@
 # P1-07 — One-Rail Cue-Ball KickPot
 
-**Status:** Ready for Implementation
-
+**Status:** Completed
+**Implementation commit:** 2e7709a0ca92cc38dc3f5ef4a3bcc68a958cd7ae
 **Blocked by:** P1-05
+
+AC: PASS
+Scope: PASS
+Tests: PASS
+Compile: PASS
+Critical: None
+High: None
+Medium: None
+
+Deferred / non-blocking:
+- P1-08：共同評分與確定性選擇
+- P1-09：整合與 ShotPlan
+- Phase 2：FixedForceEnvelope 與硬體執行
+- Production KICK_GEOMETRY 校正
 
 ## 1. ID
 
@@ -14,7 +28,7 @@ P1-07
 
 ## 3. Status
 
-Planned
+Completed
 
 ## 4. Purpose
 
@@ -72,11 +86,11 @@ Planned
 
 ## 15. Acceptance Criteria
 
-- [ ] 六rail生成、R與兩段cue path唯一正確。
-- [ ] `||T-Gpot||=2r`且Kick第二段終點為Gpot。
-- [ ] 同一袋的Direct與Kick使用相同ResolvedPocketModel及VirtualPocketTarget；只有cue-ball path不同。
-- [ ] 入射／反射、排除區、碰撞與角度硬門檻測試通過。
-- [ ] Phase 1不讀取pneumaticPulseMs或FixedForceEnvelope。
+- [x] 六rail生成、R與兩段cue path唯一正確。
+- [x] `||T-Gpot||=2r`且Kick第二段終點為Gpot。
+- [x] 同一袋的Direct與Kick使用相同ResolvedPocketModel及VirtualPocketTarget；只有cue-ball path不同。
+- [x] 入射／反射、排除區、碰撞與角度硬門檻測試通過。
+- [x] Phase 1不讀取pneumaticPulseMs或FixedForceEnvelope。
 
 ## 16. Test Requirements
 

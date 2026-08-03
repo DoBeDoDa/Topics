@@ -1,6 +1,7 @@
 # P1-08 — Direct/Kick Scoring, Deterministic Selection and PotOnly
 
-**Status:** Planned
+**Status:** Ready for Implementation
+
 
 **Blocked by:** P1-06, P1-07
 
@@ -14,7 +15,7 @@ Direct／Kick共同正規化評分、確定性選擇與PotOnly NoPlan。
 
 ## 3. Status
 
-Planned
+Ready for Implementation
 
 ## 4. Purpose
 
