@@ -24,3 +24,8 @@ struct AxisAlignedBounds2D {
     double minY;
     double maxY;
 };
+
+struct Segment2D {
+    Point start;
+    Point end;
+};

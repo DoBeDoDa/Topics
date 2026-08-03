@@ -4,10 +4,64 @@
 #include <array>
 #include <cstddef>
 #include <optional>
+#include <string>
 
 #include "Point.h"
 
 namespace BilliardConfig {
+
+enum class PocketId : std::size_t {
+    Pocket1,
+    Pocket2,
+    Pocket3,
+    Pocket4,
+    Pocket5,
+    Pocket6
+};
+
+enum class RailId : std::size_t {
+    Rail1,
+    Rail2,
+    Rail3,
+    Rail4,
+    Rail5,
+    Rail6
+};
+
+enum class PocketType {
+    Corner,
+    Side
+};
+
+struct PocketModelConfig {
+    PocketId id;
+    PocketType type;
+    Vector2D outwardUnitNormal;
+    double virtualTargetOffsetMm;
+    Segment2D pocketExitSegmentOffsetsFromEntrance;
+    double corridorHalfWidthMm;
+    double pocketBoundaryProbeEpsilonMm;
+    double exitCrossingEpsilon;
+    double maxEntryAngleDeg;
+};
+
+struct PhysicalRailConfig {
+    RailId id;
+    Segment2D segment;
+    Vector2D inwardUnitNormal;
+    double startExclusionMm;
+    double endExclusionMm;
+};
+
+struct TableGeometryConfig {
+    std::string calibrationRevision;
+    AxisAlignedBounds2D physicalPlayingSurface;
+    double ballRadiusMm;
+    double ballDiameterMm;
+    double collisionMarginMm;
+    std::array<PocketModelConfig, 6> pockets;
+    std::array<PhysicalRailConfig, 6> rails;
+};
 
 struct MotionProfile {
     double strikeZ;
@@ -39,6 +93,7 @@ extern const std::optional<AxisAlignedBounds2D> VISION_OBSERVATION_BOUNDS;
 extern const std::optional<double> STABLE_FRAME_TOLERANCE_MM;
 extern const std::optional<double> POCKET_STABILITY_TOLERANCE_MM;
 extern const std::optional<unsigned long> MAX_INTER_FRAME_INTERVAL_MS;
+extern const std::optional<TableGeometryConfig> TABLE_GEOMETRY;
 
 extern const double CAMERA_OFFSET_X_MM;
 extern const double CAMERA_OFFSET_Y_MM;
