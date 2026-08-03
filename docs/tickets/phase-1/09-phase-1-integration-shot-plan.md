@@ -1,6 +1,19 @@
 # P1-09 — Phase 1 Integration and Auditable ShotPlan/NoPlan
 
-**Status:** Ready for Implementation
+**Status:** Completed
+**Implementation commit:** 987c8696754cf073dc38b57c48be69631852748f
+
+AC: PASS
+Scope: PASS
+Tests: PASS
+Compile: PASS
+Critical: None
+High: None
+Medium: None
+
+Deferred / non-blocking:
+BilliardApp::processReceiveEvent完整硬體耦合狀態機測試延至P2-02；
+P1-09純Pipeline／Brain seams已覆蓋。
 
 **Blocked by:** P1-08
 
@@ -14,7 +27,7 @@ Phase 1 pipeline／ShotBrain概念整合與可稽核ShotPlan／NoPlan。
 
 ## 3. Status
 
-Ready for Implementation
+Completed
 
 ## 4. Purpose
 
@@ -71,11 +84,11 @@ Ready for Implementation
 
 ## 15. Acceptance Criteria
 
-- [ ] Pipeline與Brain seams可分別離線重現。
-- [ ] PotOnly ShotPlan／NoPotCandidate及所有variant audit完整。
-- [ ] pipeline failures不列為NoPlanReason。
-- [ ] ShotPlan無Robot Z／Pose／HRSDK／DO。
-- [ ] 無ShotBrain.cpp或Phase1Pipeline.cpp要求。
+- [x] Pipeline與Brain seams可分別離線重現。
+- [x] PotOnly ShotPlan／NoPotCandidate及所有variant audit完整。
+- [x] pipeline failures不列為NoPlanReason。
+- [x] ShotPlan無Robot Z／Pose／HRSDK／DO。
+- [x] 無ShotBrain.cpp或Phase1Pipeline.cpp要求。
 
 ## 16. Test Requirements
 

@@ -1,6 +1,6 @@
 # P2-01 — Existing MotionPlanner to ExecutionPlan
 
-**Status:** Planned
+**Status:** Ready for Implementation
 
 **Blocked by:** P1-09
 
@@ -14,7 +14,7 @@ P2-01
 
 ## 3. Status
 
-Planned
+Ready for Implementation
 
 ## 4. Purpose
 
