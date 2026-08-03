@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <optional>
 #include <string>
 #include <utility>
@@ -18,6 +19,7 @@
 #include "Point.h"
 
 class BilliardAlgorithm;
+class PlanningResult;
 
 // 單一影像時間點的完整球桌偵測狀態。
 struct DetectedPoint {
@@ -404,6 +406,7 @@ public:
     {
         return Phase1PipelineResult{
             Phase1PipelineStatus::InputFailure,
+            nullptr,
             Phase1PipelineDiagnostic{
                 Phase1PipelineStatus::InputFailure,
                 std::optional<SingleFrameDiagnostic>{std::move(diagnostic)},
@@ -431,56 +434,47 @@ public:
         }
         return Phase1PipelineResult{
             pipelineStatus,
+            nullptr,
             Phase1PipelineDiagnostic{
                 pipelineStatus,
                 std::nullopt,
                 std::move(diagnostic)}};
     }
 
+    [[nodiscard]] static Phase1PipelineResult planningCompleted(
+        PlanningResult result);
+
     [[nodiscard]] Phase1PipelineStatus status() const noexcept
     {
         return status_;
     }
 
-    [[nodiscard]] const Phase1PipelineDiagnostic& diagnostic() const noexcept
+    [[nodiscard]] const std::optional<Phase1PipelineDiagnostic>& diagnostic() const noexcept
     {
         return diagnostic_;
     }
 
-    [[nodiscard]] bool isValid() const noexcept
+    [[nodiscard]] const std::shared_ptr<const PlanningResult>& planningResult() const noexcept
     {
-        if (diagnostic_.status != status_) {
-            return false;
-        }
-        if (status_ == Phase1PipelineStatus::InputFailure) {
-            return diagnostic_.inputDiagnostic.has_value() &&
-                !diagnostic_.stabilityDiagnostic.has_value();
-        }
-        if (status_ == Phase1PipelineStatus::Waiting) {
-            return !diagnostic_.inputDiagnostic.has_value() &&
-                diagnostic_.stabilityDiagnostic.has_value() &&
-                diagnostic_.stabilityDiagnostic->status == StabilityStatus::NeedMoreEvents;
-        }
-        if (status_ == Phase1PipelineStatus::StabilityFailure) {
-            return !diagnostic_.inputDiagnostic.has_value() &&
-                diagnostic_.stabilityDiagnostic.has_value() &&
-                diagnostic_.stabilityDiagnostic->status != StabilityStatus::NeedMoreEvents &&
-                diagnostic_.stabilityDiagnostic->status != StabilityStatus::Stable;
-        }
-        return false;
+        return planningResult_;
     }
+
+    [[nodiscard]] bool isValid() const noexcept;
 
 private:
     Phase1PipelineResult(
         Phase1PipelineStatus status,
-        Phase1PipelineDiagnostic diagnostic)
+        std::shared_ptr<const PlanningResult> planningResult,
+        std::optional<Phase1PipelineDiagnostic> diagnostic)
         : status_(status),
+          planningResult_(std::move(planningResult)),
           diagnostic_(std::move(diagnostic))
     {
     }
 
     Phase1PipelineStatus status_;
-    Phase1PipelineDiagnostic diagnostic_;
+    std::shared_ptr<const PlanningResult> planningResult_;
+    std::optional<Phase1PipelineDiagnostic> diagnostic_;
 };
 
 // TableState既有owner中的唯一三事件狀態物件；不解析CSV、不選target，
@@ -1501,3 +1495,307 @@ private:
     std::optional<PotSelectionOutcome> value_;
     std::optional<PotSelectionDiagnostic> diagnostic_;
 };
+
+enum class ShotPlanType {
+    DirectPot,
+    KickPot
+};
+
+enum class FixedForceMode {
+    Fixed
+};
+
+struct Phase1PlanIdentity {
+    ConnectionIdentity connectionIdentity;
+    ShotCycleIdentity shotCycleIdentity;
+
+    [[nodiscard]] bool isValid() const noexcept
+    {
+        return connectionIdentity != 0 && shotCycleIdentity != 0;
+    }
+};
+
+struct PlanningSourceAudit {
+    Phase1PlanIdentity planIdentity;
+    std::array<StableSourceEventMetadata, 3> sourceEvents;
+    std::string base0PlanarCalibrationRevision;
+    std::string tableGeometryRevision;
+    Point cueBallSnapshot;
+    double ballRadiusMm;
+
+    [[nodiscard]] bool isValid() const noexcept
+    {
+        if (!planIdentity.isValid() || base0PlanarCalibrationRevision.empty() ||
+            tableGeometryRevision.empty() || !std::isfinite(cueBallSnapshot.x) ||
+            !std::isfinite(cueBallSnapshot.y) || !std::isfinite(ballRadiusMm) ||
+            ballRadiusMm <= 0.0) {
+            return false;
+        }
+        for (std::size_t index = 0; index < sourceEvents.size(); ++index) {
+            if (sourceEvents[index].eventId == 0 ||
+                (index > 0 &&
+                 (sourceEvents[index].eventId <= sourceEvents[index - 1].eventId ||
+                  sourceEvents[index].receivedAt < sourceEvents[index - 1].receivedAt))) {
+                return false;
+            }
+        }
+        return true;
+    }
+};
+
+struct Phase1ModelLimitations {
+    bool fixedForceNotOptimized;
+    bool postCollisionOutcomeNotModeled;
+    bool spinFrictionAndEnergyLossNotModeled;
+
+    [[nodiscard]] bool isValid() const noexcept
+    {
+        return fixedForceNotOptimized && postCollisionOutcomeNotModeled &&
+            spinFrictionAndEnergyLossNotModeled;
+    }
+};
+
+struct DirectPotShotPlanPayload {
+    DirectPotCandidate candidate;
+    PotScoringAudit scoring;
+
+    [[nodiscard]] bool isValid() const noexcept
+    {
+        return ScoredPotCandidate{
+            PotCandidateKind::Direct,
+            candidate.target,
+            candidate.pocketId,
+            std::nullopt,
+            PotCandidateValue{candidate},
+            scoring}.isValid();
+    }
+};
+
+struct KickPotShotPlanPayload {
+    KickPotCandidate candidate;
+    PotScoringAudit scoring;
+    BilliardConfig::KickGeometryConfig kickGeometry;
+
+    [[nodiscard]] bool isValid() const noexcept
+    {
+        if (!std::isfinite(kickGeometry.maxKickRailAngleDeg) ||
+            kickGeometry.maxKickRailAngleDeg < 0.0 ||
+            kickGeometry.maxKickRailAngleDeg > 90.0 ||
+            !std::isfinite(kickGeometry.reflectionDirectionTolerance) ||
+            kickGeometry.reflectionDirectionTolerance < 0.0 ||
+            kickGeometry.reflectionDirectionTolerance > 2.0 ||
+            !std::isfinite(kickGeometry.reflectionAngleToleranceDeg) ||
+            kickGeometry.reflectionAngleToleranceDeg < 0.0 ||
+            kickGeometry.reflectionAngleToleranceDeg > 180.0 ||
+            !scoring.normalization.maxKickRailAngleDeg ||
+            *scoring.normalization.maxKickRailAngleDeg !=
+                kickGeometry.maxKickRailAngleDeg) {
+            return false;
+        }
+        return ScoredPotCandidate{
+            PotCandidateKind::Kick,
+            candidate.target,
+            candidate.pocketId,
+            std::optional<BilliardConfig::RailId>{candidate.railId},
+            PotCandidateValue{candidate},
+            scoring}.isValid();
+    }
+};
+
+using ShotPlanPayload = std::variant<DirectPotShotPlanPayload, KickPotShotPlanPayload>;
+
+struct ShotPlan {
+    ShotPlanType type;
+    PlanningSourceAudit source;
+    EligibleTarget selectedTarget;
+    Vector2D shotDirectionXY;
+    GhostBallPoint ghostBallPoint;
+    std::vector<Segment2D> cuePathSegments;
+    std::optional<double> minimumClearanceMm;
+    FixedForceMode forceMode;
+    Phase1ModelLimitations limitations;
+    std::vector<DirectPotCandidateDiagnostic> directCandidateDiagnostics;
+    std::vector<KickPotCandidateDiagnostic> kickCandidateDiagnostics;
+    ShotPlanPayload payload;
+
+    [[nodiscard]] bool isValid() const noexcept
+    {
+        constexpr double UNIT_VECTOR_TOLERANCE = 1e-9;
+        const auto samePoint = [](Point first, Point second) noexcept {
+            return first.x == second.x && first.y == second.y;
+        };
+        const double directionLength = std::hypot(
+            shotDirectionXY.x,
+            shotDirectionXY.y);
+        if (!source.isValid() || selectedTarget.ballNumber < 1 ||
+            selectedTarget.ballNumber > 9 || !std::isfinite(selectedTarget.center.x) ||
+            !std::isfinite(selectedTarget.center.y) ||
+            !std::isfinite(directionLength) ||
+            std::fabs(directionLength - 1.0) > UNIT_VECTOR_TOLERANCE ||
+            !std::isfinite(ghostBallPoint.center.x) ||
+            !std::isfinite(ghostBallPoint.center.y) || cuePathSegments.empty() ||
+            cuePathSegments.size() > 2 ||
+            (minimumClearanceMm &&
+             (!std::isfinite(*minimumClearanceMm) || *minimumClearanceMm < 0.0)) ||
+            forceMode != FixedForceMode::Fixed || !limitations.isValid()) {
+            return false;
+        }
+        if (!samePoint(cuePathSegments.front().start, source.cueBallSnapshot) ||
+            !samePoint(cuePathSegments.back().end, ghostBallPoint.center)) {
+            return false;
+        }
+        if (type == ShotPlanType::DirectPot) {
+            const auto* direct = std::get_if<DirectPotShotPlanPayload>(&payload);
+            return direct && cuePathSegments.size() == 1 && direct->isValid() &&
+                direct->candidate.target.ballNumber == selectedTarget.ballNumber &&
+                samePoint(direct->candidate.target.center, selectedTarget.center) &&
+                samePoint(direct->candidate.ghostBallPoint.center,
+                    ghostBallPoint.center) &&
+                samePoint(direct->candidate.cuePath.start,
+                    cuePathSegments[0].start) &&
+                samePoint(direct->candidate.cuePath.end,
+                    cuePathSegments[0].end) &&
+                direct->scoring.rawCosts.minimumClearanceMm == minimumClearanceMm;
+        }
+        const auto* kick = std::get_if<KickPotShotPlanPayload>(&payload);
+        return kick && cuePathSegments.size() == 2 && kick->isValid() &&
+            kick->candidate.target.ballNumber == selectedTarget.ballNumber &&
+            samePoint(kick->candidate.target.center, selectedTarget.center) &&
+            samePoint(kick->candidate.ghostBallPoint.center, ghostBallPoint.center) &&
+            samePoint(kick->candidate.cuePathFirst.start,
+                cuePathSegments[0].start) &&
+            samePoint(kick->candidate.cuePathFirst.end,
+                cuePathSegments[0].end) &&
+            samePoint(kick->candidate.cuePathSecond.start,
+                cuePathSegments[1].start) &&
+            samePoint(kick->candidate.cuePathSecond.end,
+                cuePathSegments[1].end) &&
+            kick->scoring.rawCosts.minimumClearanceMm == minimumClearanceMm;
+    }
+};
+
+enum class NoPlanReason {
+    NoEligibleTarget,
+    NoPotCandidate,
+    InvalidBrainConfiguration,
+    NumericalPlanningFailure
+};
+
+struct PlanningDiagnostic {
+    std::optional<TargetQualificationStatus> targetStatus;
+    std::optional<GeometryStatus> geometryStatus;
+    std::optional<DirectPotGenerationStatus> directStatus;
+    std::optional<KickPotGenerationStatus> kickStatus;
+    std::optional<PotSelectionStatus> selectionStatus;
+};
+
+struct NoPlan {
+    NoPlanReason reason;
+    std::optional<PlanningSourceAudit> source;
+    std::optional<EligibleTarget> selectedTarget;
+    std::size_t feasiblePotCount;
+    bool proceededToLegalContact;
+    std::vector<DirectPotCandidateDiagnostic> directCandidateDiagnostics;
+    std::vector<KickPotCandidateDiagnostic> kickCandidateDiagnostics;
+    PlanningDiagnostic diagnostic;
+
+    [[nodiscard]] bool isValid() const noexcept
+    {
+        if (feasiblePotCount != 0 || proceededToLegalContact) {
+            return false;
+        }
+        if (source && !source->isValid()) {
+            return false;
+        }
+        if (reason == NoPlanReason::NoEligibleTarget) {
+            return source && !selectedTarget &&
+                diagnostic.targetStatus ==
+                    TargetQualificationStatus::NoEligibleTarget;
+        }
+        if (reason == NoPlanReason::NoPotCandidate) {
+            return source && selectedTarget &&
+                selectedTarget->ballNumber >= 1 && selectedTarget->ballNumber <= 9 &&
+                diagnostic.selectionStatus == PotSelectionStatus::Success;
+        }
+        if (reason == NoPlanReason::InvalidBrainConfiguration) {
+            return diagnostic.geometryStatus == GeometryStatus::ConfigurationMissing ||
+                diagnostic.geometryStatus == GeometryStatus::InvalidConfiguration ||
+                diagnostic.kickStatus == KickPotGenerationStatus::ConfigurationMissing ||
+                diagnostic.kickStatus == KickPotGenerationStatus::InvalidGeometryConfiguration ||
+                diagnostic.selectionStatus == PotSelectionStatus::ConfigurationMissing ||
+                diagnostic.selectionStatus == PotSelectionStatus::InvalidConfiguration ||
+                (!source && !diagnostic.targetStatus && !diagnostic.geometryStatus &&
+                 !diagnostic.directStatus && !diagnostic.kickStatus &&
+                 !diagnostic.selectionStatus);
+        }
+        return diagnostic.targetStatus == TargetQualificationStatus::InvalidStableState ||
+            diagnostic.directStatus == DirectPotGenerationStatus::InvalidStableState ||
+            diagnostic.directStatus == DirectPotGenerationStatus::SelectedTargetMismatch ||
+            diagnostic.kickStatus == KickPotGenerationStatus::InvalidStableState ||
+            diagnostic.kickStatus == KickPotGenerationStatus::SelectedTargetMismatch ||
+            diagnostic.selectionStatus == PotSelectionStatus::InvalidCandidateInput ||
+            diagnostic.selectionStatus == PotSelectionStatus::NumericalFailure;
+    }
+};
+
+using PlanningOutcome = std::variant<ShotPlan, NoPlan>;
+
+class PlanningResult {
+public:
+    static PlanningResult shotPlan(ShotPlan value)
+    {
+        return PlanningResult{PlanningOutcome{std::move(value)}};
+    }
+
+    static PlanningResult noPlan(NoPlan value)
+    {
+        return PlanningResult{PlanningOutcome{std::move(value)}};
+    }
+
+    [[nodiscard]] const PlanningOutcome& value() const noexcept { return value_; }
+
+    [[nodiscard]] bool isValid() const noexcept
+    {
+        return std::visit(
+            [](const auto& value) noexcept { return value.isValid(); },
+            value_);
+    }
+
+private:
+    explicit PlanningResult(PlanningOutcome value) : value_(std::move(value)) {}
+
+    PlanningOutcome value_;
+};
+
+inline Phase1PipelineResult Phase1PipelineResult::planningCompleted(
+    PlanningResult result)
+{
+    return Phase1PipelineResult{
+        Phase1PipelineStatus::PlanningCompleted,
+        std::make_shared<const PlanningResult>(std::move(result)),
+        std::nullopt};
+}
+
+inline bool Phase1PipelineResult::isValid() const noexcept
+{
+    if (status_ == Phase1PipelineStatus::PlanningCompleted) {
+        return planningResult_ && planningResult_->isValid() && !diagnostic_;
+    }
+    if (planningResult_ || !diagnostic_ || diagnostic_->status != status_) {
+        return false;
+    }
+    if (status_ == Phase1PipelineStatus::InputFailure) {
+        return diagnostic_->inputDiagnostic.has_value() &&
+            !diagnostic_->stabilityDiagnostic.has_value();
+    }
+    if (status_ == Phase1PipelineStatus::Waiting) {
+        return !diagnostic_->inputDiagnostic.has_value() &&
+            diagnostic_->stabilityDiagnostic.has_value() &&
+            diagnostic_->stabilityDiagnostic->status == StabilityStatus::NeedMoreEvents;
+    }
+    return status_ == Phase1PipelineStatus::StabilityFailure &&
+        !diagnostic_->inputDiagnostic.has_value() &&
+        diagnostic_->stabilityDiagnostic.has_value() &&
+        diagnostic_->stabilityDiagnostic->status != StabilityStatus::NeedMoreEvents &&
+        diagnostic_->stabilityDiagnostic->status != StabilityStatus::Stable;
+}

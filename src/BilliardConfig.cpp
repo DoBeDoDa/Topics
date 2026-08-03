@@ -41,6 +41,12 @@ const ScoringWeights INITIAL_EXPERIMENTAL_SCORING_WEIGHTS = {
     0.05};
 // P1-08 normalization ranges and tie epsilon require explicit calibration.
 const std::optional<ScoringConfig> SCORING_CONFIG = std::nullopt;
+// P1-09 keeps production planning fail-closed until the Base0 calibration
+// revision and all planning configurations are explicitly approved together.
+const BrainConfig BRAIN_CONFIG = {
+    std::nullopt,
+    KICK_GEOMETRY,
+    SCORING_CONFIG};
 
 const double CAMERA_OFFSET_X_MM = 0.0;
 const double CAMERA_OFFSET_Y_MM = 0.0;

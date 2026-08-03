@@ -207,6 +207,14 @@ BilliardConfig::ScoringConfig scoringConfig()
         BilliardConfig::PlanningMode::PotOnly};
 }
 
+BilliardConfig::BrainConfig brainConfig()
+{
+    return {
+        std::optional<std::string>{"base0-planar-test-v1"},
+        std::optional<BilliardConfig::KickGeometryConfig>{kickConfig()},
+        std::optional<BilliardConfig::ScoringConfig>{scoringConfig()}};
+}
+
 DirectPotEvaluation keepOnlyDirect(
     DirectPotEvaluation evaluation,
     std::size_t keptPocket)
@@ -1579,6 +1587,170 @@ int main()
         !noPlan->directDiagnostics.empty() &&
         !noPlan->kickDiagnostics.empty() && noPot.isValid(),
         "PotOnly empty candidate set returns NoPlan without LegalContact fallback");
+
+    const auto p109Config = brainConfig();
+    const auto directPlanning = BilliardAlgorithm::planShot(
+        kickFixture,
+        std::optional<BilliardConfig::TableGeometryConfig>{tableConfig()},
+        p109Config);
+    const auto* directPlan = std::get_if<ShotPlan>(&directPlanning.value());
+    const auto* directPayload = directPlan
+        ? std::get_if<DirectPotShotPlanPayload>(&directPlan->payload)
+        : nullptr;
+    tests.expectTrue(
+        directPlanning.isValid() && directPlan && directPayload &&
+        baselineUnifiedWinner &&
+        directPlan->type == ShotPlanType::DirectPot &&
+        directPlan->source.planIdentity.connectionIdentity ==
+            kickFixture.connectionIdentity &&
+        directPlan->source.planIdentity.shotCycleIdentity ==
+            kickFixture.shotCycleIdentity &&
+        directPlan->source.sourceEvents[0].eventId ==
+            kickFixture.sourceEvents[0].eventId &&
+        directPlan->source.sourceEvents[2].eventId ==
+            kickFixture.sourceEvents[2].eventId &&
+        directPlan->source.base0PlanarCalibrationRevision ==
+            *p109Config.base0PlanarCalibrationRevision &&
+        directPlan->source.tableGeometryRevision == geometry.calibrationRevision &&
+        directPlan->selectedTarget.ballNumber == baselineUnifiedWinner->target.ballNumber &&
+        directPayload->candidate.pocketId == baselineUnifiedWinner->pocketId &&
+        directPayload->scoring.totalCost == baselineUnifiedWinner->audit.totalCost &&
+        directPlan->cuePathSegments.size() == 1 &&
+        directPlan->forceMode == FixedForceMode::Fixed,
+        "P1-09 preserves the P1-08 Direct winner and complete Phase 1 audit identity");
+
+    const auto kickPlanning = BilliardAlgorithm::planShot(
+        *kickOnlyState,
+        std::optional<BilliardConfig::TableGeometryConfig>{tableConfig()},
+        p109Config);
+    const auto* kickPlan = std::get_if<ShotPlan>(&kickPlanning.value());
+    const auto* kickPayload = kickPlan
+        ? std::get_if<KickPotShotPlanPayload>(&kickPlan->payload)
+        : nullptr;
+    tests.expectTrue(
+        kickPlanning.isValid() && kickPlan && kickPayload && kickWinner &&
+        kickPlan->type == ShotPlanType::KickPot &&
+        kickPayload->candidate.pocketId == kickWinner->pocketId &&
+        kickPayload->candidate.railId == *kickWinner->railId &&
+        kickPayload->scoring.totalCost == kickWinner->audit.totalCost &&
+        kickPayload->kickGeometry.maxKickRailAngleDeg ==
+            p109Config.kickGeometry->maxKickRailAngleDeg &&
+        kickPayload->kickGeometry.reflectionDirectionTolerance ==
+            p109Config.kickGeometry->reflectionDirectionTolerance &&
+        kickPayload->kickGeometry.reflectionAngleToleranceDeg ==
+            p109Config.kickGeometry->reflectionAngleToleranceDeg &&
+        kickPlan->cuePathSegments.size() == 2 &&
+        kickPlan->cuePathSegments[0].end.x ==
+            kickPayload->candidate.reboundPoint.x &&
+        kickPlan->cuePathSegments[0].end.y ==
+            kickPayload->candidate.reboundPoint.y,
+        "P1-09 preserves the P1-08 Kick pocket, rail, rebound, and score identity");
+
+    const auto noPotPlanning = BilliardAlgorithm::planShot(
+        noPotState,
+        std::optional<BilliardConfig::TableGeometryConfig>{tableConfig()},
+        p109Config);
+    const auto* integratedNoPot = std::get_if<NoPlan>(&noPotPlanning.value());
+    tests.expectTrue(
+        noPotPlanning.isValid() && integratedNoPot &&
+        integratedNoPot->reason == NoPlanReason::NoPotCandidate &&
+        integratedNoPot->selectedTarget &&
+        integratedNoPot->feasiblePotCount == 0 &&
+        !integratedNoPot->proceededToLegalContact &&
+        !integratedNoPot->directCandidateDiagnostics.empty() &&
+        !integratedNoPot->kickCandidateDiagnostics.empty(),
+        "P1-09 maps PotOnly exhaustion to auditable NoPotCandidate without fallback");
+
+    std::array<std::optional<Point>, 9> noNumberedBalls{};
+    const StableTableState noTargetState = state({500.0, 250.0}, noNumberedBalls);
+    const auto noTargetPlanning = BilliardAlgorithm::planShot(
+        noTargetState,
+        std::optional<BilliardConfig::TableGeometryConfig>{tableConfig()},
+        p109Config);
+    const auto* integratedNoTarget = std::get_if<NoPlan>(&noTargetPlanning.value());
+    tests.expectTrue(
+        noTargetPlanning.isValid() && integratedNoTarget &&
+        integratedNoTarget->reason == NoPlanReason::NoEligibleTarget &&
+        !integratedNoTarget->selectedTarget &&
+        integratedNoTarget->diagnostic.targetStatus ==
+            TargetQualificationStatus::NoEligibleTarget,
+        "P1-09 preserves TargetSelector NoEligibleTarget without higher-ball fallback");
+
+    const auto missingBrainConfig = BilliardAlgorithm::planShot(
+        kickFixture,
+        std::optional<BilliardConfig::TableGeometryConfig>{tableConfig()},
+        BilliardConfig::BrainConfig{});
+    const auto* invalidBrain = std::get_if<NoPlan>(&missingBrainConfig.value());
+    tests.expectTrue(
+        missingBrainConfig.isValid() && invalidBrain &&
+        invalidBrain->reason == NoPlanReason::InvalidBrainConfiguration &&
+        !invalidBrain->selectedTarget,
+        "missing P1-09 BrainConfig fails closed as a named planning result");
+
+    const auto makeReceiveEvent = [&](ReceiveEventId id, long long milliseconds) {
+        return ReceiveEvent{
+            77,
+            88,
+            id,
+            std::chrono::steady_clock::time_point{
+                std::chrono::milliseconds{milliseconds}},
+            ValidatedVisionFrame{
+                kickFixture.objectBalls,
+                kickFixture.cueBall,
+                kickFixture.pockets}};
+    };
+    ThreeEventStability phase1PipelineStability({
+        std::optional<double>{0.0},
+        std::optional<double>{0.0},
+        std::optional<std::chrono::milliseconds>{std::chrono::milliseconds{100}}});
+    const StabilityResult pipelineFirst =
+        phase1PipelineStability.accept(makeReceiveEvent(1, 0));
+    const StabilityResult pipelineSecond =
+        phase1PipelineStability.accept(makeReceiveEvent(2, 10));
+    const StabilityResult pipelineStable =
+        phase1PipelineStability.accept(makeReceiveEvent(3, 20));
+    const auto pipelineWaiting = Phase1PipelineResult::fromStability(pipelineFirst);
+    tests.expectTrue(
+        pipelineFirst.status() == StabilityStatus::NeedMoreEvents &&
+        pipelineSecond.status() == StabilityStatus::NeedMoreEvents &&
+        pipelineWaiting && pipelineWaiting->isValid() &&
+        !pipelineWaiting->planningResult() &&
+        pipelineStable.status() == StabilityStatus::Stable &&
+        pipelineStable.value(),
+        "fake ReceiveEvent stream remains in the pipeline until Stable success");
+    if (pipelineStable.value()) {
+        const PlanningResult plannedStable = BilliardAlgorithm::planShot(
+            *pipelineStable.value(),
+            std::optional<BilliardConfig::TableGeometryConfig>{tableConfig()},
+            p109Config);
+        const Phase1PipelineResult completed =
+            Phase1PipelineResult::planningCompleted(plannedStable);
+        tests.expectTrue(
+            completed.status() == Phase1PipelineStatus::PlanningCompleted &&
+            completed.isValid() && completed.planningResult() &&
+            std::holds_alternative<ShotPlan>(completed.planningResult()->value()) &&
+            !completed.diagnostic(),
+            "Stable fake-event pipeline wraps the independent Brain PlanningResult");
+    }
+
+    const Phase1PipelineResult parserFailure = Phase1PipelineResult::inputFailure(
+        SingleFrameDiagnostic{SingleFrameStatus::InvalidNumericToken, 0});
+    const auto unstablePipeline = Phase1PipelineResult::fromStability(
+        StabilityResult::failure(
+            StabilityStatus::Unstable,
+            StabilityFailureReason::BallMoved,
+            2));
+    const auto timeoutPipeline = Phase1PipelineResult::fromStability(
+        StabilityResult::failure(
+            StabilityStatus::TimedOut,
+            StabilityFailureReason::TimedOut,
+            2));
+    tests.expectTrue(
+        parserFailure.isValid() && !parserFailure.planningResult() &&
+        unstablePipeline && unstablePipeline->isValid() &&
+        !unstablePipeline->planningResult() && timeoutPipeline &&
+        timeoutPipeline->isValid() && !timeoutPipeline->planningResult(),
+        "parser, Unstable, and timeout pipeline failures cannot become NoPlan");
 
     const auto omittedCandidates = BilliardAlgorithm::selectBestPot(
         kickFixture,

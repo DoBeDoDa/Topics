@@ -20,7 +20,7 @@ private:
     VisionDataParser visionParser;
     ReceiveEventFactory receiveEventFactory;
     ThreeEventStability stability;
-    std::optional<StableTableState> pendingStableTableState;
+    std::optional<PlanningResult> pendingPlanningResult;
     TargetSelector targetSelector;
     MotionPlanner motionPlanner;
     bool needCameraMove;

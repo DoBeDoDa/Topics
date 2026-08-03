@@ -100,6 +100,12 @@ struct ScoringConfig {
     PlanningMode planningMode;
 };
 
+struct BrainConfig {
+    std::optional<std::string> base0PlanarCalibrationRevision;
+    std::optional<KickGeometryConfig> kickGeometry;
+    std::optional<ScoringConfig> scoring;
+};
+
 struct MotionProfile {
     double strikeZ;
     double safeZ;
@@ -134,6 +140,7 @@ extern const std::optional<TableGeometryConfig> TABLE_GEOMETRY;
 extern const std::optional<KickGeometryConfig> KICK_GEOMETRY;
 extern const ScoringWeights INITIAL_EXPERIMENTAL_SCORING_WEIGHTS;
 extern const std::optional<ScoringConfig> SCORING_CONFIG;
+extern const BrainConfig BRAIN_CONFIG;
 
 extern const double CAMERA_OFFSET_X_MM;
 extern const double CAMERA_OFFSET_Y_MM;

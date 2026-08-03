@@ -195,7 +195,7 @@ bool BilliardApp::openCaptureWindowAfterCameraPose()
     }
 
     stability.reset(StabilityFailureReason::ExplicitReset);
-    pendingStableTableState.reset();
+    pendingPlanningResult.reset();
 
     if (nextShotCycleIdentity == 0) {
         cout << "[系統] shot-cycle identity已耗盡。" << endl;
@@ -239,9 +239,31 @@ bool BilliardApp::processReceiveEvent(const ReceiveEvent& event)
         return true;
     }
     if (result.status() == StabilityStatus::Stable && result.value()) {
-        pendingStableTableState = *result.value();
-        cout << "[P1-04] StableTableState ready for the later planning seam; "
-             << "P1-05 and later work is not implemented here." << endl;
+        PlanningResult planning = BilliardAlgorithm::planShot(
+            *result.value(),
+            BilliardConfig::TABLE_GEOMETRY,
+            BilliardConfig::BRAIN_CONFIG);
+        const Phase1PipelineResult completed =
+            Phase1PipelineResult::planningCompleted(planning);
+        if (!completed.isValid() || !completed.planningResult()) {
+            cout << "[P1-09] PlanningCompleted invariant失敗。" << endl;
+            invalidateVisionCycle(ReceiveEventInvalidationReason::CycleChanged);
+            return false;
+        }
+        pendingPlanningResult = std::move(planning);
+        if (std::holds_alternative<ShotPlan>(pendingPlanningResult->value())) {
+            cout << "[P1-09] Phase 1 ShotPlan ready for P2-01; "
+                 << "Phase 2 execution is not implemented here." << endl;
+        } else {
+            const NoPlan& noPlan = std::get<NoPlan>(pendingPlanningResult->value());
+            cout << "[P1-09] Phase 1 stopped with NoPlan reason="
+                 << static_cast<int>(noPlan.reason)
+                 << "; returning to WaitingForStart without a fallback shot."
+                 << endl;
+            invalidateVisionCycle(ReceiveEventInvalidationReason::CycleChanged);
+            needCameraMove = true;
+            return true;
+        }
         return false;
     }
 
@@ -260,7 +282,7 @@ void BilliardApp::invalidateVisionCycle(ReceiveEventInvalidationReason reason)
 {
     receiveEventFactory.invalidate(reason);
     stability.reset(stabilityResetReason(reason));
-    pendingStableTableState.reset();
+    pendingPlanningResult.reset();
 }
 
 bool BilliardApp::executeMotionPlan(const MotionPlan& plan) {

@@ -5,6 +5,11 @@
 
 class BilliardAlgorithm {
 public:
+    [[nodiscard]] static PlanningResult planShot(
+        const StableTableState& table,
+        const std::optional<BilliardConfig::TableGeometryConfig>& geometryConfig,
+        const BilliardConfig::BrainConfig& brainConfig);
+
     [[nodiscard]] static DirectPotGenerationResult generateDirectPotCandidates(
         const StableTableState& table,
         const EligibleTarget& selectedTarget,
