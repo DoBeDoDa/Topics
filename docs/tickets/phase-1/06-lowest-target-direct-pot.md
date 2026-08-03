@@ -1,6 +1,19 @@
 # P1-06 — Lowest-Number Target and DirectPot
 
-**Status:** Ready for Implementation
+**Status:** Completed
+**Implementation commit:** 781df61e1b3e368bdba898d395fa514641068c4c
+
+AC: PASS
+Scope: PASS
+Tests: PASS
+Compile: PASS
+Critical: None
+High: None
+Medium: None
+
+Deferred:
+Legacy test_cueball caller migration留待P1-07／P1-08／P1-09；
+不得恢復舊不安全API。
 
 **Blocked by:** P1-05
 
@@ -14,7 +27,7 @@ P1-06
 
 ## 3. Status
 
-Planned
+Completed
 
 ## 4. Purpose
 
@@ -73,12 +86,12 @@ Planned
 
 ## 15. Acceptance Criteria
 
-- [ ] lowest-number規則與六袋組合完整。
-- [ ] StableTableState中0顆編號球時，唯一結果為`NoEligibleTarget`；P1-03與P1-04不得提前攔截此合法state。
-- [ ] Direct兩條路徑與障礙端點排除獨立正確。
-- [ ] Gpot為2r且是cue path終點。
-- [ ] 所有不可行候選不進評分集合。
-- [ ] TargetSelector只接受StableTableState且沒有相機補償。
+- [x] lowest-number規則與六袋組合完整。
+- [x] StableTableState中0顆編號球時，唯一結果為`NoEligibleTarget`；P1-03與P1-04不得提前攔截此合法state。
+- [x] Direct兩條路徑與障礙端點排除獨立正確。
+- [x] Gpot為2r且是cue path終點。
+- [x] 所有不可行候選不進評分集合。
+- [x] TargetSelector只接受StableTableState且沒有相機補償。
 
 ## 16. Test Requirements
 
