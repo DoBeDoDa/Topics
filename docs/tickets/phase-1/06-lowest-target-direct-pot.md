@@ -1,6 +1,6 @@
 # P1-06 — Lowest-Number Target and DirectPot
 
-**Status:** Planned
+**Status:** Ready for Implementation
 
 **Blocked by:** P1-05
 

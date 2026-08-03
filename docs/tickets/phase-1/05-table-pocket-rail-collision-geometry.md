@@ -1,6 +1,19 @@
 # P1-05 — Table, Pocket, Rail and Collision Geometry
 
-**Status:** Ready for Implementation
+**Status:** Completed
+**Implementation commit:** 8c896923ce44d2e7d67f716fab9fc56686041bf5
+
+AC: PASS
+Scope: PASS
+Tests: PASS
+Compile: PASS
+Critical: None
+High: None
+Medium: None
+
+Deferred:
+Strategy caller migration由P1-06／P1-07承接。
+Production geometry參數未核准時維持ConfigurationMissing，不阻擋P1-05完成。
 
 **Blocked by:** P1-04
 
@@ -72,11 +85,11 @@ Planned
 
 ## 15. Acceptance Criteria
 
-- [ ] `||T-G|| = 2r`且G/T/P共線、方向正確。
-- [ ] physical/effective rails與排除區映射正確，ball radius只加入一次。
-- [ ] pocket corridor／exit／entry-angle與錯誤出口完整測試。
-- [ ] 路徑碰撞、退化及Result payload不變量通過。
-- [ ] Phase 1只使用Base0 XY。
+- [x] `||T-G|| = 2r`且G/T/P共線、方向正確。
+- [x] physical/effective rails與排除區映射正確，ball radius只加入一次。
+- [x] pocket corridor／exit／entry-angle與錯誤出口完整測試。
+- [x] 路徑碰撞、退化及Result payload不變量通過。
+- [x] Phase 1只使用Base0 XY。
 
 ## 16. Test Requirements
 

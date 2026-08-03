@@ -1,6 +1,6 @@
 # P1-07 — One-Rail Cue-Ball KickPot
 
-**Status:** Planned
+**Status:** Ready for Implementation
 
 **Blocked by:** P1-05
 
