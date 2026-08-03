@@ -30,6 +30,8 @@ const std::optional<double> POCKET_STABILITY_TOLERANCE_MM = std::nullopt;
 const std::optional<unsigned long> MAX_INTER_FRAME_INTERVAL_MS = std::nullopt;
 // P1-05 production geometry is fail-closed until a versioned calibration is approved.
 const std::optional<TableGeometryConfig> TABLE_GEOMETRY = std::nullopt;
+// P1-07 does not guess production kick-angle acceptance parameters.
+const std::optional<KickGeometryConfig> KICK_GEOMETRY = std::nullopt;
 
 const double CAMERA_OFFSET_X_MM = 0.0;
 const double CAMERA_OFFSET_Y_MM = 0.0;

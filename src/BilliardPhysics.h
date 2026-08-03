@@ -165,4 +165,8 @@ public:
         Point rayStart,
         Point rayThrough,
         const EffectiveCueBallRailSegment& rail);
+
+    static GeometryCheckResult checkEffectiveRailForReflection(
+        const EffectiveCueBallRailSegment& rail,
+        const PlayableBallCenterRegion& playableRegion);
 };

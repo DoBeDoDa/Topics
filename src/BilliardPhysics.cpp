@@ -1042,9 +1042,40 @@ GeometryValueResult<Point> BilliardPhysics::intersectRayWithEffectiveRail(
         segmentParameter > 1.0 + NUMERICAL_EPSILON) {
         return GeometryValueResult<Point>::failure(GeometryStatus::NoIntersection);
     }
-    const Point intersection = add(rayStart, *ray, rayParameter);
+    const Point intersection = add(
+        rail.segment.start,
+        *segment,
+        std::clamp(segmentParameter, 0.0, 1.0));
     if (!BilliardMath::isFinite(intersection)) {
         return GeometryValueResult<Point>::failure(GeometryStatus::InvalidInput);
     }
     return GeometryValueResult<Point>::success(intersection);
+}
+
+GeometryCheckResult BilliardPhysics::checkEffectiveRailForReflection(
+    const EffectiveCueBallRailSegment& rail,
+    const PlayableBallCenterRegion& playableRegion)
+{
+    constexpr double PROBE_DISTANCE_MM = 1e-6;
+    if (!validBounds(playableRegion.bounds) || !finite(rail.segment) ||
+        samePoint(rail.segment.start, rail.segment.end) ||
+        !unitVector(rail.inwardUnitNormal)) {
+        return GeometryCheckResult::rejected(GeometryStatus::InvalidConfiguration);
+    }
+    const Point midpoint{
+        (rail.segment.start.x + rail.segment.end.x) / 2.0,
+        (rail.segment.start.y + rail.segment.end.y) / 2.0};
+    if (!BilliardMath::isFinite(midpoint) ||
+        !onBoundsBoundary(playableRegion.bounds, rail.segment.start) ||
+        !onBoundsBoundary(playableRegion.bounds, rail.segment.end) ||
+        !onBoundsBoundary(playableRegion.bounds, midpoint)) {
+        return GeometryCheckResult::rejected(GeometryStatus::InvalidConfiguration);
+    }
+    const Point inwardProbe = add(midpoint, rail.inwardUnitNormal, PROBE_DISTANCE_MM);
+    const Point outwardProbe = add(midpoint, rail.inwardUnitNormal, -PROBE_DISTANCE_MM);
+    if (!containsInterior(playableRegion, inwardProbe) ||
+        containsInclusive(playableRegion, outwardProbe)) {
+        return GeometryCheckResult::rejected(GeometryStatus::InvalidConfiguration);
+    }
+    return GeometryCheckResult::clear();
 }

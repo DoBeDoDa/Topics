@@ -63,6 +63,12 @@ struct TableGeometryConfig {
     std::array<PhysicalRailConfig, 6> rails;
 };
 
+struct KickGeometryConfig {
+    double maxKickRailAngleDeg;
+    double reflectionDirectionTolerance;
+    double reflectionAngleToleranceDeg;
+};
+
 struct MotionProfile {
     double strikeZ;
     double safeZ;
@@ -94,6 +100,7 @@ extern const std::optional<double> STABLE_FRAME_TOLERANCE_MM;
 extern const std::optional<double> POCKET_STABILITY_TOLERANCE_MM;
 extern const std::optional<unsigned long> MAX_INTER_FRAME_INTERVAL_MS;
 extern const std::optional<TableGeometryConfig> TABLE_GEOMETRY;
+extern const std::optional<KickGeometryConfig> KICK_GEOMETRY;
 
 extern const double CAMERA_OFFSET_X_MM;
 extern const double CAMERA_OFFSET_Y_MM;

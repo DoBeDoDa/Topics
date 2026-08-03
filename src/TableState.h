@@ -949,3 +949,180 @@ private:
     std::optional<DirectPotEvaluation> value_;
     std::optional<DirectPotGenerationDiagnostic> diagnostic_;
 };
+
+enum class KickPotRejectionReason {
+    GhostGeometryInvalid,
+    RailGeometryInvalid,
+    NoRailIntersection,
+    ReflectionInvariantFailed,
+    KickAngleRejected,
+    CueFirstSegmentInvalid,
+    CueFirstSegmentBlocked,
+    CueSecondSegmentInvalid,
+    CueSecondSegmentBlocked,
+    TargetPathInvalid,
+    TargetPathBlocked,
+    PocketEntryRejected,
+    CutAngleInvalid
+};
+
+struct KickPotCandidateDiagnostic {
+    BilliardConfig::PocketId pocketId;
+    BilliardConfig::RailId railId;
+    KickPotRejectionReason reason;
+    GeometryStatus geometryStatus;
+    std::optional<std::size_t> relatedObstacleIndex;
+};
+
+struct KickPotCandidate {
+    EligibleTarget target;
+    BilliardConfig::PocketId pocketId;
+    BilliardConfig::RailId railId;
+    Point virtualPocketTarget;
+    GhostBallPoint ghostBallPoint;
+    Point reboundPoint;
+    Segment2D cuePathFirst;
+    Segment2D cuePathSecond;
+    Segment2D targetPath;
+    double cuttingAngleDeg;
+    double pocketEntryAngleDeg;
+    double incidenceAngleDeg;
+    double reflectionAngleDeg;
+};
+
+using KickPotCandidateGrid =
+    std::array<std::array<std::optional<KickPotCandidate>, 6>, 6>;
+using KickPotDiagnosticGrid =
+    std::array<std::array<std::optional<KickPotCandidateDiagnostic>, 6>, 6>;
+
+struct KickPotEvaluation {
+    EligibleTarget target;
+    KickPotCandidateGrid feasible;
+    KickPotDiagnosticGrid rejected;
+
+    [[nodiscard]] bool isValid() const noexcept
+    {
+        const auto finitePoint = [](Point point) noexcept {
+            return std::isfinite(point.x) && std::isfinite(point.y);
+        };
+        const auto samePoint = [](Point first, Point second) noexcept {
+            return first.x == second.x && first.y == second.y;
+        };
+        if (target.ballNumber < 1 || target.ballNumber > 9 ||
+            !finitePoint(target.center)) {
+            return false;
+        }
+        for (std::size_t pocket = 0; pocket < feasible.size(); ++pocket) {
+            for (std::size_t rail = 0; rail < feasible[pocket].size(); ++rail) {
+                if (feasible[pocket][rail].has_value() ==
+                    rejected[pocket][rail].has_value()) {
+                    return false;
+                }
+                if (feasible[pocket][rail]) {
+                    const KickPotCandidate& candidate = *feasible[pocket][rail];
+                    if (static_cast<std::size_t>(candidate.pocketId) != pocket ||
+                        static_cast<std::size_t>(candidate.railId) != rail ||
+                        candidate.target.ballNumber != target.ballNumber ||
+                        !samePoint(candidate.target.center, target.center) ||
+                        !finitePoint(candidate.virtualPocketTarget) ||
+                        !finitePoint(candidate.ghostBallPoint.center) ||
+                        !finitePoint(candidate.reboundPoint) ||
+                        !finitePoint(candidate.cuePathFirst.start) ||
+                        !finitePoint(candidate.cuePathFirst.end) ||
+                        !finitePoint(candidate.cuePathSecond.start) ||
+                        !finitePoint(candidate.cuePathSecond.end) ||
+                        !finitePoint(candidate.targetPath.start) ||
+                        !finitePoint(candidate.targetPath.end) ||
+                        !samePoint(candidate.cuePathFirst.end, candidate.reboundPoint) ||
+                        !samePoint(candidate.cuePathSecond.start, candidate.reboundPoint) ||
+                        !samePoint(candidate.cuePathSecond.end,
+                            candidate.ghostBallPoint.center) ||
+                        !samePoint(candidate.targetPath.start, target.center) ||
+                        !samePoint(candidate.targetPath.end,
+                            candidate.virtualPocketTarget) ||
+                        !std::isfinite(candidate.cuttingAngleDeg) ||
+                        candidate.cuttingAngleDeg < 0.0 ||
+                        candidate.cuttingAngleDeg >= 90.0 ||
+                        !std::isfinite(candidate.pocketEntryAngleDeg) ||
+                        candidate.pocketEntryAngleDeg < 0.0 ||
+                        !std::isfinite(candidate.incidenceAngleDeg) ||
+                        candidate.incidenceAngleDeg < 0.0 ||
+                        candidate.incidenceAngleDeg > 90.0 ||
+                        !std::isfinite(candidate.reflectionAngleDeg) ||
+                        candidate.reflectionAngleDeg < 0.0 ||
+                        candidate.reflectionAngleDeg > 90.0) {
+                        return false;
+                    }
+                }
+                if (rejected[pocket][rail] &&
+                    (static_cast<std::size_t>(rejected[pocket][rail]->pocketId) != pocket ||
+                     static_cast<std::size_t>(rejected[pocket][rail]->railId) != rail)) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+};
+
+enum class KickPotGenerationStatus {
+    Success,
+    ConfigurationMissing,
+    InvalidStableState,
+    InvalidGeometryConfiguration,
+    SelectedTargetMismatch
+};
+
+struct KickPotGenerationDiagnostic {
+    KickPotGenerationStatus status;
+};
+
+class KickPotGenerationResult {
+public:
+    static KickPotGenerationResult success(KickPotEvaluation evaluation)
+    {
+        return KickPotGenerationResult(
+            KickPotGenerationStatus::Success,
+            std::optional<KickPotEvaluation>{std::move(evaluation)},
+            std::nullopt);
+    }
+
+    static KickPotGenerationResult rejected(KickPotGenerationStatus status)
+    {
+        return KickPotGenerationResult(
+            status,
+            std::nullopt,
+            KickPotGenerationDiagnostic{status});
+    }
+
+    [[nodiscard]] KickPotGenerationStatus status() const noexcept { return status_; }
+    [[nodiscard]] const std::optional<KickPotEvaluation>& value() const noexcept
+    {
+        return value_;
+    }
+    [[nodiscard]] const std::optional<KickPotGenerationDiagnostic>& diagnostic() const noexcept
+    {
+        return diagnostic_;
+    }
+    [[nodiscard]] bool isValid() const noexcept
+    {
+        const bool succeeded = status_ == KickPotGenerationStatus::Success;
+        return value_.has_value() == succeeded &&
+            diagnostic_.has_value() != succeeded &&
+            (!value_ || value_->isValid()) &&
+            (!diagnostic_ || diagnostic_->status == status_);
+    }
+
+private:
+    KickPotGenerationResult(
+        KickPotGenerationStatus status,
+        std::optional<KickPotEvaluation> value,
+        std::optional<KickPotGenerationDiagnostic> diagnostic)
+        : status_(status), value_(std::move(value)), diagnostic_(std::move(diagnostic))
+    {
+    }
+
+    KickPotGenerationStatus status_;
+    std::optional<KickPotEvaluation> value_;
+    std::optional<KickPotGenerationDiagnostic> diagnostic_;
+};

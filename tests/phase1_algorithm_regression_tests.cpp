@@ -9,6 +9,8 @@
 #include <cmath>
 #include <limits>
 #include <optional>
+#include <type_traits>
+#include <utility>
 
 namespace {
 constexpr double ROOT_HALF = 0.70710678118654752440;
@@ -119,10 +121,94 @@ const DirectPotCandidateDiagnostic* diagnosticFor(
     const auto& diagnostic = evaluation.rejected[pocketIndex];
     return diagnostic ? &*diagnostic : nullptr;
 }
+
+BilliardConfig::KickGeometryConfig kickConfig()
+{
+    return {89.0, 1e-8, 1e-8};
+}
+
+StableTableState kickStateForRebound(
+    const ResolvedTableGeometry& geometry,
+    std::size_t railIndex,
+    std::size_t pocketIndex,
+    Point rebound,
+    double incomingDistanceMm = 120.0)
+{
+    const auto& rail = geometry.railReflectionRegion.rails[railIndex];
+    const auto& pocket = geometry.pockets[pocketIndex];
+    const Point target{
+        pocket.wirePocketCenter.x - 100.0 * pocket.outwardUnitNormal.x,
+        pocket.wirePocketCenter.y - 100.0 * pocket.outwardUnitNormal.y};
+    const Point ghost{
+        target.x - 2.0 * geometry.ballRadiusMm * pocket.outwardUnitNormal.x,
+        target.y - 2.0 * geometry.ballRadiusMm * pocket.outwardUnitNormal.y};
+    const Vector2D outgoingRaw{ghost.x - rebound.x, ghost.y - rebound.y};
+    const double outgoingLength = std::hypot(outgoingRaw.x, outgoingRaw.y);
+    const Vector2D outgoing{
+        outgoingRaw.x / outgoingLength,
+        outgoingRaw.y / outgoingLength};
+    const double normalProjection =
+        outgoing.x * rail.inwardUnitNormal.x + outgoing.y * rail.inwardUnitNormal.y;
+    const Vector2D incoming{
+        outgoing.x - 2.0 * normalProjection * rail.inwardUnitNormal.x,
+        outgoing.y - 2.0 * normalProjection * rail.inwardUnitNormal.y};
+    const Point cue{
+        rebound.x - incomingDistanceMm * incoming.x,
+        rebound.y - incomingDistanceMm * incoming.y};
+    std::array<std::optional<Point>, 9> balls{};
+    balls[0] = target;
+    return state(cue, balls);
+}
+
+StableTableState alignedKickState(
+    const ResolvedTableGeometry& geometry,
+    std::size_t railIndex,
+    std::size_t pocketIndex)
+{
+    const auto& rail = geometry.railReflectionRegion.rails[railIndex];
+    return kickStateForRebound(
+        geometry,
+        railIndex,
+        pocketIndex,
+        {(rail.segment.start.x + rail.segment.end.x) / 2.0,
+         (rail.segment.start.y + rail.segment.end.y) / 2.0});
+}
+
+template <typename Candidate, typename = void>
+struct HasSecondReboundPoint : std::false_type {};
+
+template <typename Candidate>
+struct HasSecondReboundPoint<
+    Candidate,
+    std::void_t<decltype(std::declval<Candidate>().secondReboundPoint)>>
+    : std::true_type {};
+
+const KickPotCandidateDiagnostic* kickDiagnosticFor(
+    const KickPotEvaluation& evaluation,
+    std::size_t pocketIndex,
+    std::size_t railIndex)
+{
+    const auto& diagnostic = evaluation.rejected[pocketIndex][railIndex];
+    return diagnostic ? &*diagnostic : nullptr;
+}
 }
 
 int main()
 {
+    using KickGeneratorSignature = KickPotGenerationResult (*)(
+        const StableTableState&,
+        const EligibleTarget&,
+        const ResolvedTableGeometry&,
+        const std::optional<BilliardConfig::KickGeometryConfig>&);
+    static_assert(
+        std::is_same_v<
+            decltype(&BilliardAlgorithm::generateKickPotCandidates),
+            KickGeneratorSignature>,
+        "P1-07 API must not accept dynamics or fixed-force parameters");
+    static_assert(
+        !HasSecondReboundPoint<KickPotCandidate>::value,
+        "P1-07 candidate must not represent a second rail rebound");
+
     TestHarness tests;
     TargetSelector selector;
 
@@ -401,6 +487,430 @@ int main()
         mismatch.status() == DirectPotGenerationStatus::SelectedTargetMismatch &&
         !mismatch.value(),
         "Algorithm refuses a higher-number target while a lower ball is present");
+
+    const std::array<std::size_t, 6> oppositePocketForRail{{4, 4, 1, 1, 2, 0}};
+    for (std::size_t railIndex = 0;
+         railIndex < geometry.railReflectionRegion.rails.size();
+         ++railIndex) {
+        const std::size_t pocketIndex = oppositePocketForRail[railIndex];
+        const auto kickState = alignedKickState(geometry, railIndex, pocketIndex);
+        const auto kickTarget = selector.select(kickState);
+        tests.expectTrue(kickTarget.value().has_value(),
+            "one-rail fixture has the lowest target");
+        if (!kickTarget.value()) {
+            return tests.exitCode();
+        }
+        const auto kick = BilliardAlgorithm::generateKickPotCandidates(
+            kickState,
+            *kickTarget.value(),
+            geometry,
+            std::optional<BilliardConfig::KickGeometryConfig>{kickConfig()});
+        tests.expectTrue(kick.isValid() && kick.value().has_value(),
+            "one-rail evaluation returns a valid business value");
+        if (!kick.value()) {
+            return tests.exitCode();
+        }
+        const auto& evaluation = *kick.value();
+        tests.expectTrue(evaluation.isValid(),
+            "each pocket/rail pair has one candidate or rejection diagnostic");
+        const auto& candidate = evaluation.feasible[pocketIndex][railIndex];
+        tests.expectTrue(candidate.has_value(),
+            "each effective rail can produce an ideal one-rail Kick fixture");
+        if (!candidate) {
+            continue;
+        }
+        tests.expectTrue(candidate->target.ballNumber == 1,
+            "Kick preserves the selected lowest target");
+        tests.expectTrue(candidate->cuePathFirst.start.x == kickState.cueBall.x &&
+            candidate->cuePathFirst.start.y == kickState.cueBall.y,
+            "Kick first cue segment starts at C");
+        tests.expectTrue(candidate->cuePathFirst.end.x == candidate->reboundPoint.x &&
+            candidate->cuePathFirst.end.y == candidate->reboundPoint.y &&
+            candidate->cuePathSecond.start.x == candidate->reboundPoint.x &&
+            candidate->cuePathSecond.start.y == candidate->reboundPoint.y,
+            "Kick cue path is C to R to GhostBallPoint");
+        const auto& expectedRail = geometry.railReflectionRegion.rails[railIndex];
+        tests.expectNear(candidate->reboundPoint.x,
+            (expectedRail.segment.start.x + expectedRail.segment.end.x) / 2.0,
+            TOLERANCE,
+            "Kick rebound X lies at the fixture point on the effective rail");
+        tests.expectNear(candidate->reboundPoint.y,
+            (expectedRail.segment.start.y + expectedRail.segment.end.y) / 2.0,
+            TOLERANCE,
+            "Kick rebound Y lies at the fixture point on the effective rail");
+        tests.expectTrue(candidate->cuePathSecond.end.x == candidate->ghostBallPoint.center.x &&
+            candidate->cuePathSecond.end.y == candidate->ghostBallPoint.center.y,
+            "Kick second cue segment ends at GhostBallPoint");
+        tests.expectNear(
+            std::hypot(
+                candidate->target.center.x - candidate->ghostBallPoint.center.x,
+                candidate->target.center.y - candidate->ghostBallPoint.center.y),
+            2.0 * geometry.ballRadiusMm,
+            TOLERANCE,
+            "Kick GhostBallPoint remains exactly 2r from target");
+        tests.expectTrue(
+            candidate->targetPath.end.x ==
+                geometry.pockets[pocketIndex].virtualPocketTarget.x &&
+            candidate->targetPath.end.y ==
+                geometry.pockets[pocketIndex].virtualPocketTarget.y,
+            "Kick target path uses the same resolved VirtualPocketTarget as Direct");
+        tests.expectNear(candidate->incidenceAngleDeg,
+            candidate->reflectionAngleDeg,
+            kickConfig().reflectionAngleToleranceDeg,
+            "ideal one-rail incidence and reflection angles are equal");
+        const Vector2D incomingRaw{
+            candidate->cuePathFirst.end.x - candidate->cuePathFirst.start.x,
+            candidate->cuePathFirst.end.y - candidate->cuePathFirst.start.y};
+        const Vector2D outgoingRaw{
+            candidate->cuePathSecond.end.x - candidate->cuePathSecond.start.x,
+            candidate->cuePathSecond.end.y - candidate->cuePathSecond.start.y};
+        const double incomingLength = std::hypot(incomingRaw.x, incomingRaw.y);
+        const double outgoingLength = std::hypot(outgoingRaw.x, outgoingRaw.y);
+        const Vector2D incoming{
+            incomingRaw.x / incomingLength,
+            incomingRaw.y / incomingLength};
+        const Vector2D outgoing{
+            outgoingRaw.x / outgoingLength,
+            outgoingRaw.y / outgoingLength};
+        const auto& rail = geometry.railReflectionRegion.rails[railIndex];
+        const double normalProjection =
+            incoming.x * rail.inwardUnitNormal.x +
+            incoming.y * rail.inwardUnitNormal.y;
+        const Vector2D idealReflected{
+            incoming.x - 2.0 * normalProjection * rail.inwardUnitNormal.x,
+            incoming.y - 2.0 * normalProjection * rail.inwardUnitNormal.y};
+        tests.expectNear(outgoing.x, idealReflected.x,
+            kickConfig().reflectionDirectionTolerance,
+            "Kick outgoing X equals the ideal reflected direction");
+        tests.expectNear(outgoing.y, idealReflected.y,
+            kickConfig().reflectionDirectionTolerance,
+            "Kick outgoing Y equals the ideal reflected direction");
+    }
+
+    const auto kickFixture = alignedKickState(geometry, 0, 4);
+    const auto kickFixtureTarget = selector.select(kickFixture);
+    if (!kickFixtureTarget.value()) {
+        tests.expectTrue(false, "Kick rejection fixture has a selected target");
+        return tests.exitCode();
+    }
+    const auto missingKickConfig = BilliardAlgorithm::generateKickPotCandidates(
+        kickFixture, *kickFixtureTarget.value(), geometry, std::nullopt);
+    tests.expectTrue(
+        missingKickConfig.status() == KickPotGenerationStatus::ConfigurationMissing &&
+        !missingKickConfig.value(),
+        "missing approved Kick geometry parameters fail closed");
+
+    auto zeroAngleConfig = kickConfig();
+    zeroAngleConfig.maxKickRailAngleDeg = 0.0;
+    const auto zeroAngle = BilliardAlgorithm::generateKickPotCandidates(
+        kickFixture,
+        *kickFixtureTarget.value(),
+        geometry,
+        std::optional<BilliardConfig::KickGeometryConfig>{zeroAngleConfig});
+    tests.expectTrue(
+        zeroAngle.status() == KickPotGenerationStatus::Success && zeroAngle.value(),
+        "zero-degree Kick threshold is a valid fail-closed geometry gate");
+
+    auto reversedRailGeometry = geometry;
+    reversedRailGeometry.railReflectionRegion.rails[0].inwardUnitNormal.x *= -1.0;
+    reversedRailGeometry.railReflectionRegion.rails[0].inwardUnitNormal.y *= -1.0;
+    const auto reversedRail = BilliardAlgorithm::generateKickPotCandidates(
+        kickFixture,
+        *kickFixtureTarget.value(),
+        reversedRailGeometry,
+        std::optional<BilliardConfig::KickGeometryConfig>{kickConfig()});
+    tests.expectTrue(
+        reversedRail.status() == KickPotGenerationStatus::InvalidGeometryConfiguration &&
+        !reversedRail.value(),
+        "reversed effective-rail normal fails closed");
+
+    auto nonFiniteKickConfig = kickConfig();
+    nonFiniteKickConfig.maxKickRailAngleDeg =
+        std::numeric_limits<double>::quiet_NaN();
+    const auto invalidKickConfig = BilliardAlgorithm::generateKickPotCandidates(
+        kickFixture,
+        *kickFixtureTarget.value(),
+        geometry,
+        std::optional<BilliardConfig::KickGeometryConfig>{nonFiniteKickConfig});
+    tests.expectTrue(
+        invalidKickConfig.status() ==
+            KickPotGenerationStatus::InvalidGeometryConfiguration &&
+        !invalidKickConfig.value(),
+        "non-finite Kick geometry parameters fail closed");
+
+    auto nonFiniteKickState = kickFixture;
+    nonFiniteKickState.cueBall.x = std::numeric_limits<double>::infinity();
+    const auto nonFiniteKick = BilliardAlgorithm::generateKickPotCandidates(
+        nonFiniteKickState,
+        *kickFixtureTarget.value(),
+        geometry,
+        std::optional<BilliardConfig::KickGeometryConfig>{kickConfig()});
+    tests.expectTrue(
+        nonFiniteKick.status() == KickPotGenerationStatus::InvalidStableState &&
+        !nonFiniteKick.value(),
+        "non-finite Kick table geometry fails closed");
+
+    auto stalePocketGeometry = geometry;
+    stalePocketGeometry.pockets[0].wirePocketCenter.x += 1.0;
+    const auto stalePocket = BilliardAlgorithm::generateKickPotCandidates(
+        kickFixture,
+        *kickFixtureTarget.value(),
+        stalePocketGeometry,
+        std::optional<BilliardConfig::KickGeometryConfig>{kickConfig()});
+    tests.expectTrue(
+        stalePocket.status() == KickPotGenerationStatus::InvalidGeometryConfiguration &&
+        !stalePocket.value(),
+        "static geometry cannot replace current-cycle wire pocket centers");
+
+    const auto baselineKick = BilliardAlgorithm::generateKickPotCandidates(
+        kickFixture,
+        *kickFixtureTarget.value(),
+        geometry,
+        std::optional<BilliardConfig::KickGeometryConfig>{kickConfig()});
+    if (!baselineKick.value() || !baselineKick.value()->feasible[4][0]) {
+        tests.expectTrue(false, "Kick angle fixture produces a baseline candidate");
+        return tests.exitCode();
+    }
+    const auto samePocketDirect = BilliardAlgorithm::generateDirectPotCandidates(
+        kickFixture,
+        *kickFixtureTarget.value(),
+        geometry);
+    tests.expectTrue(
+        samePocketDirect.value() && samePocketDirect.value()->feasible[4],
+        "same target/pocket fixture also exposes the Direct geometry");
+    if (!samePocketDirect.value() || !samePocketDirect.value()->feasible[4]) {
+        return tests.exitCode();
+    }
+    auto strictKickConfig = kickConfig();
+    strictKickConfig.maxKickRailAngleDeg =
+        baselineKick.value()->feasible[4][0]->incidenceAngleDeg - 0.1;
+    const auto angleRejected = BilliardAlgorithm::generateKickPotCandidates(
+        kickFixture,
+        *kickFixtureTarget.value(),
+        geometry,
+        std::optional<BilliardConfig::KickGeometryConfig>{strictKickConfig});
+    tests.expectTrue(
+        angleRejected.value() && kickDiagnosticFor(*angleRejected.value(), 4, 0) &&
+        kickDiagnosticFor(*angleRejected.value(), 4, 0)->reason ==
+            KickPotRejectionReason::KickAngleRejected,
+        "Kick rail angle above the Phase 1 threshold is diagnostic-only");
+
+    auto exactKickConfig = kickConfig();
+    exactKickConfig.maxKickRailAngleDeg =
+        baselineKick.value()->feasible[4][0]->incidenceAngleDeg;
+    const auto exactAngleAccepted = BilliardAlgorithm::generateKickPotCandidates(
+        kickFixture,
+        *kickFixtureTarget.value(),
+        geometry,
+        std::optional<BilliardConfig::KickGeometryConfig>{exactKickConfig});
+    tests.expectTrue(
+        exactAngleAccepted.value() && exactAngleAccepted.value()->feasible[4][0],
+        "Kick rail angle exactly at the Phase 1 threshold remains feasible");
+
+    auto blockedKickState = kickFixture;
+    const auto& baselineCandidate = *baselineKick.value()->feasible[4][0];
+    const auto& samePocketDirectCandidate = *samePocketDirect.value()->feasible[4];
+    tests.expectTrue(
+        baselineCandidate.targetPath.end.x == samePocketDirectCandidate.targetPath.end.x &&
+        baselineCandidate.targetPath.end.y == samePocketDirectCandidate.targetPath.end.y &&
+        baselineCandidate.virtualPocketTarget.x ==
+            samePocketDirectCandidate.virtualPocketTarget.x &&
+        baselineCandidate.virtualPocketTarget.y ==
+            samePocketDirectCandidate.virtualPocketTarget.y,
+        "Direct and Kick share the selected ResolvedPocketModel target semantics");
+    tests.expectTrue(
+        baselineCandidate.pocketId == samePocketDirectCandidate.pocketId &&
+        baselineCandidate.targetPath.start.x == samePocketDirectCandidate.targetPath.start.x &&
+        baselineCandidate.targetPath.start.y == samePocketDirectCandidate.targetPath.start.y &&
+        baselineCandidate.pocketEntryAngleDeg ==
+            samePocketDirectCandidate.pocketEntryAngleDeg,
+        "Direct and Kick share pocket ID, target path and pocket-entry geometry");
+    const auto directPocketPathCheck = BilliardPhysics::checkTargetPathToPocket(
+        samePocketDirectCandidate.targetPath,
+        samePocketDirectCandidate.pocketId,
+        geometry.pockets,
+        geometry.playableBallCenterRegion);
+    const auto kickPocketPathCheck = BilliardPhysics::checkTargetPathToPocket(
+        baselineCandidate.targetPath,
+        baselineCandidate.pocketId,
+        geometry.pockets,
+        geometry.playableBallCenterRegion);
+    tests.expectTrue(
+        directPocketPathCheck.status() == GeometryStatus::Clear &&
+        kickPocketPathCheck.status() == GeometryStatus::Clear,
+        "Direct and Kick traverse the same PocketExitSegment and capture corridor");
+    tests.expectTrue(
+        baselineCandidate.ghostBallPoint.center.x ==
+            samePocketDirectCandidate.ghostBallPoint.center.x &&
+        baselineCandidate.ghostBallPoint.center.y ==
+            samePocketDirectCandidate.ghostBallPoint.center.y &&
+        (baselineCandidate.cuePathFirst.end.x !=
+             samePocketDirectCandidate.cuePath.end.x ||
+         baselineCandidate.cuePathFirst.end.y !=
+             samePocketDirectCandidate.cuePath.end.y),
+        "Kick changes only the pre-contact cue path while preserving Gpot");
+    blockedKickState.objectBalls[1] = Point{
+        (baselineCandidate.cuePathFirst.start.x + baselineCandidate.cuePathFirst.end.x) / 2.0,
+        (baselineCandidate.cuePathFirst.start.y + baselineCandidate.cuePathFirst.end.y) / 2.0};
+    const auto blockedKickTarget = selector.select(blockedKickState);
+    if (!blockedKickTarget.value()) {
+        tests.expectTrue(false, "blocked-first fixture has a selected target");
+        return tests.exitCode();
+    }
+    const auto blockedKick = BilliardAlgorithm::generateKickPotCandidates(
+        blockedKickState,
+        *blockedKickTarget.value(),
+        geometry,
+        std::optional<BilliardConfig::KickGeometryConfig>{kickConfig()});
+    tests.expectTrue(
+        blockedKick.value() && kickDiagnosticFor(*blockedKick.value(), 4, 0) &&
+        kickDiagnosticFor(*blockedKick.value(), 4, 0)->reason ==
+            KickPotRejectionReason::CueFirstSegmentBlocked,
+        "blocked first Kick cue segment fails closed");
+
+    auto blockedSecondState = kickFixture;
+    blockedSecondState.objectBalls[1] = Point{
+        (baselineCandidate.cuePathSecond.start.x +
+         baselineCandidate.cuePathSecond.end.x) / 2.0,
+        (baselineCandidate.cuePathSecond.start.y +
+         baselineCandidate.cuePathSecond.end.y) / 2.0};
+    const auto blockedSecondTarget = selector.select(blockedSecondState);
+    if (!blockedSecondTarget.value()) {
+        tests.expectTrue(false, "blocked-second fixture has a selected target");
+        return tests.exitCode();
+    }
+    const auto blockedSecond = BilliardAlgorithm::generateKickPotCandidates(
+        blockedSecondState,
+        *blockedSecondTarget.value(),
+        geometry,
+        std::optional<BilliardConfig::KickGeometryConfig>{kickConfig()});
+    tests.expectTrue(
+        blockedSecond.value() && kickDiagnosticFor(*blockedSecond.value(), 4, 0) &&
+        kickDiagnosticFor(*blockedSecond.value(), 4, 0)->reason ==
+            KickPotRejectionReason::CueSecondSegmentBlocked,
+        "blocked second Kick cue segment fails closed");
+
+    auto blockedKickTargetState = kickFixture;
+    blockedKickTargetState.objectBalls[1] = Point{
+        (baselineCandidate.targetPath.start.x + baselineCandidate.targetPath.end.x) / 2.0,
+        (baselineCandidate.targetPath.start.y + baselineCandidate.targetPath.end.y) / 2.0};
+    const auto blockedKickTargetSelection = selector.select(blockedKickTargetState);
+    if (!blockedKickTargetSelection.value()) {
+        tests.expectTrue(false, "blocked Kick target-path fixture has a selected target");
+        return tests.exitCode();
+    }
+    const auto blockedKickTargetResult = BilliardAlgorithm::generateKickPotCandidates(
+        blockedKickTargetState,
+        *blockedKickTargetSelection.value(),
+        geometry,
+        std::optional<BilliardConfig::KickGeometryConfig>{kickConfig()});
+    tests.expectTrue(
+        blockedKickTargetResult.value() &&
+        kickDiagnosticFor(*blockedKickTargetResult.value(), 4, 0) &&
+        kickDiagnosticFor(*blockedKickTargetResult.value(), 4, 0)->reason ==
+            KickPotRejectionReason::TargetPathBlocked,
+        "blocked Kick target path fails closed independently");
+
+    auto noIntersectionState = kickFixture;
+    noIntersectionState.cueBall = {900.0, 100.0};
+    const auto noIntersectionTarget = selector.select(noIntersectionState);
+    if (!noIntersectionTarget.value()) {
+        tests.expectTrue(false, "no-intersection fixture has a selected target");
+        return tests.exitCode();
+    }
+    const auto noIntersection = BilliardAlgorithm::generateKickPotCandidates(
+        noIntersectionState,
+        *noIntersectionTarget.value(),
+        geometry,
+        std::optional<BilliardConfig::KickGeometryConfig>{kickConfig()});
+    tests.expectTrue(
+        noIntersection.value() && kickDiagnosticFor(*noIntersection.value(), 4, 0) &&
+        kickDiagnosticFor(*noIntersection.value(), 4, 0)->reason ==
+            KickPotRejectionReason::NoRailIntersection,
+        "ray missing the effective rail segment is diagnostic-only");
+
+    const auto& bottomRail = geometry.railReflectionRegion.rails[0];
+    const Point excludedPhysicalRailPoint{20.0, bottomRail.segment.start.y};
+    const auto excludedRailState = kickStateForRebound(
+        geometry,
+        0,
+        4,
+        excludedPhysicalRailPoint,
+        5.0);
+    const auto excludedRailTarget = selector.select(excludedRailState);
+    if (!excludedRailTarget.value()) {
+        tests.expectTrue(false, "rail-exclusion fixture has a selected target");
+        return tests.exitCode();
+    }
+    const auto excludedRail = BilliardAlgorithm::generateKickPotCandidates(
+        excludedRailState,
+        *excludedRailTarget.value(),
+        geometry,
+        std::optional<BilliardConfig::KickGeometryConfig>{kickConfig()});
+    tests.expectTrue(
+        excludedRail.value() && kickDiagnosticFor(*excludedRail.value(), 4, 0) &&
+        kickDiagnosticFor(*excludedRail.value(), 4, 0)->reason ==
+            KickPotRejectionReason::NoRailIntersection,
+        "physical-rail point inside the mapped endpoint exclusion is rejected");
+
+    tests.expectTrue(
+        BilliardPhysics::intersectRayWithEffectiveRail(
+            {100.0, bottomRail.segment.start.y + 10.0},
+            {200.0, bottomRail.segment.start.y + 10.0},
+            bottomRail).status() == GeometryStatus::Parallel,
+        "parallel Kick mirror ray fails closed with a named status");
+    tests.expectTrue(
+        BilliardPhysics::intersectRayWithEffectiveRail(
+            {100.0, bottomRail.segment.start.y},
+            {200.0, bottomRail.segment.start.y},
+            bottomRail).status() == GeometryStatus::Coincident,
+        "coincident Kick mirror ray fails closed with a named status");
+
+    const auto repeatedKick = BilliardAlgorithm::generateKickPotCandidates(
+        kickFixture,
+        *kickFixtureTarget.value(),
+        geometry,
+        std::optional<BilliardConfig::KickGeometryConfig>{kickConfig()});
+    tests.expectTrue(
+        repeatedKick.value() && repeatedKick.value()->feasible[4][0] &&
+        repeatedKick.value()->feasible[4][0]->reboundPoint.x ==
+            baselineCandidate.reboundPoint.x &&
+        repeatedKick.value()->feasible[4][0]->reboundPoint.y ==
+            baselineCandidate.reboundPoint.y &&
+        repeatedKick.value()->feasible[4][0]->incidenceAngleDeg ==
+            baselineCandidate.incidenceAngleDeg,
+        "Kick geometry is deterministic without dynamics or fixed-force inputs");
+
+    auto degenerateKickState = kickFixture;
+    degenerateKickState.cueBall = *degenerateKickState.objectBalls[0];
+    const auto degenerateKickTarget = selector.select(degenerateKickState);
+    if (!degenerateKickTarget.value()) {
+        tests.expectTrue(false, "degenerate Kick fixture has a selected target");
+        return tests.exitCode();
+    }
+    const auto degenerateKick = BilliardAlgorithm::generateKickPotCandidates(
+        degenerateKickState,
+        *degenerateKickTarget.value(),
+        geometry,
+        std::optional<BilliardConfig::KickGeometryConfig>{kickConfig()});
+    tests.expectTrue(
+        degenerateKick.value() && kickDiagnosticFor(*degenerateKick.value(), 4, 0) &&
+        kickDiagnosticFor(*degenerateKick.value(), 4, 0)->reason ==
+            KickPotRejectionReason::GhostGeometryInvalid,
+        "overlapping Kick cue/target geometry fails closed without fallback");
+
+    EligibleTarget kickForcedHigher{2, Point{700.0, 250.0}};
+    auto kickMismatchState = kickFixture;
+    kickMismatchState.objectBalls[1] = kickForcedHigher.center;
+    const auto kickMismatch = BilliardAlgorithm::generateKickPotCandidates(
+        kickMismatchState,
+        kickForcedHigher,
+        geometry,
+        std::optional<BilliardConfig::KickGeometryConfig>{kickConfig()});
+    tests.expectTrue(
+        kickMismatch.status() == KickPotGenerationStatus::SelectedTargetMismatch &&
+        !kickMismatch.value(),
+        "Kick orchestration refuses to reselect a higher-number target");
 
     return tests.exitCode();
 }
