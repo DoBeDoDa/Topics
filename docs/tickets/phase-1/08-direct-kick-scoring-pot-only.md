@@ -1,7 +1,17 @@
 # P1-08 — Direct/Kick Scoring, Deterministic Selection and PotOnly
 
-**Status:** Ready for Implementation
+**Status:** Completed
+**Implementation commit:** 4d01e2b61f6a835f52cfd9e04e370a4b91704fb5
 
+AC: PASS
+Scope: PASS
+Tests: PASS
+Compile: PASS
+Critical: None
+High: None
+Medium: None
+
+Previous tie-break coverage finding closed: YES
 
 **Blocked by:** P1-06, P1-07
 
@@ -15,7 +25,7 @@ Direct／Kick共同正規化評分、確定性選擇與PotOnly NoPlan。
 
 ## 3. Status
 
-Ready for Implementation
+Completed
 
 ## 4. Purpose
 
@@ -73,11 +83,11 @@ Ready for Implementation
 
 ## 15. Acceptance Criteria
 
-- [ ] Direct與Kick共同集合，較佳Kick可勝過差Direct。
-- [ ] raw/effective weight與全部normalization可稽核。
-- [ ] tie-break與容器／生成順序無關。
-- [ ] PotOnly空集合回NoPlan(NoPotCandidate)，無fallback。
-- [ ] LegalContact不進正常production cycle。
+- [x] Direct與Kick共同集合，較佳Kick可勝過差Direct。
+- [x] raw/effective weight與全部normalization可稽核。
+- [x] tie-break與容器／生成順序無關。
+- [x] PotOnly空集合回NoPlan(NoPotCandidate)，無fallback。
+- [x] LegalContact不進正常production cycle。
 
 ## 16. Test Requirements
 

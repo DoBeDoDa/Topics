@@ -1,6 +1,6 @@
 # P1-09 — Phase 1 Integration and Auditable ShotPlan/NoPlan
 
-**Status:** Planned
+**Status:** Ready for Implementation
 
 **Blocked by:** P1-08
 
@@ -14,7 +14,7 @@ Phase 1 pipeline／ShotBrain概念整合與可稽核ShotPlan／NoPlan。
 
 ## 3. Status
 
-Planned
+Ready for Implementation
 
 ## 4. Purpose
 
