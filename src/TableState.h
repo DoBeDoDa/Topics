@@ -12,6 +12,7 @@
 #include <utility>
 #include <vector>
 
+#include "BilliardPhysics.h"
 #include "Point.h"
 
 // 單一影像時間點的完整球桌偵測狀態。
@@ -742,16 +743,209 @@ private:
     StabilityFailureReason lastResetReason_;
 };
 
-// 從 TableState 選出的本次擊球目標與障礙資料。
-struct TargetSelection {
-    Point cueBall;
-    Point targetBall;
-    Point destinationPocket;
-    Point railA;
-    Point railB;
-    std::vector<Point> obstacles;
-    int targetBallNumber = -1;
-    int pocketNumber = -1;
-    double pocketAngleDeg = 0.0;
-    std::string targetName;
+struct EligibleTarget {
+    int ballNumber;
+    Point center;
+};
+
+enum class TargetQualificationStatus {
+    Success,
+    NoEligibleTarget,
+    InvalidStableState
+};
+
+struct TargetQualificationDiagnostic {
+    TargetQualificationStatus status;
+};
+
+struct TargetQualificationAudit {
+    bool expectedBallSetNotApplied;
+};
+
+class TargetQualificationResult {
+public:
+    static TargetQualificationResult success(EligibleTarget target)
+    {
+        return TargetQualificationResult(
+            TargetQualificationStatus::Success,
+            std::optional<EligibleTarget>{target},
+            std::nullopt);
+    }
+
+    static TargetQualificationResult rejected(TargetQualificationStatus status)
+    {
+        return TargetQualificationResult(
+            status,
+            std::nullopt,
+            TargetQualificationDiagnostic{status});
+    }
+
+    [[nodiscard]] TargetQualificationStatus status() const noexcept { return status_; }
+    [[nodiscard]] const std::optional<EligibleTarget>& value() const noexcept { return value_; }
+    [[nodiscard]] const std::optional<TargetQualificationDiagnostic>& diagnostic() const noexcept
+    {
+        return diagnostic_;
+    }
+    [[nodiscard]] const TargetQualificationAudit& audit() const noexcept { return audit_; }
+    [[nodiscard]] bool isValid() const noexcept
+    {
+        const bool succeeded = status_ == TargetQualificationStatus::Success;
+        return value_.has_value() == succeeded &&
+            diagnostic_.has_value() != succeeded &&
+            (!diagnostic_ || diagnostic_->status == status_);
+    }
+
+private:
+    TargetQualificationResult(
+        TargetQualificationStatus status,
+        std::optional<EligibleTarget> value,
+        std::optional<TargetQualificationDiagnostic> diagnostic)
+        : status_(status), value_(std::move(value)), diagnostic_(std::move(diagnostic))
+    {
+    }
+
+    TargetQualificationStatus status_;
+    std::optional<EligibleTarget> value_;
+    std::optional<TargetQualificationDiagnostic> diagnostic_;
+    TargetQualificationAudit audit_{true};
+};
+
+enum class DirectPotRejectionReason {
+    GhostGeometryInvalid,
+    CuePathInvalid,
+    CuePathBlocked,
+    TargetPathInvalid,
+    TargetPathBlocked,
+    PocketEntryRejected,
+    CutAngleInvalid
+};
+
+struct DirectPotCandidateDiagnostic {
+    BilliardConfig::PocketId pocketId;
+    DirectPotRejectionReason reason;
+    GeometryStatus geometryStatus;
+    std::optional<std::size_t> relatedObstacleIndex;
+};
+
+struct DirectPotCandidate {
+    EligibleTarget target;
+    BilliardConfig::PocketId pocketId;
+    Point virtualPocketTarget;
+    GhostBallPoint ghostBallPoint;
+    Segment2D cuePath;
+    Segment2D targetPath;
+    double cuttingAngleDeg;
+    double pocketEntryAngleDeg;
+};
+
+struct DirectPotEvaluation {
+    EligibleTarget target;
+    std::array<std::optional<DirectPotCandidate>, 6> feasible;
+    std::array<std::optional<DirectPotCandidateDiagnostic>, 6> rejected;
+
+    [[nodiscard]] bool isValid() const noexcept
+    {
+        const auto finitePoint = [](Point point) noexcept {
+            return std::isfinite(point.x) && std::isfinite(point.y);
+        };
+        const auto samePoint = [](Point first, Point second) noexcept {
+            return first.x == second.x && first.y == second.y;
+        };
+        if (target.ballNumber < 1 || target.ballNumber > 9 ||
+            !finitePoint(target.center)) {
+            return false;
+        }
+        for (std::size_t index = 0; index < feasible.size(); ++index) {
+            if (feasible[index].has_value() == rejected[index].has_value()) {
+                return false;
+            }
+            if (feasible[index]) {
+                const DirectPotCandidate& candidate = *feasible[index];
+                if (static_cast<std::size_t>(candidate.pocketId) != index ||
+                    candidate.target.ballNumber != target.ballNumber ||
+                    !samePoint(candidate.target.center, target.center) ||
+                    !finitePoint(candidate.virtualPocketTarget) ||
+                    !finitePoint(candidate.ghostBallPoint.center) ||
+                    !finitePoint(candidate.cuePath.start) ||
+                    !finitePoint(candidate.cuePath.end) ||
+                    !finitePoint(candidate.targetPath.start) ||
+                    !finitePoint(candidate.targetPath.end) ||
+                    !samePoint(candidate.cuePath.end, candidate.ghostBallPoint.center) ||
+                    !samePoint(candidate.targetPath.start, target.center) ||
+                    !samePoint(candidate.targetPath.end, candidate.virtualPocketTarget) ||
+                    !std::isfinite(candidate.cuttingAngleDeg) ||
+                    candidate.cuttingAngleDeg < 0.0 || candidate.cuttingAngleDeg >= 90.0 ||
+                    !std::isfinite(candidate.pocketEntryAngleDeg) ||
+                    candidate.pocketEntryAngleDeg < 0.0) {
+                    return false;
+                }
+            }
+            if (rejected[index] &&
+                static_cast<std::size_t>(rejected[index]->pocketId) != index) {
+                return false;
+            }
+        }
+        return true;
+    }
+};
+
+enum class DirectPotGenerationStatus {
+    Success,
+    InvalidStableState,
+    InvalidGeometryConfiguration,
+    SelectedTargetMismatch
+};
+
+struct DirectPotGenerationDiagnostic {
+    DirectPotGenerationStatus status;
+};
+
+class DirectPotGenerationResult {
+public:
+    static DirectPotGenerationResult success(DirectPotEvaluation evaluation)
+    {
+        return DirectPotGenerationResult(
+            DirectPotGenerationStatus::Success,
+            std::optional<DirectPotEvaluation>{std::move(evaluation)},
+            std::nullopt);
+    }
+
+    static DirectPotGenerationResult rejected(DirectPotGenerationStatus status)
+    {
+        return DirectPotGenerationResult(
+            status,
+            std::nullopt,
+            DirectPotGenerationDiagnostic{status});
+    }
+
+    [[nodiscard]] DirectPotGenerationStatus status() const noexcept { return status_; }
+    [[nodiscard]] const std::optional<DirectPotEvaluation>& value() const noexcept
+    {
+        return value_;
+    }
+    [[nodiscard]] const std::optional<DirectPotGenerationDiagnostic>& diagnostic() const noexcept
+    {
+        return diagnostic_;
+    }
+    [[nodiscard]] bool isValid() const noexcept
+    {
+        const bool succeeded = status_ == DirectPotGenerationStatus::Success;
+        return value_.has_value() == succeeded &&
+            diagnostic_.has_value() != succeeded &&
+            (!value_ || value_->isValid()) &&
+            (!diagnostic_ || diagnostic_->status == status_);
+    }
+
+private:
+    DirectPotGenerationResult(
+        DirectPotGenerationStatus status,
+        std::optional<DirectPotEvaluation> value,
+        std::optional<DirectPotGenerationDiagnostic> diagnostic)
+        : status_(status), value_(std::move(value)), diagnostic_(std::move(diagnostic))
+    {
+    }
+
+    DirectPotGenerationStatus status_;
+    std::optional<DirectPotEvaluation> value_;
+    std::optional<DirectPotGenerationDiagnostic> diagnostic_;
 };

@@ -1,96 +1,241 @@
-// 實作直球、反彈球、障礙判斷與瞄準點選擇等擊球決策。
 #include "Algorithm.h"
-#include "BilliardPhysics.h"
-#include "BilliardConfig.h"
-#include <iostream>
 
-using namespace std;
+#include "MathUtils.h"
 
-ShotDecision BilliardAlgorithm::decideShot(const TargetSelection& target) {
-    return decideShot(
-        target.cueBall,
-        target.targetBall,
-        target.destinationPocket,
-        target.railA,
-        target.railB,
-        target.obstacles,
-        BilliardConfig::BALL_DIAMETER_MM,
-        target.pocketNumber
-    );
+#include <cmath>
+#include <optional>
+#include <utility>
+#include <vector>
+
+namespace {
+constexpr double NUMERICAL_EPSILON = 1e-9;
+
+bool samePoint(Point first, Point second) noexcept
+{
+    return first.x == second.x && first.y == second.y;
 }
 
-ShotDecision BilliardAlgorithm::decideShot(
-    Point bw,
-    Point target_arm,
-    Point destination,
-    Point rail_A,
-    Point rail_B,
-    const std::vector<Point>& obs_list,
-    double BALL_D,
-    int best_pocket_idx
-) {
-    ShotDecision decision;
-    decision.direct_path_blocked = false;
-    decision.bank_route_safe = false;
-
-    // 1. 直擊假想球與路徑防撞檢測
-    Point ghost_direct = BilliardPhysics::getGhostBall(destination, target_arm, BALL_D);
-    
-    decision.direct_path_blocked = 
-        BilliardPhysics::isRouteBlocked(bw, ghost_direct, obs_list, BALL_D) ||
-        BilliardPhysics::isRouteBlocked(target_arm, destination, obs_list, BALL_D) ||
-        BilliardPhysics::isPathBlocked(target_arm, destination, bw, BALL_D);
-
-    // 2. 夾角計算
-    Vector2D vec1 = BilliardMath::getVector(target_arm, destination);
-    Vector2D vec2 = BilliardMath::getVector(bw, target_arm);
-    decision.angle_deg = BilliardMath::getAngleBetweenVectors(vec1.x, vec1.y, vec2.x, vec2.y);
-
-    // 3. 顆星集球 / 直線擊球決策
-    if (decision.angle_deg > 90.0 || decision.direct_path_blocked) {
-        if (decision.direct_path_blocked) {
-            cout << "\n[防撞提示] 偵測到直擊路徑受阻，自動切換至顆星解球模式。" << endl;
+std::optional<DirectPotGenerationStatus> validateInputs(
+    const StableTableState& table,
+    const EligibleTarget& selectedTarget,
+    const ResolvedTableGeometry& geometry) noexcept
+{
+    if (!BilliardMath::isFinite(table.cueBall)) {
+        return DirectPotGenerationStatus::InvalidStableState;
+    }
+    for (const auto& ball : table.objectBalls) {
+        if (ball && !BilliardMath::isFinite(*ball)) {
+            return DirectPotGenerationStatus::InvalidStableState;
         }
-        
-        Point mirrored_pocket = BilliardPhysics::getSlantedBankTarget(destination, rail_A, rail_B);
-        Point mirrored_target = BilliardPhysics::getSlantedBankTarget(target_arm, rail_A, rail_B);
-        Point ghost_bank = BilliardPhysics::getGhostBall(mirrored_pocket, mirrored_target, BALL_D);
-
-        Point pt_wall;
-        if (BilliardPhysics::getIntersection(bw, ghost_bank, rail_A, rail_B, pt_wall)) {
-            bool current_bank_blocked = 
-                BilliardPhysics::isRouteBlocked(bw, pt_wall, obs_list, BALL_D) ||
-                BilliardPhysics::isRouteBlocked(pt_wall, target_arm, obs_list, BALL_D) ||
-                BilliardPhysics::isRouteBlocked(target_arm, destination, obs_list, BALL_D) ||
-                BilliardPhysics::isPathBlocked(target_arm, destination, bw, BALL_D);
-
-            if (!current_bank_blocked) {
-                decision.bank_route_safe = true;
-            }
+    }
+    for (const Point pocket : table.pockets) {
+        if (!BilliardMath::isFinite(pocket)) {
+            return DirectPotGenerationStatus::InvalidStableState;
         }
-
-        decision.best_aim_target = ghost_bank;
-        if (decision.bank_route_safe) {
-            decision.strategy_name = "雙鏡射顆星擊球 (洞2-洞3牆壁 -> p" + to_string(best_pocket_idx) + ")";
-        } else {
-            decision.strategy_name = "雙鏡射顆星擊球 (安全路徑受阻，強制開火洞2-洞3牆壁)";
-        }
-    } 
-    else {
-        decision.strategy_name = "直線直擊 (Direct Shot -> p" + to_string(best_pocket_idx) + ")";
-        decision.best_aim_target = ghost_direct;
     }
 
-    // 4. 工作半徑檢測與降級
-    double target_reach = BilliardMath::getLength(decision.best_aim_target.x, decision.best_aim_target.y);
-    
-    if (target_reach > BilliardConfig::MAX_REACH_RADIUS_MM) {
-        cout << "\n[警告] 計算出之擊球點超出工作半徑 (" << target_reach << " > " << BilliardConfig::MAX_REACH_RADIUS_MM << " mm)！" << endl;
-        cout << "[降級] 放棄當前路徑，強制切換為直線直擊策略..." << endl;
-        
-        decision.best_aim_target = ghost_direct; 
-        decision.strategy_name = "[降級] 強制直線直擊";
+    if (selectedTarget.ballNumber < 1 || selectedTarget.ballNumber > 9 ||
+        !BilliardMath::isFinite(selectedTarget.center)) {
+        return DirectPotGenerationStatus::SelectedTargetMismatch;
+    }
+    const std::size_t targetIndex =
+        static_cast<std::size_t>(selectedTarget.ballNumber - 1);
+    if (!table.objectBalls[targetIndex] ||
+        !samePoint(*table.objectBalls[targetIndex], selectedTarget.center)) {
+        return DirectPotGenerationStatus::SelectedTargetMismatch;
+    }
+    for (std::size_t index = 0; index < targetIndex; ++index) {
+        if (table.objectBalls[index]) {
+            return DirectPotGenerationStatus::SelectedTargetMismatch;
+        }
     }
 
-    return decision;
+    if (geometry.calibrationRevision.empty() ||
+        !std::isfinite(geometry.ballRadiusMm) || geometry.ballRadiusMm <= 0.0 ||
+        !std::isfinite(geometry.ballDiameterMm) || geometry.ballDiameterMm <= 0.0 ||
+        std::fabs(geometry.ballDiameterMm - 2.0 * geometry.ballRadiusMm) >
+            NUMERICAL_EPSILON ||
+        !std::isfinite(geometry.collisionMarginMm) || geometry.collisionMarginMm < 0.0) {
+        return DirectPotGenerationStatus::InvalidGeometryConfiguration;
+    }
+    for (std::size_t index = 0; index < table.pockets.size(); ++index) {
+        if (static_cast<std::size_t>(geometry.pockets[index].id) != index ||
+            !samePoint(
+                geometry.pockets[index].wirePocketCenter,
+                table.pockets[index])) {
+            return DirectPotGenerationStatus::InvalidGeometryConfiguration;
+        }
+    }
+    return std::nullopt;
+}
+
+DirectPotCandidateDiagnostic rejected(
+    BilliardConfig::PocketId pocketId,
+    DirectPotRejectionReason reason,
+    GeometryStatus geometryStatus,
+    std::optional<std::size_t> relatedObstacleIndex = std::nullopt)
+{
+    return {pocketId, reason, geometryStatus, relatedObstacleIndex};
+}
+
+std::optional<std::size_t> relatedIndex(const GeometryCheckResult& result)
+{
+    return result.diagnostic()
+        ? result.diagnostic()->relatedIndex
+        : std::nullopt;
+}
+}
+
+DirectPotGenerationResult BilliardAlgorithm::generateDirectPotCandidates(
+    const StableTableState& table,
+    const EligibleTarget& selectedTarget,
+    const ResolvedTableGeometry& geometry)
+{
+    if (const auto failure = validateInputs(table, selectedTarget, geometry)) {
+        return DirectPotGenerationResult::rejected(*failure);
+    }
+
+    std::vector<Point> cuePathObstacles;
+    cuePathObstacles.reserve(table.objectBalls.size());
+    std::optional<std::size_t> selectedObstacleIndex;
+    for (std::size_t index = 0; index < table.objectBalls.size(); ++index) {
+        if (!table.objectBalls[index]) {
+            continue;
+        }
+        if (index == static_cast<std::size_t>(selectedTarget.ballNumber - 1)) {
+            selectedObstacleIndex = cuePathObstacles.size();
+        }
+        cuePathObstacles.push_back(*table.objectBalls[index]);
+    }
+    if (!selectedObstacleIndex) {
+        return DirectPotGenerationResult::rejected(
+            DirectPotGenerationStatus::SelectedTargetMismatch);
+    }
+    const std::vector<std::size_t> movingBallExclusion{*selectedObstacleIndex};
+    std::vector<Point> targetPathObstacles = cuePathObstacles;
+
+    DirectPotEvaluation evaluation{selectedTarget, {}, {}};
+    for (std::size_t index = 0; index < geometry.pockets.size(); ++index) {
+        const ResolvedPocketModel& pocket = geometry.pockets[index];
+        const GhostBallResult ghost = BilliardPhysics::computeGhostBallPoint(
+            table.cueBall,
+            selectedTarget.center,
+            pocket.virtualPocketTarget,
+            geometry.ballRadiusMm);
+        if (!ghost.value()) {
+            evaluation.rejected[index] = rejected(
+                pocket.id,
+                DirectPotRejectionReason::GhostGeometryInvalid,
+                ghost.status());
+            continue;
+        }
+
+        const Segment2D cuePath{table.cueBall, ghost.value()->center};
+        const Segment2D targetPath{
+            selectedTarget.center,
+            pocket.virtualPocketTarget};
+
+        const GeometryCheckResult cueRegion =
+            BilliardPhysics::checkSegmentWithinPlayableRegion(
+                cuePath,
+                geometry.playableBallCenterRegion);
+        if (cueRegion.status() != GeometryStatus::Clear) {
+            evaluation.rejected[index] = rejected(
+                pocket.id,
+                DirectPotRejectionReason::CuePathInvalid,
+                cueRegion.status(),
+                relatedIndex(cueRegion));
+            continue;
+        }
+
+        const GeometryCheckResult targetRegion =
+            BilliardPhysics::checkTargetPathToPocket(
+                targetPath,
+                pocket.id,
+                geometry.pockets,
+                geometry.playableBallCenterRegion);
+        if (targetRegion.status() != GeometryStatus::Clear) {
+            evaluation.rejected[index] = rejected(
+                pocket.id,
+                DirectPotRejectionReason::TargetPathInvalid,
+                targetRegion.status(),
+                relatedIndex(targetRegion));
+            continue;
+        }
+
+        const auto pocketEntry = BilliardPhysics::computePocketEntryAngle(
+            selectedTarget.center,
+            pocket);
+        if (!pocketEntry.value()) {
+            evaluation.rejected[index] = rejected(
+                pocket.id,
+                DirectPotRejectionReason::PocketEntryRejected,
+                pocketEntry.status());
+            continue;
+        }
+
+        const auto cueDirection = BilliardMath::getVector(cuePath.start, cuePath.end);
+        const auto targetDirection = BilliardMath::getVector(
+            targetPath.start,
+            targetPath.end);
+        const auto cutAngle = cueDirection && targetDirection
+            ? BilliardMath::getAngleBetweenVectorsDeg(*cueDirection, *targetDirection)
+            : std::nullopt;
+        if (!cutAngle || *cutAngle >= 90.0) {
+            evaluation.rejected[index] = rejected(
+                pocket.id,
+                DirectPotRejectionReason::CutAngleInvalid,
+                cutAngle ? GeometryStatus::DirectionRejected
+                         : GeometryStatus::DegenerateGeometry);
+            continue;
+        }
+
+        const GeometryCheckResult cueCollision =
+            BilliardPhysics::checkSegmentCollision(
+                cuePath,
+                cuePathObstacles,
+                movingBallExclusion,
+                geometry.ballDiameterMm,
+                geometry.collisionMarginMm);
+        if (cueCollision.status() != GeometryStatus::Clear) {
+            evaluation.rejected[index] = rejected(
+                pocket.id,
+                cueCollision.status() == GeometryStatus::Blocked
+                    ? DirectPotRejectionReason::CuePathBlocked
+                    : DirectPotRejectionReason::CuePathInvalid,
+                cueCollision.status(),
+                relatedIndex(cueCollision));
+            continue;
+        }
+
+        const GeometryCheckResult targetCollision =
+            BilliardPhysics::checkSegmentCollision(
+                targetPath,
+                targetPathObstacles,
+                movingBallExclusion,
+                geometry.ballDiameterMm,
+                geometry.collisionMarginMm);
+        if (targetCollision.status() != GeometryStatus::Clear) {
+            evaluation.rejected[index] = rejected(
+                pocket.id,
+                targetCollision.status() == GeometryStatus::Blocked
+                    ? DirectPotRejectionReason::TargetPathBlocked
+                    : DirectPotRejectionReason::TargetPathInvalid,
+                targetCollision.status(),
+                relatedIndex(targetCollision));
+            continue;
+        }
+
+        evaluation.feasible[index] = DirectPotCandidate{
+            selectedTarget,
+            pocket.id,
+            pocket.virtualPocketTarget,
+            *ghost.value(),
+            cuePath,
+            targetPath,
+            *cutAngle,
+            pocketEntry.value()->degrees};
+    }
+
+    return DirectPotGenerationResult::success(std::move(evaluation));
 }
