@@ -7,13 +7,17 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <string>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "BilliardPhysics.h"
 #include "Point.h"
+
+class BilliardAlgorithm;
 
 // 單一影像時間點的完整球桌偵測狀態。
 struct DetectedPoint {
@@ -1125,4 +1129,375 @@ private:
     KickPotGenerationStatus status_;
     std::optional<KickPotEvaluation> value_;
     std::optional<KickPotGenerationDiagnostic> diagnostic_;
+};
+
+enum class PotCandidateKind {
+    Direct,
+    Kick
+};
+
+struct ScoringRawCosts {
+    double kickPenalty;
+    double cuttingAngleDeg;
+    double totalDistanceMm;
+    std::optional<double> minimumClearanceMm;
+    double pocketEntryAngleDeg;
+    double kickRailAngleDeg;
+};
+
+struct ScoringNormalizedCosts {
+    double kickPenalty;
+    double cuttingAngle;
+    double totalDistance;
+    double clearanceRisk;
+    double pocketEntryAngle;
+    double kickRailAngleRisk;
+};
+
+struct ScoringNormalizationSnapshot {
+    double effectiveWeightSumTolerance;
+    double maxCutAngleDeg;
+    double minDistanceMm;
+    double maxDistanceMm;
+    double blockedClearanceThresholdMm;
+    double preferredClearanceMm;
+    double pocketMaxEntryAngleDeg;
+    std::optional<double> maxKickRailAngleDeg;
+    double tieEpsilon;
+};
+
+struct PotScoringAudit {
+    ScoringRawCosts rawCosts;
+    ScoringNormalizedCosts normalizedCosts;
+    BilliardConfig::ScoringWeights rawWeights;
+    double rawWeightSum;
+    BilliardConfig::ScoringWeights effectiveWeights;
+    ScoringNormalizationSnapshot normalization;
+    double totalCost;
+
+    [[nodiscard]] bool isValid() const noexcept
+    {
+        const auto finiteNonNegative = [](double value) noexcept {
+            return std::isfinite(value) && value >= 0.0;
+        };
+        const auto unitCost = [&](double value) noexcept {
+            return finiteNonNegative(value) && value <= 1.0;
+        };
+        const std::array<double, 6> rawWeightValues{{
+            rawWeights.kickPenalty,
+            rawWeights.cuttingAngle,
+            rawWeights.totalDistance,
+            rawWeights.clearanceRisk,
+            rawWeights.pocketEntryAngle,
+            rawWeights.kickRailAngleRisk}};
+        const std::array<double, 6> effectiveWeightValues{{
+            effectiveWeights.kickPenalty,
+            effectiveWeights.cuttingAngle,
+            effectiveWeights.totalDistance,
+            effectiveWeights.clearanceRisk,
+            effectiveWeights.pocketEntryAngle,
+            effectiveWeights.kickRailAngleRisk}};
+        for (const double weight : rawWeightValues) {
+            if (!finiteNonNegative(weight)) return false;
+        }
+        for (const double weight : effectiveWeightValues) {
+            if (!finiteNonNegative(weight)) return false;
+        }
+        if (!finiteNonNegative(rawCosts.kickPenalty) ||
+            (rawCosts.kickPenalty != 0.0 && rawCosts.kickPenalty != 1.0) ||
+            !finiteNonNegative(rawCosts.cuttingAngleDeg) ||
+            !finiteNonNegative(rawCosts.totalDistanceMm) ||
+            (rawCosts.minimumClearanceMm &&
+             !finiteNonNegative(*rawCosts.minimumClearanceMm)) ||
+            !finiteNonNegative(rawCosts.pocketEntryAngleDeg) ||
+            !finiteNonNegative(rawCosts.kickRailAngleDeg) ||
+            !unitCost(normalizedCosts.kickPenalty) ||
+            !unitCost(normalizedCosts.cuttingAngle) ||
+            !unitCost(normalizedCosts.totalDistance) ||
+            !unitCost(normalizedCosts.clearanceRisk) ||
+            !unitCost(normalizedCosts.pocketEntryAngle) ||
+            !unitCost(normalizedCosts.kickRailAngleRisk) ||
+            !std::isfinite(rawWeightSum) || rawWeightSum <= 0.0 ||
+            !finiteNonNegative(normalization.effectiveWeightSumTolerance) ||
+            !std::isfinite(normalization.maxCutAngleDeg) ||
+            normalization.maxCutAngleDeg <= 0.0 ||
+            !finiteNonNegative(normalization.minDistanceMm) ||
+            !std::isfinite(normalization.maxDistanceMm) ||
+            normalization.maxDistanceMm <= normalization.minDistanceMm ||
+            !finiteNonNegative(normalization.blockedClearanceThresholdMm) ||
+            !std::isfinite(normalization.preferredClearanceMm) ||
+            normalization.preferredClearanceMm <=
+                normalization.blockedClearanceThresholdMm ||
+            !std::isfinite(normalization.pocketMaxEntryAngleDeg) ||
+            normalization.pocketMaxEntryAngleDeg <= 0.0 ||
+            !finiteNonNegative(normalization.tieEpsilon) ||
+            !unitCost(totalCost)) {
+            return false;
+        }
+        const bool kick = rawCosts.kickPenalty == 1.0;
+        if (kick != normalization.maxKickRailAngleDeg.has_value() ||
+            (normalization.maxKickRailAngleDeg &&
+             (!std::isfinite(*normalization.maxKickRailAngleDeg) ||
+              *normalization.maxKickRailAngleDeg <= 0.0)) ||
+            (!kick && (rawCosts.kickRailAngleDeg != 0.0 ||
+                       normalizedCosts.kickRailAngleRisk != 0.0))) {
+            return false;
+        }
+        long double calculatedRawSum = 0.0L;
+        for (const double weight : rawWeightValues) {
+            calculatedRawSum += static_cast<long double>(weight);
+        }
+        if (!std::isfinite(calculatedRawSum) ||
+            calculatedRawSum >
+                static_cast<long double>((std::numeric_limits<double>::max)()) ||
+            static_cast<double>(calculatedRawSum) != rawWeightSum) {
+            return false;
+        }
+        for (std::size_t index = 0; index < rawWeightValues.size(); ++index) {
+            const double expected = rawWeightValues[index] / rawWeightSum;
+            if (!std::isfinite(expected) ||
+                std::fabs(effectiveWeightValues[index] - expected) >
+                    normalization.effectiveWeightSumTolerance) {
+                return false;
+            }
+        }
+        const auto ratio = [](double value, double maximum) noexcept {
+            return std::clamp(value / maximum, 0.0, 1.0);
+        };
+        const double expectedDistance = std::clamp(
+            (rawCosts.totalDistanceMm - normalization.minDistanceMm) /
+                (normalization.maxDistanceMm - normalization.minDistanceMm),
+            0.0,
+            1.0);
+        const double expectedClearance = rawCosts.minimumClearanceMm
+            ? 1.0 - std::clamp(
+                (*rawCosts.minimumClearanceMm -
+                 normalization.blockedClearanceThresholdMm) /
+                    (normalization.preferredClearanceMm -
+                     normalization.blockedClearanceThresholdMm),
+                0.0,
+                1.0)
+            : 0.0;
+        const double expectedKickRail = kick
+            ? ratio(rawCosts.kickRailAngleDeg,
+                *normalization.maxKickRailAngleDeg)
+            : 0.0;
+        const std::array<double, 6> expectedNormalized{{
+            rawCosts.kickPenalty,
+            ratio(rawCosts.cuttingAngleDeg, normalization.maxCutAngleDeg),
+            expectedDistance,
+            expectedClearance,
+            ratio(rawCosts.pocketEntryAngleDeg,
+                normalization.pocketMaxEntryAngleDeg),
+            expectedKickRail}};
+        const std::array<double, 6> actualNormalized{{
+            normalizedCosts.kickPenalty,
+            normalizedCosts.cuttingAngle,
+            normalizedCosts.totalDistance,
+            normalizedCosts.clearanceRisk,
+            normalizedCosts.pocketEntryAngle,
+            normalizedCosts.kickRailAngleRisk}};
+        long double calculatedTotal = 0.0L;
+        for (std::size_t index = 0; index < actualNormalized.size(); ++index) {
+            if (std::fabs(actualNormalized[index] - expectedNormalized[index]) >
+                normalization.effectiveWeightSumTolerance) {
+                return false;
+            }
+            calculatedTotal += static_cast<long double>(actualNormalized[index]) *
+                static_cast<long double>(effectiveWeightValues[index]);
+        }
+        if (!std::isfinite(calculatedTotal) || calculatedTotal < 0.0L ||
+            calculatedTotal > 1.0L + static_cast<long double>(
+                normalization.effectiveWeightSumTolerance)) {
+            return false;
+        }
+        const double expectedTotal = std::clamp(
+            static_cast<double>(calculatedTotal),
+            0.0,
+            1.0);
+        const double effectiveSum = effectiveWeights.sum();
+        return std::isfinite(effectiveSum) &&
+            std::fabs(effectiveSum - 1.0) <=
+                normalization.effectiveWeightSumTolerance &&
+            std::fabs(totalCost - expectedTotal) <=
+                normalization.effectiveWeightSumTolerance;
+    }
+};
+
+using PotCandidateValue = std::variant<DirectPotCandidate, KickPotCandidate>;
+
+struct ScoredPotCandidate {
+    PotCandidateKind kind;
+    EligibleTarget target;
+    BilliardConfig::PocketId pocketId;
+    std::optional<BilliardConfig::RailId> railId;
+    PotCandidateValue candidate;
+    PotScoringAudit audit;
+
+    [[nodiscard]] bool isValid() const noexcept
+    {
+        const auto segmentLength = [](Segment2D segment) noexcept {
+            return std::hypot(
+                segment.end.x - segment.start.x,
+                segment.end.y - segment.start.y);
+        };
+        if (target.ballNumber < 1 || target.ballNumber > 9 ||
+            !std::isfinite(target.center.x) || !std::isfinite(target.center.y) ||
+            static_cast<std::size_t>(pocketId) >= 6 || !audit.isValid()) {
+            return false;
+        }
+        if (kind == PotCandidateKind::Direct) {
+            const auto* direct = std::get_if<DirectPotCandidate>(&candidate);
+            if (!direct || railId || audit.rawCosts.kickPenalty != 0.0 ||
+                direct->target.ballNumber != target.ballNumber ||
+                direct->target.center.x != target.center.x ||
+                direct->target.center.y != target.center.y ||
+                direct->pocketId != pocketId ||
+                direct->cuttingAngleDeg != audit.rawCosts.cuttingAngleDeg ||
+                direct->pocketEntryAngleDeg != audit.rawCosts.pocketEntryAngleDeg) {
+                return false;
+            }
+            const double totalDistance = segmentLength(direct->cuePath) +
+                segmentLength(direct->targetPath);
+            if (!std::isfinite(totalDistance) ||
+                totalDistance != audit.rawCosts.totalDistanceMm) {
+                return false;
+            }
+            DirectPotEvaluation validation{target, {}, {}};
+            for (std::size_t index = 0; index < validation.feasible.size(); ++index) {
+                if (index == static_cast<std::size_t>(pocketId)) {
+                    validation.feasible[index] = *direct;
+                } else {
+                    validation.rejected[index] = DirectPotCandidateDiagnostic{
+                        static_cast<BilliardConfig::PocketId>(index),
+                        DirectPotRejectionReason::CuePathInvalid,
+                        GeometryStatus::DirectionRejected,
+                        std::nullopt};
+                }
+            }
+            return validation.isValid();
+        }
+        const auto* kick = std::get_if<KickPotCandidate>(&candidate);
+        if (!kick || !railId || audit.rawCosts.kickPenalty != 1.0 ||
+            static_cast<std::size_t>(*railId) >= 6 ||
+            kick->target.ballNumber != target.ballNumber ||
+            kick->target.center.x != target.center.x ||
+            kick->target.center.y != target.center.y ||
+            kick->pocketId != pocketId || kick->railId != *railId ||
+            kick->cuttingAngleDeg != audit.rawCosts.cuttingAngleDeg ||
+            kick->pocketEntryAngleDeg != audit.rawCosts.pocketEntryAngleDeg ||
+            kick->incidenceAngleDeg != audit.rawCosts.kickRailAngleDeg) {
+            return false;
+        }
+        const double totalDistance = segmentLength(kick->cuePathFirst) +
+            segmentLength(kick->cuePathSecond) + segmentLength(kick->targetPath);
+        if (!std::isfinite(totalDistance) ||
+            totalDistance != audit.rawCosts.totalDistanceMm) {
+            return false;
+        }
+        KickPotEvaluation validation{target, {}, {}};
+        for (std::size_t pocket = 0; pocket < validation.feasible.size(); ++pocket) {
+            for (std::size_t rail = 0; rail < validation.feasible[pocket].size(); ++rail) {
+                if (pocket == static_cast<std::size_t>(pocketId) &&
+                    rail == static_cast<std::size_t>(*railId)) {
+                    validation.feasible[pocket][rail] = *kick;
+                } else {
+                    validation.rejected[pocket][rail] = KickPotCandidateDiagnostic{
+                        static_cast<BilliardConfig::PocketId>(pocket),
+                        static_cast<BilliardConfig::RailId>(rail),
+                        KickPotRejectionReason::CueFirstSegmentInvalid,
+                        GeometryStatus::DirectionRejected,
+                        std::nullopt};
+                }
+            }
+        }
+        return validation.isValid();
+    }
+};
+
+enum class PotNoPlanReason {
+    NoPotCandidate
+};
+
+struct PotOnlyNoPlan {
+    PotNoPlanReason reason;
+    std::size_t feasiblePotCount;
+    bool proceededToLegalContact;
+    std::vector<DirectPotCandidateDiagnostic> directDiagnostics;
+    std::vector<KickPotCandidateDiagnostic> kickDiagnostics;
+
+    [[nodiscard]] bool isValid() const noexcept
+    {
+        return reason == PotNoPlanReason::NoPotCandidate &&
+            feasiblePotCount == 0 && !proceededToLegalContact;
+    }
+};
+
+using PotSelectionOutcome = std::variant<ScoredPotCandidate, PotOnlyNoPlan>;
+
+enum class PotSelectionStatus {
+    Success,
+    ManualResearchPotSearchExhausted,
+    ConfigurationMissing,
+    InvalidConfiguration,
+    InvalidCandidateInput,
+    NumericalFailure
+};
+
+struct PotSelectionDiagnostic {
+    PotSelectionStatus status;
+};
+
+class PotSelectionResult {
+public:
+    static PotSelectionResult rejected(PotSelectionStatus status)
+    {
+        return PotSelectionResult(
+            status,
+            std::nullopt,
+            PotSelectionDiagnostic{status});
+    }
+
+    [[nodiscard]] PotSelectionStatus status() const noexcept { return status_; }
+    [[nodiscard]] const std::optional<PotSelectionOutcome>& value() const noexcept
+    {
+        return value_;
+    }
+    [[nodiscard]] const std::optional<PotSelectionDiagnostic>& diagnostic() const noexcept
+    {
+        return diagnostic_;
+    }
+    [[nodiscard]] bool isValid() const noexcept
+    {
+        const bool succeeded = status_ == PotSelectionStatus::Success;
+        const bool validValue = !value_ || std::visit(
+            [](const auto& outcome) noexcept { return outcome.isValid(); },
+            *value_);
+        return value_.has_value() == succeeded && validValue &&
+            diagnostic_.has_value() != succeeded &&
+            (!diagnostic_ || diagnostic_->status == status_);
+    }
+
+private:
+    friend class BilliardAlgorithm;
+
+    static PotSelectionResult success(PotSelectionOutcome outcome)
+    {
+        return PotSelectionResult(
+            PotSelectionStatus::Success,
+            std::optional<PotSelectionOutcome>{std::move(outcome)},
+            std::nullopt);
+    }
+
+    PotSelectionResult(
+        PotSelectionStatus status,
+        std::optional<PotSelectionOutcome> value,
+        std::optional<PotSelectionDiagnostic> diagnostic)
+        : status_(status), value_(std::move(value)), diagnostic_(std::move(diagnostic))
+    {
+    }
+
+    PotSelectionStatus status_;
+    std::optional<PotSelectionOutcome> value_;
+    std::optional<PotSelectionDiagnostic> diagnostic_;
 };

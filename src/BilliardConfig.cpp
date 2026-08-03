@@ -32,6 +32,15 @@ const std::optional<unsigned long> MAX_INTER_FRAME_INTERVAL_MS = std::nullopt;
 const std::optional<TableGeometryConfig> TABLE_GEOMETRY = std::nullopt;
 // P1-07 does not guess production kick-angle acceptance parameters.
 const std::optional<KickGeometryConfig> KICK_GEOMETRY = std::nullopt;
+const ScoringWeights INITIAL_EXPERIMENTAL_SCORING_WEIGHTS = {
+    0.30,
+    0.30,
+    0.20,
+    0.10,
+    0.05,
+    0.05};
+// P1-08 normalization ranges and tie epsilon require explicit calibration.
+const std::optional<ScoringConfig> SCORING_CONFIG = std::nullopt;
 
 const double CAMERA_OFFSET_X_MM = 0.0;
 const double CAMERA_OFFSET_Y_MM = 0.0;

@@ -214,6 +214,7 @@
                 "/std:c++17",
                 "/nologo",
                 "/utf-8",
+                "/DBILLIARDS_P1_08_TEST_SEAM",
                 "/I", "${workspaceFolder}\\tests",
                 "/Fo${workspaceFolder}\\build\\",
                 "/Fe:${workspaceFolder}\\bin\\phase1_algorithm_regression_tests.exe",

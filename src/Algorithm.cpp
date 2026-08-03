@@ -3,6 +3,7 @@
 #include "MathUtils.h"
 
 #include <cmath>
+#include <limits>
 #include <optional>
 #include <utility>
 #include <vector>
@@ -133,6 +134,342 @@ std::optional<double> angleFromNormal(Vector2D direction, Vector2D normal) noexc
         1.0);
     const double angle = std::acos(cosine) * 180.0 / BilliardMath::PI;
     return std::isfinite(angle) ? std::optional<double>{angle} : std::nullopt;
+}
+
+struct NormalizedWeights {
+    BilliardConfig::ScoringWeights effective;
+    double rawSum;
+};
+
+std::optional<NormalizedWeights> normalizeWeights(
+    const BilliardConfig::ScoringConfig& config) noexcept
+{
+    const std::array<double, 6> raw{{
+        config.rawWeights.kickPenalty,
+        config.rawWeights.cuttingAngle,
+        config.rawWeights.totalDistance,
+        config.rawWeights.clearanceRisk,
+        config.rawWeights.pocketEntryAngle,
+        config.rawWeights.kickRailAngleRisk}};
+    long double sum = 0.0L;
+    for (const double weight : raw) {
+        if (!std::isfinite(weight) || weight < 0.0) {
+            return std::nullopt;
+        }
+        sum += static_cast<long double>(weight);
+        if (!std::isfinite(sum) ||
+            sum > static_cast<long double>(std::numeric_limits<double>::max())) {
+            return std::nullopt;
+        }
+    }
+    const double rawSum = static_cast<double>(sum);
+    if (!std::isfinite(rawSum) || rawSum <= 0.0) {
+        return std::nullopt;
+    }
+    BilliardConfig::ScoringWeights effective{
+        raw[0] / rawSum,
+        raw[1] / rawSum,
+        raw[2] / rawSum,
+        raw[3] / rawSum,
+        raw[4] / rawSum,
+        raw[5] / rawSum};
+    const double effectiveSum = effective.sum();
+    if (!std::isfinite(config.effectiveWeightSumTolerance) ||
+        config.effectiveWeightSumTolerance < 0.0 ||
+        !std::isfinite(effectiveSum) ||
+        std::fabs(effectiveSum - 1.0) > config.effectiveWeightSumTolerance) {
+        return std::nullopt;
+    }
+    return NormalizedWeights{effective, rawSum};
+}
+
+bool validScoringRanges(
+    const BilliardConfig::ScoringConfig& config,
+    const ResolvedTableGeometry& geometry) noexcept
+{
+    const double blockedThreshold = geometry.ballDiameterMm + geometry.collisionMarginMm;
+    const bool validMode =
+        config.planningMode == BilliardConfig::PlanningMode::PotOnly ||
+        config.planningMode == BilliardConfig::PlanningMode::ManualResearch;
+    return validMode &&
+        std::isfinite(config.maxCutAngleDeg) && config.maxCutAngleDeg > 0.0 &&
+        std::isfinite(config.minDistanceMm) && config.minDistanceMm >= 0.0 &&
+        std::isfinite(config.maxDistanceMm) &&
+        config.maxDistanceMm > config.minDistanceMm &&
+        std::isfinite(blockedThreshold) && blockedThreshold >= 0.0 &&
+        std::isfinite(config.preferredClearanceMm) &&
+        config.preferredClearanceMm > blockedThreshold &&
+        std::isfinite(config.tieEpsilon) && config.tieEpsilon >= 0.0;
+}
+
+std::optional<double> segmentLength(Segment2D segment) noexcept
+{
+    return BilliardMath::getDistance(segment.start, segment.end);
+}
+
+bool accumulateDistance(double& total, Segment2D segment) noexcept
+{
+    const auto length = segmentLength(segment);
+    if (!length || !std::isfinite(*length) || *length <= 0.0 ||
+        total > std::numeric_limits<double>::max() - *length) {
+        return false;
+    }
+    total += *length;
+    return std::isfinite(total);
+}
+
+bool accumulateClearance(
+    std::optional<double>& minimum,
+    Segment2D segment,
+    const std::vector<Point>& obstacles,
+    const std::vector<std::size_t>& exclusions) noexcept
+{
+    const auto clearance = BilliardPhysics::computeMinimumSegmentClearance(
+        segment,
+        obstacles,
+        exclusions);
+    if (!clearance.value()) {
+        return false;
+    }
+    if (clearance.value()->millimeters &&
+        (!minimum || *clearance.value()->millimeters < *minimum)) {
+        minimum = *clearance.value()->millimeters;
+    }
+    return true;
+}
+
+std::optional<double> normalizedRatio(double value, double maximum) noexcept
+{
+    if (!std::isfinite(value) || value < 0.0 ||
+        !std::isfinite(maximum) || maximum <= 0.0) {
+        return std::nullopt;
+    }
+    return std::clamp(value / maximum, 0.0, 1.0);
+}
+
+std::optional<double> normalizedDistance(
+    double value,
+    const BilliardConfig::ScoringConfig& config) noexcept
+{
+    const double denominator = config.maxDistanceMm - config.minDistanceMm;
+    if (!std::isfinite(value) || value < 0.0 ||
+        !std::isfinite(denominator) || denominator <= 0.0) {
+        return std::nullopt;
+    }
+    return std::clamp(
+        (value - config.minDistanceMm) / denominator,
+        0.0,
+        1.0);
+}
+
+std::optional<double> normalizedClearanceRisk(
+    const std::optional<double>& clearance,
+    double blockedThreshold,
+    double preferredClearance) noexcept
+{
+    if (!clearance) {
+        return 0.0;
+    }
+    const double denominator = preferredClearance - blockedThreshold;
+    if (!std::isfinite(*clearance) || *clearance <= blockedThreshold ||
+        !std::isfinite(denominator) || denominator <= 0.0) {
+        return std::nullopt;
+    }
+    return 1.0 - std::clamp(
+        (*clearance - blockedThreshold) / denominator,
+        0.0,
+        1.0);
+}
+
+std::optional<double> weightedTotal(
+    const ScoringNormalizedCosts& costs,
+    const BilliardConfig::ScoringWeights& weights,
+    double tolerance) noexcept
+{
+    const std::array<double, 6> costValues{{
+        costs.kickPenalty,
+        costs.cuttingAngle,
+        costs.totalDistance,
+        costs.clearanceRisk,
+        costs.pocketEntryAngle,
+        costs.kickRailAngleRisk}};
+    const std::array<double, 6> weightValues{{
+        weights.kickPenalty,
+        weights.cuttingAngle,
+        weights.totalDistance,
+        weights.clearanceRisk,
+        weights.pocketEntryAngle,
+        weights.kickRailAngleRisk}};
+    long double total = 0.0L;
+    for (std::size_t index = 0; index < costValues.size(); ++index) {
+        total += static_cast<long double>(costValues[index]) *
+            static_cast<long double>(weightValues[index]);
+    }
+    if (!std::isfinite(total) || total < 0.0L ||
+        total > 1.0L + static_cast<long double>(tolerance)) {
+        return std::nullopt;
+    }
+    const double rounded = static_cast<double>(total);
+    if (!std::isfinite(rounded)) {
+        return std::nullopt;
+    }
+    return std::clamp(rounded, 0.0, 1.0);
+}
+
+bool sameEligibleTarget(EligibleTarget first, EligibleTarget second) noexcept
+{
+    return first.ballNumber == second.ballNumber && samePoint(first.center, second.center);
+}
+
+bool sameSegment(Segment2D first, Segment2D second) noexcept
+{
+    return samePoint(first.start, second.start) && samePoint(first.end, second.end);
+}
+
+bool sameDirectCandidate(
+    const DirectPotCandidate& candidate,
+    const DirectPotCandidate& authoritative) noexcept
+{
+    return sameEligibleTarget(candidate.target, authoritative.target) &&
+        candidate.pocketId == authoritative.pocketId &&
+        samePoint(candidate.virtualPocketTarget, authoritative.virtualPocketTarget) &&
+        samePoint(candidate.ghostBallPoint.center, authoritative.ghostBallPoint.center) &&
+        sameSegment(candidate.cuePath, authoritative.cuePath) &&
+        sameSegment(candidate.targetPath, authoritative.targetPath) &&
+        candidate.cuttingAngleDeg == authoritative.cuttingAngleDeg &&
+        candidate.pocketEntryAngleDeg == authoritative.pocketEntryAngleDeg;
+}
+
+bool sameKickCandidate(
+    const KickPotCandidate& candidate,
+    const KickPotCandidate& authoritative) noexcept
+{
+    return sameEligibleTarget(candidate.target, authoritative.target) &&
+        candidate.pocketId == authoritative.pocketId &&
+        candidate.railId == authoritative.railId &&
+        samePoint(candidate.virtualPocketTarget, authoritative.virtualPocketTarget) &&
+        samePoint(candidate.ghostBallPoint.center, authoritative.ghostBallPoint.center) &&
+        samePoint(candidate.reboundPoint, authoritative.reboundPoint) &&
+        sameSegment(candidate.cuePathFirst, authoritative.cuePathFirst) &&
+        sameSegment(candidate.cuePathSecond, authoritative.cuePathSecond) &&
+        sameSegment(candidate.targetPath, authoritative.targetPath) &&
+        candidate.cuttingAngleDeg == authoritative.cuttingAngleDeg &&
+        candidate.pocketEntryAngleDeg == authoritative.pocketEntryAngleDeg &&
+        candidate.incidenceAngleDeg == authoritative.incidenceAngleDeg &&
+        candidate.reflectionAngleDeg == authoritative.reflectionAngleDeg;
+}
+
+bool sameDirectDiagnostic(
+    const DirectPotCandidateDiagnostic& diagnostic,
+    const DirectPotCandidateDiagnostic& authoritative) noexcept
+{
+    return diagnostic.pocketId == authoritative.pocketId &&
+        diagnostic.reason == authoritative.reason &&
+        diagnostic.geometryStatus == authoritative.geometryStatus &&
+        diagnostic.relatedObstacleIndex == authoritative.relatedObstacleIndex;
+}
+
+bool sameKickDiagnostic(
+    const KickPotCandidateDiagnostic& diagnostic,
+    const KickPotCandidateDiagnostic& authoritative) noexcept
+{
+    return diagnostic.pocketId == authoritative.pocketId &&
+        diagnostic.railId == authoritative.railId &&
+        diagnostic.reason == authoritative.reason &&
+        diagnostic.geometryStatus == authoritative.geometryStatus &&
+        diagnostic.relatedObstacleIndex == authoritative.relatedObstacleIndex;
+}
+
+bool sameDirectEvaluation(
+    const DirectPotEvaluation& submitted,
+    const DirectPotEvaluation& authoritative) noexcept
+{
+    if (!sameEligibleTarget(submitted.target, authoritative.target)) {
+        return false;
+    }
+    for (std::size_t pocket = 0; pocket < submitted.feasible.size(); ++pocket) {
+        if (submitted.feasible[pocket].has_value() !=
+                authoritative.feasible[pocket].has_value() ||
+            submitted.rejected[pocket].has_value() !=
+                authoritative.rejected[pocket].has_value() ||
+            (submitted.feasible[pocket] &&
+             !sameDirectCandidate(
+                 *submitted.feasible[pocket],
+                 *authoritative.feasible[pocket])) ||
+            (submitted.rejected[pocket] &&
+             !sameDirectDiagnostic(
+                 *submitted.rejected[pocket],
+                 *authoritative.rejected[pocket]))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool sameKickEvaluation(
+    const KickPotEvaluation& submitted,
+    const KickPotEvaluation& authoritative) noexcept
+{
+    if (!sameEligibleTarget(submitted.target, authoritative.target)) {
+        return false;
+    }
+    for (std::size_t pocket = 0; pocket < submitted.feasible.size(); ++pocket) {
+        for (std::size_t rail = 0; rail < submitted.feasible[pocket].size(); ++rail) {
+            if (submitted.feasible[pocket][rail].has_value() !=
+                    authoritative.feasible[pocket][rail].has_value() ||
+                submitted.rejected[pocket][rail].has_value() !=
+                    authoritative.rejected[pocket][rail].has_value() ||
+                (submitted.feasible[pocket][rail] &&
+                 !sameKickCandidate(
+                     *submitted.feasible[pocket][rail],
+                     *authoritative.feasible[pocket][rail])) ||
+                (submitted.rejected[pocket][rail] &&
+                 !sameKickDiagnostic(
+                     *submitted.rejected[pocket][rail],
+                     *authoritative.rejected[pocket][rail]))) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+bool tieBreakBetter(const ScoredPotCandidate& candidate, const ScoredPotCandidate& current) noexcept
+{
+    const int candidateKickCount = candidate.kind == PotCandidateKind::Kick ? 1 : 0;
+    const int currentKickCount = current.kind == PotCandidateKind::Kick ? 1 : 0;
+    if (candidateKickCount != currentKickCount) {
+        return candidateKickCount < currentKickCount;
+    }
+    if (candidate.audit.rawCosts.cuttingAngleDeg !=
+        current.audit.rawCosts.cuttingAngleDeg) {
+        return candidate.audit.rawCosts.cuttingAngleDeg <
+            current.audit.rawCosts.cuttingAngleDeg;
+    }
+    const auto candidateClearance = candidate.audit.rawCosts.minimumClearanceMm;
+    const auto currentClearance = current.audit.rawCosts.minimumClearanceMm;
+    if (candidateClearance.has_value() != currentClearance.has_value()) {
+        return !candidateClearance.has_value();
+    }
+    if (candidateClearance && *candidateClearance != *currentClearance) {
+        return *candidateClearance > *currentClearance;
+    }
+    if (candidate.audit.rawCosts.totalDistanceMm !=
+        current.audit.rawCosts.totalDistanceMm) {
+        return candidate.audit.rawCosts.totalDistanceMm <
+            current.audit.rawCosts.totalDistanceMm;
+    }
+    if (candidate.pocketId != current.pocketId) {
+        return static_cast<std::size_t>(candidate.pocketId) <
+            static_cast<std::size_t>(current.pocketId);
+    }
+    const std::size_t candidateRail = candidate.railId
+        ? static_cast<std::size_t>(*candidate.railId)
+        : 0;
+    const std::size_t currentRail = current.railId
+        ? static_cast<std::size_t>(*current.railId)
+        : 0;
+    return candidateRail < currentRail;
 }
 }
 
@@ -571,3 +908,316 @@ KickPotGenerationResult BilliardAlgorithm::generateKickPotCandidates(
     }
     return KickPotGenerationResult::success(std::move(evaluation));
 }
+
+PotSelectionResult BilliardAlgorithm::selectBestPot(
+    const StableTableState& table,
+    const EligibleTarget& selectedTarget,
+    const ResolvedTableGeometry& geometry,
+    const DirectPotEvaluation& directCandidates,
+    const KickPotEvaluation& kickCandidates,
+    const std::optional<BilliardConfig::ScoringConfig>& scoringConfig,
+    const std::optional<BilliardConfig::KickGeometryConfig>& kickConfig)
+{
+    if (!scoringConfig) {
+        return PotSelectionResult::rejected(PotSelectionStatus::ConfigurationMissing);
+    }
+    const auto weights = normalizeWeights(*scoringConfig);
+    if (!weights || !validScoringRanges(*scoringConfig, geometry)) {
+        return PotSelectionResult::rejected(PotSelectionStatus::InvalidConfiguration);
+    }
+    if (const auto failure = validateInputs(table, selectedTarget, geometry)) {
+        return PotSelectionResult::rejected(
+            *failure == DirectPotGenerationStatus::InvalidGeometryConfiguration
+                ? PotSelectionStatus::InvalidConfiguration
+                : PotSelectionStatus::InvalidCandidateInput);
+    }
+    if (!directCandidates.isValid() || !kickCandidates.isValid() ||
+        !sameEligibleTarget(directCandidates.target, selectedTarget) ||
+        !sameEligibleTarget(kickCandidates.target, selectedTarget)) {
+        return PotSelectionResult::rejected(PotSelectionStatus::InvalidCandidateInput);
+    }
+
+    if (!kickConfig) {
+        return PotSelectionResult::rejected(PotSelectionStatus::ConfigurationMissing);
+    }
+    if (!validKickConfig(*kickConfig)) {
+        return PotSelectionResult::rejected(PotSelectionStatus::InvalidConfiguration);
+    }
+
+    const auto authoritativeDirect = generateDirectPotCandidates(
+        table,
+        selectedTarget,
+        geometry);
+    if (!authoritativeDirect.isValid() || !authoritativeDirect.value()) {
+        return PotSelectionResult::rejected(PotSelectionStatus::InvalidCandidateInput);
+    }
+    const auto regeneratedKick = generateKickPotCandidates(
+        table,
+        selectedTarget,
+        geometry,
+        kickConfig);
+    if (!regeneratedKick.isValid() || !regeneratedKick.value()) {
+        return PotSelectionResult::rejected(PotSelectionStatus::InvalidCandidateInput);
+    }
+    const KickPotEvaluation& authoritativeKick = *regeneratedKick.value();
+    bool authoritativeHasKick = false;
+    for (const auto& pocketCandidates : authoritativeKick.feasible) {
+        for (const auto& candidate : pocketCandidates) {
+            authoritativeHasKick = authoritativeHasKick || candidate.has_value();
+        }
+    }
+    if (authoritativeHasKick && kickConfig->maxKickRailAngleDeg <= 0.0) {
+        return PotSelectionResult::rejected(PotSelectionStatus::InvalidConfiguration);
+    }
+    if (!sameDirectEvaluation(directCandidates, *authoritativeDirect.value()) ||
+        !sameKickEvaluation(kickCandidates, authoritativeKick)) {
+        return PotSelectionResult::rejected(PotSelectionStatus::InvalidCandidateInput);
+    }
+
+    std::vector<Point> obstacles;
+    obstacles.reserve(table.objectBalls.size());
+    std::optional<std::size_t> selectedObstacleIndex;
+    for (std::size_t index = 0; index < table.objectBalls.size(); ++index) {
+        if (!table.objectBalls[index]) {
+            continue;
+        }
+        if (index == static_cast<std::size_t>(selectedTarget.ballNumber - 1)) {
+            selectedObstacleIndex = obstacles.size();
+        }
+        obstacles.push_back(*table.objectBalls[index]);
+    }
+    if (!selectedObstacleIndex) {
+        return PotSelectionResult::rejected(PotSelectionStatus::InvalidCandidateInput);
+    }
+    const std::vector<std::size_t> selectedTargetExclusion{*selectedObstacleIndex};
+    const double blockedThreshold = geometry.ballDiameterMm + geometry.collisionMarginMm;
+
+    auto makeAudit = [&](ScoringRawCosts raw,
+                         double maximumEntryAngle,
+                         double maximumKickAngle)
+        -> std::optional<PotScoringAudit> {
+        const auto cut = normalizedRatio(raw.cuttingAngleDeg, scoringConfig->maxCutAngleDeg);
+        const auto distance = normalizedDistance(raw.totalDistanceMm, *scoringConfig);
+        const auto clearance = normalizedClearanceRisk(
+            raw.minimumClearanceMm,
+            blockedThreshold,
+            scoringConfig->preferredClearanceMm);
+        const auto entry = normalizedRatio(raw.pocketEntryAngleDeg, maximumEntryAngle);
+        const auto rail = raw.kickPenalty == 0.0
+            ? std::optional<double>{0.0}
+            : normalizedRatio(raw.kickRailAngleDeg, maximumKickAngle);
+        if (!std::isfinite(raw.kickPenalty) ||
+            (raw.kickPenalty != 0.0 && raw.kickPenalty != 1.0) ||
+            !cut || !distance || !clearance || !entry || !rail) {
+            return std::nullopt;
+        }
+        const ScoringNormalizedCosts normalized{
+            raw.kickPenalty,
+            *cut,
+            *distance,
+            *clearance,
+            *entry,
+            *rail};
+        const auto total = weightedTotal(
+            normalized,
+            weights->effective,
+            scoringConfig->effectiveWeightSumTolerance);
+        if (!total) {
+            return std::nullopt;
+        }
+        return PotScoringAudit{
+            raw,
+            normalized,
+            scoringConfig->rawWeights,
+            weights->rawSum,
+            weights->effective,
+            ScoringNormalizationSnapshot{
+                scoringConfig->effectiveWeightSumTolerance,
+                scoringConfig->maxCutAngleDeg,
+                scoringConfig->minDistanceMm,
+                scoringConfig->maxDistanceMm,
+                blockedThreshold,
+                scoringConfig->preferredClearanceMm,
+                maximumEntryAngle,
+                raw.kickPenalty == 1.0
+                    ? std::optional<double>{maximumKickAngle}
+                    : std::nullopt,
+                scoringConfig->tieEpsilon},
+            *total};
+    };
+
+    std::vector<ScoredPotCandidate> scored;
+    scored.reserve(42);
+    for (std::size_t pocketIndex = directCandidates.feasible.size();
+         pocketIndex-- > 0;) {
+        if (!directCandidates.feasible[pocketIndex]) {
+            continue;
+        }
+        const DirectPotCandidate& candidate = *directCandidates.feasible[pocketIndex];
+        const ResolvedPocketModel& pocket = geometry.pockets[pocketIndex];
+        const auto& expected = authoritativeDirect.value()->feasible[pocketIndex];
+        if (!sameEligibleTarget(candidate.target, selectedTarget) ||
+            candidate.pocketId != pocket.id ||
+            !samePoint(candidate.virtualPocketTarget, pocket.virtualPocketTarget) ||
+            !expected || !sameDirectCandidate(candidate, *expected)) {
+            return PotSelectionResult::rejected(PotSelectionStatus::InvalidCandidateInput);
+        }
+        double totalDistance = 0.0;
+        if (!accumulateDistance(totalDistance, candidate.cuePath) ||
+            !accumulateDistance(totalDistance, candidate.targetPath)) {
+            return PotSelectionResult::rejected(PotSelectionStatus::NumericalFailure);
+        }
+        std::optional<double> minimumClearance;
+        if (!accumulateClearance(
+                minimumClearance,
+                candidate.cuePath,
+                obstacles,
+                selectedTargetExclusion) ||
+            !accumulateClearance(
+                minimumClearance,
+                candidate.targetPath,
+                obstacles,
+                selectedTargetExclusion)) {
+            return PotSelectionResult::rejected(PotSelectionStatus::NumericalFailure);
+        }
+        const auto audit = makeAudit(
+            ScoringRawCosts{
+                0.0,
+                candidate.cuttingAngleDeg,
+                totalDistance,
+                minimumClearance,
+                candidate.pocketEntryAngleDeg,
+                0.0},
+            pocket.maxEntryAngleDeg,
+            1.0);
+        if (!audit) {
+            return PotSelectionResult::rejected(PotSelectionStatus::NumericalFailure);
+        }
+        scored.push_back({
+            PotCandidateKind::Direct,
+            selectedTarget,
+            candidate.pocketId,
+            std::nullopt,
+            PotCandidateValue{candidate},
+            *audit});
+    }
+
+    for (std::size_t pocketIndex = kickCandidates.feasible.size();
+         pocketIndex-- > 0;) {
+        for (std::size_t railIndex = kickCandidates.feasible[pocketIndex].size();
+             railIndex-- > 0;) {
+            if (!kickCandidates.feasible[pocketIndex][railIndex]) {
+                continue;
+            }
+            const KickPotCandidate& candidate =
+                *kickCandidates.feasible[pocketIndex][railIndex];
+            const ResolvedPocketModel& pocket = geometry.pockets[pocketIndex];
+            const auto& expected =
+                authoritativeKick.feasible[pocketIndex][railIndex];
+            if (!sameEligibleTarget(candidate.target, selectedTarget) ||
+                candidate.pocketId != pocket.id ||
+                static_cast<std::size_t>(candidate.railId) != railIndex ||
+                !samePoint(candidate.virtualPocketTarget, pocket.virtualPocketTarget) ||
+                !expected || !sameKickCandidate(candidate, *expected)) {
+                return PotSelectionResult::rejected(PotSelectionStatus::InvalidCandidateInput);
+            }
+            double totalDistance = 0.0;
+            if (!accumulateDistance(totalDistance, candidate.cuePathFirst) ||
+                !accumulateDistance(totalDistance, candidate.cuePathSecond) ||
+                !accumulateDistance(totalDistance, candidate.targetPath)) {
+                return PotSelectionResult::rejected(PotSelectionStatus::NumericalFailure);
+            }
+            std::optional<double> minimumClearance;
+            if (!accumulateClearance(
+                    minimumClearance,
+                    candidate.cuePathFirst,
+                    obstacles,
+                    {}) ||
+                !accumulateClearance(
+                    minimumClearance,
+                    candidate.cuePathSecond,
+                    obstacles,
+                    selectedTargetExclusion) ||
+                !accumulateClearance(
+                    minimumClearance,
+                    candidate.targetPath,
+                    obstacles,
+                    selectedTargetExclusion)) {
+                return PotSelectionResult::rejected(PotSelectionStatus::NumericalFailure);
+            }
+            const auto audit = makeAudit(
+                ScoringRawCosts{
+                    1.0,
+                    candidate.cuttingAngleDeg,
+                    totalDistance,
+                    minimumClearance,
+                    candidate.pocketEntryAngleDeg,
+                    candidate.incidenceAngleDeg},
+                pocket.maxEntryAngleDeg,
+                kickConfig->maxKickRailAngleDeg);
+            if (!audit) {
+                return PotSelectionResult::rejected(PotSelectionStatus::NumericalFailure);
+            }
+            scored.push_back({
+                PotCandidateKind::Kick,
+                selectedTarget,
+                candidate.pocketId,
+                candidate.railId,
+                PotCandidateValue{candidate},
+                *audit});
+        }
+    }
+
+    if (scored.empty()) {
+        if (scoringConfig->planningMode == BilliardConfig::PlanningMode::ManualResearch) {
+            return PotSelectionResult::rejected(
+                PotSelectionStatus::ManualResearchPotSearchExhausted);
+        }
+        PotOnlyNoPlan noPlan{
+            PotNoPlanReason::NoPotCandidate,
+            0,
+            false,
+            {},
+            {}};
+        for (const auto& diagnostic : directCandidates.rejected) {
+            if (diagnostic) noPlan.directDiagnostics.push_back(*diagnostic);
+        }
+        for (const auto& pocket : kickCandidates.rejected) {
+            for (const auto& diagnostic : pocket) {
+                if (diagnostic) noPlan.kickDiagnostics.push_back(*diagnostic);
+            }
+        }
+        return PotSelectionResult::success(PotSelectionOutcome{std::move(noPlan)});
+    }
+
+    double minimumTotalCost = scored.front().audit.totalCost;
+    for (const ScoredPotCandidate& candidate : scored) {
+        minimumTotalCost = std::min(minimumTotalCost, candidate.audit.totalCost);
+    }
+    const double tieLimit = minimumTotalCost + scoringConfig->tieEpsilon;
+    if (!std::isfinite(tieLimit)) {
+        return PotSelectionResult::rejected(PotSelectionStatus::NumericalFailure);
+    }
+    const ScoredPotCandidate* winner = nullptr;
+    for (const ScoredPotCandidate& candidate : scored) {
+        if (candidate.audit.totalCost > tieLimit) {
+            continue;
+        }
+        if (!winner || tieBreakBetter(candidate, *winner)) {
+            winner = &candidate;
+        }
+    }
+    if (!winner) {
+        return PotSelectionResult::rejected(PotSelectionStatus::NumericalFailure);
+    }
+    return PotSelectionResult::success(PotSelectionOutcome{*winner});
+}
+
+#ifdef BILLIARDS_P1_08_TEST_SEAM
+bool BilliardAlgorithm::tieBreakBetterForTest(
+    const ScoredPotCandidate& candidate,
+    const ScoredPotCandidate& current) noexcept
+{
+    return tieBreakBetter(candidate, current);
+}
+#endif

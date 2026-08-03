@@ -11,6 +11,8 @@
 #include <optional>
 #include <type_traits>
 #include <utility>
+#include <variant>
+#include <vector>
 
 namespace {
 constexpr double ROOT_HALF = 0.70710678118654752440;
@@ -190,6 +192,79 @@ const KickPotCandidateDiagnostic* kickDiagnosticFor(
 {
     const auto& diagnostic = evaluation.rejected[pocketIndex][railIndex];
     return diagnostic ? &*diagnostic : nullptr;
+}
+
+BilliardConfig::ScoringConfig scoringConfig()
+{
+    return {
+        BilliardConfig::INITIAL_EXPERIMENTAL_SCORING_WEIGHTS,
+        1e-9,
+        90.0,
+        0.0,
+        3000.0,
+        200.0,
+        1e-9,
+        BilliardConfig::PlanningMode::PotOnly};
+}
+
+DirectPotEvaluation keepOnlyDirect(
+    DirectPotEvaluation evaluation,
+    std::size_t keptPocket)
+{
+    for (std::size_t pocket = 0; pocket < evaluation.feasible.size(); ++pocket) {
+        if (pocket == keptPocket) {
+            continue;
+        }
+        evaluation.feasible[pocket].reset();
+        if (!evaluation.rejected[pocket]) {
+            evaluation.rejected[pocket] = DirectPotCandidateDiagnostic{
+                static_cast<BilliardConfig::PocketId>(pocket),
+                DirectPotRejectionReason::CuePathInvalid,
+                GeometryStatus::DirectionRejected,
+                std::nullopt};
+        }
+    }
+    return evaluation;
+}
+
+KickPotEvaluation keepOnlyKick(
+    KickPotEvaluation evaluation,
+    std::size_t keptPocket,
+    std::size_t keptRail)
+{
+    for (std::size_t pocket = 0; pocket < evaluation.feasible.size(); ++pocket) {
+        for (std::size_t rail = 0; rail < evaluation.feasible[pocket].size(); ++rail) {
+            if (pocket == keptPocket && rail == keptRail) {
+                continue;
+            }
+            evaluation.feasible[pocket][rail].reset();
+            if (!evaluation.rejected[pocket][rail]) {
+                evaluation.rejected[pocket][rail] = KickPotCandidateDiagnostic{
+                    static_cast<BilliardConfig::PocketId>(pocket),
+                    static_cast<BilliardConfig::RailId>(rail),
+                    KickPotRejectionReason::CueFirstSegmentInvalid,
+                    GeometryStatus::DirectionRejected,
+                    std::nullopt};
+            }
+        }
+    }
+    return evaluation;
+}
+
+DirectPotEvaluation noDirectCandidates(DirectPotEvaluation evaluation)
+{
+    const std::size_t noPocket = evaluation.feasible.size();
+    return keepOnlyDirect(std::move(evaluation), noPocket);
+}
+
+KickPotEvaluation noKickCandidates(KickPotEvaluation evaluation)
+{
+    const std::size_t noPocket = evaluation.feasible.size();
+    const std::size_t noRail = evaluation.feasible[0].size();
+    return keepOnlyKick(
+        std::move(evaluation),
+        noPocket,
+        noRail);
 }
 }
 
@@ -911,6 +986,887 @@ int main()
         kickMismatch.status() == KickPotGenerationStatus::SelectedTargetMismatch &&
         !kickMismatch.value(),
         "Kick orchestration refuses to reselect a higher-number target");
+
+    const DirectPotEvaluation& fullDirect = *samePocketDirect.value();
+    const KickPotEvaluation& fullKick = *baselineKick.value();
+    const auto scoreConfig = scoringConfig();
+    const auto kickGeometryConfig = kickConfig();
+
+    const BilliardConfig::KickGeometryConfig directOnlyKickConfig{
+        0.0,
+        kickGeometryConfig.reflectionDirectionTolerance,
+        kickGeometryConfig.reflectionAngleToleranceDeg};
+    const auto directOnlyKick = BilliardAlgorithm::generateKickPotCandidates(
+        kickFixture,
+        *kickFixtureTarget.value(),
+        geometry,
+        std::optional<BilliardConfig::KickGeometryConfig>{directOnlyKickConfig});
+    bool directOnlyHasKick = false;
+    if (directOnlyKick.value()) {
+        for (const auto& pocketCandidates : directOnlyKick.value()->feasible) {
+            for (const auto& candidate : pocketCandidates) {
+                directOnlyHasKick = directOnlyHasKick || candidate.has_value();
+            }
+        }
+    }
+    tests.expectTrue(
+        directOnlyKick.value() && !directOnlyHasKick,
+        "Direct-only fixture has no authoritative feasible Kick");
+    if (!directOnlyKick.value() || directOnlyHasKick) {
+        return tests.exitCode();
+    }
+
+    const auto selectedDirect = BilliardAlgorithm::selectBestPot(
+        kickFixture,
+        *kickFixtureTarget.value(),
+        geometry,
+        fullDirect,
+        *directOnlyKick.value(),
+        std::optional<BilliardConfig::ScoringConfig>{scoreConfig},
+        std::optional<BilliardConfig::KickGeometryConfig>{directOnlyKickConfig});
+    const auto* directWinner = selectedDirect.value()
+        ? std::get_if<ScoredPotCandidate>(&*selectedDirect.value())
+        : nullptr;
+    tests.expectTrue(
+        selectedDirect.status() == PotSelectionStatus::Success &&
+        selectedDirect.isValid() && directWinner &&
+        directWinner->kind == PotCandidateKind::Direct,
+        "Direct-only feasible set selects the Direct candidate");
+
+    std::optional<StableTableState> kickOnlyState;
+    std::optional<EligibleTarget> kickOnlyTarget;
+    std::optional<DirectPotEvaluation> kickOnlyDirect;
+    std::optional<KickPotEvaluation> kickOnlyKick;
+    for (std::size_t railIndex = 0;
+         railIndex < geometry.railReflectionRegion.rails.size() && !kickOnlyState;
+         ++railIndex) {
+        for (std::size_t pocketIndex = 0;
+             pocketIndex < geometry.pockets.size() && !kickOnlyState;
+             ++pocketIndex) {
+            StableTableState candidateState = alignedKickState(
+                geometry,
+                railIndex,
+                pocketIndex);
+            const auto candidateTarget = selector.select(candidateState);
+            if (!candidateTarget.value()) continue;
+            const auto candidateDirect = BilliardAlgorithm::generateDirectPotCandidates(
+                candidateState,
+                *candidateTarget.value(),
+                geometry);
+            if (!candidateDirect.value()) continue;
+            std::size_t obstacleIndex = 1;
+            for (const auto& candidate : candidateDirect.value()->feasible) {
+                if (!candidate || obstacleIndex >= candidateState.objectBalls.size()) {
+                    continue;
+                }
+                candidateState.objectBalls[obstacleIndex++] = Point{
+                    (candidate->cuePath.start.x + candidate->cuePath.end.x) / 2.0,
+                    (candidate->cuePath.start.y + candidate->cuePath.end.y) / 2.0};
+            }
+            const auto blockedFixtureTarget = selector.select(candidateState);
+            if (!blockedFixtureTarget.value()) continue;
+            const auto blockedDirect = BilliardAlgorithm::generateDirectPotCandidates(
+                candidateState,
+                *blockedFixtureTarget.value(),
+                geometry);
+            const auto survivingKick = BilliardAlgorithm::generateKickPotCandidates(
+                candidateState,
+                *blockedFixtureTarget.value(),
+                geometry,
+                std::optional<BilliardConfig::KickGeometryConfig>{kickGeometryConfig});
+            if (!blockedDirect.value() || !survivingKick.value()) continue;
+            bool hasDirect = false;
+            bool hasKick = false;
+            for (const auto& candidate : blockedDirect.value()->feasible) {
+                hasDirect = hasDirect || candidate.has_value();
+            }
+            for (const auto& pocketCandidates : survivingKick.value()->feasible) {
+                for (const auto& candidate : pocketCandidates) {
+                    hasKick = hasKick || candidate.has_value();
+                }
+            }
+            if (!hasDirect && hasKick) {
+                kickOnlyState = candidateState;
+                kickOnlyTarget = *blockedFixtureTarget.value();
+                kickOnlyDirect = *blockedDirect.value();
+                kickOnlyKick = *survivingKick.value();
+            }
+        }
+    }
+    tests.expectTrue(
+        kickOnlyState && kickOnlyTarget && kickOnlyDirect && kickOnlyKick,
+        "Kick-only fixture retains an authoritative Kick after all Directs are blocked");
+    if (!kickOnlyState || !kickOnlyTarget || !kickOnlyDirect || !kickOnlyKick) {
+        return tests.exitCode();
+    }
+    const auto selectedKick = BilliardAlgorithm::selectBestPot(
+        *kickOnlyState,
+        *kickOnlyTarget,
+        geometry,
+        *kickOnlyDirect,
+        *kickOnlyKick,
+        std::optional<BilliardConfig::ScoringConfig>{scoreConfig},
+        std::optional<BilliardConfig::KickGeometryConfig>{kickGeometryConfig});
+    const auto* kickWinner = selectedKick.value()
+        ? std::get_if<ScoredPotCandidate>(&*selectedKick.value())
+        : nullptr;
+    tests.expectTrue(
+        selectedKick.status() == PotSelectionStatus::Success &&
+        kickWinner && kickWinner->kind == PotCandidateKind::Kick,
+        "Kick-only feasible set selects the Kick candidate");
+
+    if (directWinner) {
+        tests.expectNear(directWinner->audit.rawWeights.kickPenalty, 0.30,
+            TOLERANCE, "audit preserves raw kick weight");
+        tests.expectNear(directWinner->audit.rawWeightSum, 1.0,
+            TOLERANCE, "audit preserves raw weight sum");
+        tests.expectNear(directWinner->audit.effectiveWeights.sum(), 1.0,
+            scoreConfig.effectiveWeightSumTolerance,
+            "effective scoring weights normalize to one");
+        tests.expectTrue(
+            directWinner->audit.rawCosts.kickPenalty == 0.0 &&
+            directWinner->audit.normalizedCosts.kickPenalty == 0.0,
+            "Direct soft preference uses zero kick penalty only");
+        tests.expectNear(
+            directWinner->audit.normalizedCosts.cuttingAngle,
+            std::clamp(
+                directWinner->audit.rawCosts.cuttingAngleDeg /
+                    scoreConfig.maxCutAngleDeg,
+                0.0,
+                1.0),
+            TOLERANCE,
+            "cutting angle uses the approved normalized ratio");
+        tests.expectNear(
+            directWinner->audit.normalizedCosts.totalDistance,
+            std::clamp(
+                (directWinner->audit.rawCosts.totalDistanceMm -
+                 scoreConfig.minDistanceMm) /
+                    (scoreConfig.maxDistanceMm - scoreConfig.minDistanceMm),
+                0.0,
+                1.0),
+            TOLERANCE,
+            "total segmented distance uses the approved range formula");
+        tests.expectNear(
+            directWinner->audit.normalizedCosts.clearanceRisk,
+            directWinner->audit.rawCosts.minimumClearanceMm
+                ? 1.0 - std::clamp(
+                    (*directWinner->audit.rawCosts.minimumClearanceMm -
+                     (geometry.ballDiameterMm + geometry.collisionMarginMm)) /
+                        (scoreConfig.preferredClearanceMm -
+                         (geometry.ballDiameterMm + geometry.collisionMarginMm)),
+                    0.0,
+                    1.0)
+                : 0.0,
+            TOLERANCE,
+            "clearance risk uses blocked and preferred clearance bounds");
+        tests.expectNear(
+            directWinner->audit.normalizedCosts.pocketEntryAngle,
+            std::clamp(
+                directWinner->audit.rawCosts.pocketEntryAngleDeg /
+                    geometry.pockets[static_cast<std::size_t>(directWinner->pocketId)]
+                        .maxEntryAngleDeg,
+                0.0,
+                1.0),
+            TOLERANCE,
+            "pocket entry uses the selected pocket class threshold");
+        tests.expectTrue(
+            directWinner->audit.normalizedCosts.kickRailAngleRisk == 0.0,
+            "Direct kick-rail angle cost is explicitly zero");
+        tests.expectNear(
+            directWinner->audit.normalization.maxCutAngleDeg,
+            scoreConfig.maxCutAngleDeg,
+            TOLERANCE,
+            "audit snapshots the cutting-angle normalization range");
+        tests.expectNear(
+            directWinner->audit.normalization.blockedClearanceThresholdMm,
+            geometry.ballDiameterMm + geometry.collisionMarginMm,
+            TOLERANCE,
+            "audit snapshots the derived blocked-clearance threshold");
+        tests.expectTrue(
+            !directWinner->audit.normalization.maxKickRailAngleDeg,
+            "Direct audit marks the Kick-only angle range not applicable");
+    }
+    if (kickWinner) {
+        tests.expectTrue(
+            kickWinner->audit.rawCosts.kickPenalty == 1.0 &&
+            kickWinner->audit.normalizedCosts.kickPenalty == 1.0,
+            "Kick candidate uses unit kick penalty");
+        tests.expectNear(
+            kickWinner->audit.normalizedCosts.kickRailAngleRisk,
+            std::clamp(
+                kickWinner->audit.rawCosts.kickRailAngleDeg /
+                    kickGeometryConfig.maxKickRailAngleDeg,
+                0.0,
+                1.0),
+            TOLERANCE,
+            "Kick rail angle risk uses the approved Phase 1 angle range");
+        tests.expectTrue(
+            kickWinner->audit.normalization.maxKickRailAngleDeg &&
+            *kickWinner->audit.normalization.maxKickRailAngleDeg ==
+                kickGeometryConfig.maxKickRailAngleDeg,
+            "Kick audit snapshots its rail-angle normalization range");
+    }
+
+    const auto baselineUnified = BilliardAlgorithm::selectBestPot(
+        kickFixture,
+        *kickFixtureTarget.value(),
+        geometry,
+        fullDirect,
+        fullKick,
+        std::optional<BilliardConfig::ScoringConfig>{scoreConfig},
+        std::optional<BilliardConfig::KickGeometryConfig>{kickGeometryConfig});
+    const auto* baselineUnifiedWinner = baselineUnified.value()
+        ? std::get_if<ScoredPotCandidate>(&*baselineUnified.value())
+        : nullptr;
+    tests.expectTrue(
+        baselineUnifiedWinner && baselineUnifiedWinner->kind == PotCandidateKind::Direct,
+        "Direct receives a strong but non-exclusive soft preference");
+
+    bool validKickWon = false;
+    auto qualityScoringConfig = scoreConfig;
+    qualityScoringConfig.maxCutAngleDeg = 60.0;
+    qualityScoringConfig.maxDistanceMm = 1.0e9;
+    for (std::size_t railIndex = 0;
+         railIndex < geometry.railReflectionRegion.rails.size() && !validKickWon;
+         ++railIndex) {
+        const auto& rail = geometry.railReflectionRegion.rails[railIndex].segment;
+        for (std::size_t pocketIndex = 0;
+             pocketIndex < geometry.pockets.size() && !validKickWon;
+             ++pocketIndex) {
+            const auto& pocket = geometry.pockets[pocketIndex];
+            const Point target{
+                pocket.wirePocketCenter.x - 100.0 * pocket.outwardUnitNormal.x,
+                pocket.wirePocketCenter.y - 100.0 * pocket.outwardUnitNormal.y};
+            const Point ghost{
+                target.x - 2.0 * geometry.ballRadiusMm * pocket.outwardUnitNormal.x,
+                target.y - 2.0 * geometry.ballRadiusMm * pocket.outwardUnitNormal.y};
+            const Vector2D railDirection{
+                rail.end.x - rail.start.x,
+                rail.end.y - rail.start.y};
+            const double railLengthSquared =
+                railDirection.x * railDirection.x +
+                railDirection.y * railDirection.y;
+            const double projection = std::clamp(
+                ((ghost.x - rail.start.x) * railDirection.x +
+                 (ghost.y - rail.start.y) * railDirection.y) /
+                    railLengthSquared,
+                0.0,
+                1.0);
+            std::vector<Point> reboundPoints;
+            for (int step = 1; step < 20; ++step) {
+                const double fraction = static_cast<double>(step) / 20.0;
+                reboundPoints.push_back({
+                    rail.start.x + fraction * railDirection.x,
+                    rail.start.y + fraction * railDirection.y});
+            }
+            reboundPoints.push_back({
+                rail.start.x + projection * railDirection.x,
+                rail.start.y + projection * railDirection.y});
+            for (const Point rebound : reboundPoints) {
+                const StableTableState qualityState = kickStateForRebound(
+                    geometry,
+                    railIndex,
+                    pocketIndex,
+                    rebound);
+                const auto qualityTarget = selector.select(qualityState);
+                if (!qualityTarget.value()) continue;
+                const auto unblockedDirect = BilliardAlgorithm::generateDirectPotCandidates(
+                    qualityState,
+                    *qualityTarget.value(),
+                    geometry);
+                if (!unblockedDirect.value()) continue;
+                for (std::size_t keptDirectPocket = 0;
+                     keptDirectPocket < unblockedDirect.value()->feasible.size();
+                     ++keptDirectPocket) {
+                    if (!unblockedDirect.value()->feasible[keptDirectPocket]) continue;
+                    StableTableState constrainedState = qualityState;
+                    std::size_t obstacleIndex = 1;
+                    for (std::size_t directPocket = 0;
+                         directPocket < unblockedDirect.value()->feasible.size() &&
+                         obstacleIndex < constrainedState.objectBalls.size();
+                         ++directPocket) {
+                        if (directPocket == keptDirectPocket ||
+                            !unblockedDirect.value()->feasible[directPocket]) {
+                            continue;
+                        }
+                        const Segment2D path =
+                            unblockedDirect.value()->feasible[directPocket]->cuePath;
+                        constrainedState.objectBalls[obstacleIndex++] = Point{
+                            (path.start.x + path.end.x) / 2.0,
+                            (path.start.y + path.end.y) / 2.0};
+                    }
+                    if (obstacleIndex < constrainedState.objectBalls.size()) {
+                        const Segment2D keptPath =
+                            unblockedDirect.value()->feasible[keptDirectPocket]->cuePath;
+                        const Vector2D pathDirection{
+                            keptPath.end.x - keptPath.start.x,
+                            keptPath.end.y - keptPath.start.y};
+                        const double pathLength = std::hypot(
+                            pathDirection.x,
+                            pathDirection.y);
+                        const double nearClearance = geometry.ballDiameterMm +
+                            geometry.collisionMarginMm + 0.1;
+                        constrainedState.objectBalls[obstacleIndex] = Point{
+                            (keptPath.start.x + keptPath.end.x) / 2.0 -
+                                pathDirection.y / pathLength * nearClearance,
+                            (keptPath.start.y + keptPath.end.y) / 2.0 +
+                                pathDirection.x / pathLength * nearClearance};
+                    }
+                    const auto constrainedTarget = selector.select(constrainedState);
+                    if (!constrainedTarget.value()) continue;
+                    const auto qualityDirect =
+                        BilliardAlgorithm::generateDirectPotCandidates(
+                            constrainedState,
+                            *constrainedTarget.value(),
+                            geometry);
+                    const auto qualityKick =
+                        BilliardAlgorithm::generateKickPotCandidates(
+                            constrainedState,
+                            *constrainedTarget.value(),
+                            geometry,
+                            std::optional<BilliardConfig::KickGeometryConfig>{
+                                kickGeometryConfig});
+                    if (!qualityDirect.value() || !qualityKick.value()) continue;
+                    bool hasDirect = false;
+                    bool hasKick = false;
+                    for (const auto& candidate : qualityDirect.value()->feasible) {
+                        hasDirect = hasDirect || candidate.has_value();
+                    }
+                    for (const auto& pocketCandidates : qualityKick.value()->feasible) {
+                        for (const auto& candidate : pocketCandidates) {
+                            hasKick = hasKick || candidate.has_value();
+                        }
+                    }
+                    if (!hasDirect || !hasKick) continue;
+                    const auto selection = BilliardAlgorithm::selectBestPot(
+                        constrainedState,
+                        *constrainedTarget.value(),
+                        geometry,
+                        *qualityDirect.value(),
+                        *qualityKick.value(),
+                        std::optional<BilliardConfig::ScoringConfig>{qualityScoringConfig},
+                        std::optional<BilliardConfig::KickGeometryConfig>{kickGeometryConfig});
+                    const auto* qualityWinner = selection.value()
+                        ? std::get_if<ScoredPotCandidate>(&*selection.value())
+                        : nullptr;
+                    if (qualityWinner && qualityWinner->kind == PotCandidateKind::Kick) {
+                        validKickWon = true;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    tests.expectTrue(
+        validKickWon,
+        "a genuinely feasible higher-quality Kick can beat the Direct soft preference");
+
+    auto tieConfig = scoreConfig;
+    tieConfig.tieEpsilon = 1.0;
+    const auto deterministicTie = BilliardAlgorithm::selectBestPot(
+        kickFixture,
+        *kickFixtureTarget.value(),
+        geometry,
+        fullDirect,
+        fullKick,
+        std::optional<BilliardConfig::ScoringConfig>{tieConfig},
+        std::optional<BilliardConfig::KickGeometryConfig>{kickGeometryConfig});
+    const auto* tieWinner = deterministicTie.value()
+        ? std::get_if<ScoredPotCandidate>(&*deterministicTie.value())
+        : nullptr;
+    tests.expectTrue(
+        tieWinner && tieWinner->kind == PotCandidateKind::Direct,
+        "deterministic tie-break chooses fewer kicks within epsilon");
+
+#ifdef BILLIARDS_P1_08_TEST_SEAM
+    if (!directWinner || !kickWinner) {
+        tests.expectTrue(false, "tie-break seam fixtures require valid Direct and Kick bases");
+        return tests.exitCode();
+    }
+    const auto setTieFields = [](
+        ScoredPotCandidate candidate,
+        PotCandidateKind kind,
+        double cuttingAngleDeg,
+        std::optional<double> clearanceMm,
+        double distanceMm,
+        BilliardConfig::PocketId pocketId,
+        std::optional<BilliardConfig::RailId> railId) {
+        candidate.kind = kind;
+        candidate.audit.rawCosts.cuttingAngleDeg = cuttingAngleDeg;
+        candidate.audit.rawCosts.minimumClearanceMm = clearanceMm;
+        candidate.audit.rawCosts.totalDistanceMm = distanceMm;
+        candidate.pocketId = pocketId;
+        candidate.railId = railId;
+        return candidate;
+    };
+    const auto productionComparatorChooses = [](
+        const ScoredPotCandidate& expected,
+        const ScoredPotCandidate& other) {
+        return BilliardAlgorithm::tieBreakBetterForTest(expected, other) &&
+            !BilliardAlgorithm::tieBreakBetterForTest(other, expected);
+    };
+
+    const auto directTieBase = setTieFields(
+        *directWinner,
+        PotCandidateKind::Direct,
+        20.0,
+        100.0,
+        500.0,
+        BilliardConfig::PocketId::Pocket3,
+        std::nullopt);
+    const auto kickTieBase = setTieFields(
+        *kickWinner,
+        PotCandidateKind::Kick,
+        20.0,
+        100.0,
+        500.0,
+        BilliardConfig::PocketId::Pocket3,
+        BilliardConfig::RailId::Rail3);
+    tests.expectTrue(
+        productionComparatorChooses(directTieBase, kickTieBase),
+        "tie-break layer 1 prefers fewer Kick segments");
+
+    const auto largerCut = setTieFields(
+        directTieBase,
+        PotCandidateKind::Direct,
+        30.0,
+        100.0,
+        500.0,
+        BilliardConfig::PocketId::Pocket3,
+        std::nullopt);
+    tests.expectTrue(
+        productionComparatorChooses(directTieBase, largerCut),
+        "tie-break layer 2 prefers the smaller cutting angle");
+
+    const auto tighterClearance = setTieFields(
+        directTieBase,
+        PotCandidateKind::Direct,
+        20.0,
+        60.0,
+        500.0,
+        BilliardConfig::PocketId::Pocket3,
+        std::nullopt);
+    tests.expectTrue(
+        productionComparatorChooses(directTieBase, tighterClearance),
+        "tie-break layer 3 prefers the larger minimum clearance");
+
+    const auto longerPath = setTieFields(
+        directTieBase,
+        PotCandidateKind::Direct,
+        20.0,
+        100.0,
+        700.0,
+        BilliardConfig::PocketId::Pocket3,
+        std::nullopt);
+    tests.expectTrue(
+        productionComparatorChooses(directTieBase, longerPath),
+        "tie-break layer 4 prefers the shorter total path");
+
+    const auto lowerPocket = setTieFields(
+        directTieBase,
+        PotCandidateKind::Direct,
+        20.0,
+        100.0,
+        500.0,
+        BilliardConfig::PocketId::Pocket2,
+        std::nullopt);
+    const auto higherPocket = setTieFields(
+        directTieBase,
+        PotCandidateKind::Direct,
+        20.0,
+        100.0,
+        500.0,
+        BilliardConfig::PocketId::Pocket5,
+        std::nullopt);
+    tests.expectTrue(
+        productionComparatorChooses(lowerPocket, higherPocket),
+        "tie-break layer 5 prefers the lower Pocket ID");
+
+    const auto lowerRail = setTieFields(
+        kickTieBase,
+        PotCandidateKind::Kick,
+        20.0,
+        100.0,
+        500.0,
+        BilliardConfig::PocketId::Pocket3,
+        BilliardConfig::RailId::Rail2);
+    const auto higherRail = setTieFields(
+        kickTieBase,
+        PotCandidateKind::Kick,
+        20.0,
+        100.0,
+        500.0,
+        BilliardConfig::PocketId::Pocket3,
+        BilliardConfig::RailId::Rail5);
+    tests.expectTrue(
+        productionComparatorChooses(lowerRail, higherRail),
+        "tie-break layer 6 prefers the lower Rail ID");
+
+    const std::array<ScoredPotCandidate, 6> tournamentCandidates{{
+        setTieFields(directTieBase, PotCandidateKind::Direct, 5.0, 100.0, 300.0,
+            BilliardConfig::PocketId::Pocket1, std::nullopt),
+        setTieFields(directTieBase, PotCandidateKind::Direct, 10.0, 100.0, 300.0,
+            BilliardConfig::PocketId::Pocket1, std::nullopt),
+        setTieFields(directTieBase, PotCandidateKind::Direct, 5.0, 80.0, 300.0,
+            BilliardConfig::PocketId::Pocket1, std::nullopt),
+        setTieFields(directTieBase, PotCandidateKind::Direct, 5.0, 100.0, 400.0,
+            BilliardConfig::PocketId::Pocket1, std::nullopt),
+        setTieFields(directTieBase, PotCandidateKind::Direct, 5.0, 100.0, 300.0,
+            BilliardConfig::PocketId::Pocket2, std::nullopt),
+        setTieFields(kickTieBase, PotCandidateKind::Kick, 0.0, 1000.0, 1.0,
+            BilliardConfig::PocketId::Pocket1, BilliardConfig::RailId::Rail1)}};
+    std::array<std::size_t, 6> tournamentOrder{{0, 1, 2, 3, 4, 5}};
+    bool sameTournamentWinner = true;
+    for (int permutation = 0; permutation < 20; ++permutation) {
+        std::size_t winnerIndex = tournamentOrder[0];
+        for (std::size_t position = 1; position < tournamentOrder.size(); ++position) {
+            const std::size_t challengerIndex = tournamentOrder[position];
+            if (BilliardAlgorithm::tieBreakBetterForTest(
+                    tournamentCandidates[challengerIndex],
+                    tournamentCandidates[winnerIndex])) {
+                winnerIndex = challengerIndex;
+            }
+        }
+        sameTournamentWinner = sameTournamentWinner && winnerIndex == 0;
+        std::next_permutation(tournamentOrder.begin(), tournamentOrder.end());
+    }
+    tests.expectTrue(
+        sameTournamentWinner,
+        "the production comparator selects one identity across 20 tournament orders");
+#endif
+
+    std::array<std::optional<Point>, 9> noPotBalls{};
+    noPotBalls[0] = Point{500.0, 250.0};
+    const StableTableState noPotState = state({500.0, 250.0}, noPotBalls);
+    const auto noPotTarget = selector.select(noPotState);
+    const auto noPotDirect = noPotTarget.value()
+        ? BilliardAlgorithm::generateDirectPotCandidates(
+            noPotState,
+            *noPotTarget.value(),
+            geometry)
+        : DirectPotGenerationResult::rejected(
+            DirectPotGenerationStatus::InvalidStableState);
+    const auto noPotKick = noPotTarget.value()
+        ? BilliardAlgorithm::generateKickPotCandidates(
+            noPotState,
+            *noPotTarget.value(),
+            geometry,
+            std::optional<BilliardConfig::KickGeometryConfig>{kickGeometryConfig})
+        : KickPotGenerationResult::rejected(
+            KickPotGenerationStatus::InvalidStableState);
+    tests.expectTrue(
+        noPotTarget.value() && noPotDirect.value() && noPotKick.value(),
+        "NoPot fixture produces authoritative candidate evaluations");
+    if (!noPotTarget.value() || !noPotDirect.value() || !noPotKick.value()) {
+        return tests.exitCode();
+    }
+    const auto noPot = BilliardAlgorithm::selectBestPot(
+        noPotState,
+        *noPotTarget.value(),
+        geometry,
+        *noPotDirect.value(),
+        *noPotKick.value(),
+        std::optional<BilliardConfig::ScoringConfig>{scoreConfig},
+        std::optional<BilliardConfig::KickGeometryConfig>{kickGeometryConfig});
+    const auto* noPlan = noPot.value()
+        ? std::get_if<PotOnlyNoPlan>(&*noPot.value())
+        : nullptr;
+    tests.expectTrue(
+        noPot.status() == PotSelectionStatus::Success && noPlan &&
+        noPlan->reason == PotNoPlanReason::NoPotCandidate &&
+        noPlan->feasiblePotCount == 0 &&
+        !noPlan->proceededToLegalContact &&
+        !noPlan->directDiagnostics.empty() &&
+        !noPlan->kickDiagnostics.empty() && noPot.isValid(),
+        "PotOnly empty candidate set returns NoPlan without LegalContact fallback");
+
+    const auto omittedCandidates = BilliardAlgorithm::selectBestPot(
+        kickFixture,
+        *kickFixtureTarget.value(),
+        geometry,
+        noDirectCandidates(fullDirect),
+        noKickCandidates(fullKick),
+        std::optional<BilliardConfig::ScoringConfig>{scoreConfig},
+        std::optional<BilliardConfig::KickGeometryConfig>{kickGeometryConfig});
+    tests.expectTrue(
+        omittedCandidates.status() == PotSelectionStatus::InvalidCandidateInput &&
+        !omittedCandidates.value(),
+        "caller cannot suppress authoritative feasible candidates to force NoPlan");
+
+    auto manualConfig = scoreConfig;
+    manualConfig.planningMode = BilliardConfig::PlanningMode::ManualResearch;
+    const auto manualEmpty = BilliardAlgorithm::selectBestPot(
+        noPotState,
+        *noPotTarget.value(),
+        geometry,
+        *noPotDirect.value(),
+        *noPotKick.value(),
+        std::optional<BilliardConfig::ScoringConfig>{manualConfig},
+        std::optional<BilliardConfig::KickGeometryConfig>{kickGeometryConfig});
+    tests.expectTrue(
+        manualEmpty.status() == PotSelectionStatus::ManualResearchPotSearchExhausted &&
+        !manualEmpty.value(),
+        "manual research exhaustion stays isolated and does not create LegalContact here");
+
+    const auto missingScoring = BilliardAlgorithm::selectBestPot(
+        kickFixture,
+        *kickFixtureTarget.value(),
+        geometry,
+        fullDirect,
+        fullKick,
+        std::nullopt,
+        std::optional<BilliardConfig::KickGeometryConfig>{kickGeometryConfig});
+    tests.expectTrue(
+        missingScoring.status() == PotSelectionStatus::ConfigurationMissing &&
+        !missingScoring.value(),
+        "missing scoring ranges fail closed");
+
+    auto invalidWeights = scoreConfig;
+    invalidWeights.rawWeights.kickPenalty = -0.1;
+    const auto rejectedWeights = BilliardAlgorithm::selectBestPot(
+        kickFixture,
+        *kickFixtureTarget.value(),
+        geometry,
+        fullDirect,
+        fullKick,
+        std::optional<BilliardConfig::ScoringConfig>{invalidWeights},
+        std::optional<BilliardConfig::KickGeometryConfig>{kickGeometryConfig});
+    tests.expectTrue(
+        rejectedWeights.status() == PotSelectionStatus::InvalidConfiguration &&
+        !rejectedWeights.value(),
+        "negative raw scoring weight fails closed");
+
+    auto nonFiniteWeights = scoreConfig;
+    nonFiniteWeights.rawWeights.cuttingAngle =
+        std::numeric_limits<double>::quiet_NaN();
+    const auto rejectedNanWeights = BilliardAlgorithm::selectBestPot(
+        kickFixture,
+        *kickFixtureTarget.value(),
+        geometry,
+        fullDirect,
+        fullKick,
+        std::optional<BilliardConfig::ScoringConfig>{nonFiniteWeights},
+        std::optional<BilliardConfig::KickGeometryConfig>{kickGeometryConfig});
+    tests.expectTrue(
+        rejectedNanWeights.status() == PotSelectionStatus::InvalidConfiguration &&
+        !rejectedNanWeights.value(),
+        "NaN raw scoring weight fails closed");
+
+    nonFiniteWeights = scoreConfig;
+    nonFiniteWeights.rawWeights.totalDistance =
+        std::numeric_limits<double>::infinity();
+    const auto rejectedInfiniteWeights = BilliardAlgorithm::selectBestPot(
+        kickFixture,
+        *kickFixtureTarget.value(),
+        geometry,
+        fullDirect,
+        fullKick,
+        std::optional<BilliardConfig::ScoringConfig>{nonFiniteWeights},
+        std::optional<BilliardConfig::KickGeometryConfig>{kickGeometryConfig});
+    tests.expectTrue(
+        rejectedInfiniteWeights.status() == PotSelectionStatus::InvalidConfiguration &&
+        !rejectedInfiniteWeights.value(),
+        "infinite raw scoring weight fails closed");
+
+    auto zeroWeights = scoreConfig;
+    zeroWeights.rawWeights = {};
+    const auto rejectedZeroWeights = BilliardAlgorithm::selectBestPot(
+        kickFixture,
+        *kickFixtureTarget.value(),
+        geometry,
+        fullDirect,
+        fullKick,
+        std::optional<BilliardConfig::ScoringConfig>{zeroWeights},
+        std::optional<BilliardConfig::KickGeometryConfig>{kickGeometryConfig});
+    tests.expectTrue(
+        rejectedZeroWeights.status() == PotSelectionStatus::InvalidConfiguration &&
+        !rejectedZeroWeights.value(),
+        "zero raw weight sum fails closed");
+
+    auto scaledWeights = scoreConfig;
+    scaledWeights.rawWeights = {0.60, 0.60, 0.40, 0.20, 0.10, 0.10};
+    const auto normalizedScaledWeights = BilliardAlgorithm::selectBestPot(
+        kickFixture,
+        *kickFixtureTarget.value(),
+        geometry,
+        fullDirect,
+        fullKick,
+        std::optional<BilliardConfig::ScoringConfig>{scaledWeights},
+        std::optional<BilliardConfig::KickGeometryConfig>{kickGeometryConfig});
+    const auto* scaledWinner = normalizedScaledWeights.value()
+        ? std::get_if<ScoredPotCandidate>(&*normalizedScaledWeights.value())
+        : nullptr;
+    tests.expectTrue(scaledWinner != nullptr,
+        "raw weights need not sum to exactly one");
+    if (scaledWinner) {
+        tests.expectNear(scaledWinner->audit.rawWeightSum, 2.0,
+            TOLERANCE, "scaled raw weight sum is audited");
+        tests.expectNear(scaledWinner->audit.effectiveWeights.kickPenalty, 0.30,
+            TOLERANCE, "scaled raw weights normalize before scoring");
+    }
+
+    auto overflowWeights = scoreConfig;
+    overflowWeights.rawWeights = {
+        std::numeric_limits<double>::max(),
+        std::numeric_limits<double>::max(),
+        0.0,
+        0.0,
+        0.0,
+        0.0};
+    const auto rejectedOverflowWeights = BilliardAlgorithm::selectBestPot(
+        kickFixture,
+        *kickFixtureTarget.value(),
+        geometry,
+        fullDirect,
+        fullKick,
+        std::optional<BilliardConfig::ScoringConfig>{overflowWeights},
+        std::optional<BilliardConfig::KickGeometryConfig>{kickGeometryConfig});
+    tests.expectTrue(
+        rejectedOverflowWeights.status() == PotSelectionStatus::InvalidConfiguration &&
+        !rejectedOverflowWeights.value(),
+        "overflowing raw weight sum fails closed");
+
+    auto invalidRange = scoreConfig;
+    invalidRange.maxDistanceMm = invalidRange.minDistanceMm;
+    const auto rejectedRange = BilliardAlgorithm::selectBestPot(
+        kickFixture,
+        *kickFixtureTarget.value(),
+        geometry,
+        fullDirect,
+        fullKick,
+        std::optional<BilliardConfig::ScoringConfig>{invalidRange},
+        std::optional<BilliardConfig::KickGeometryConfig>{kickGeometryConfig});
+    tests.expectTrue(
+        rejectedRange.status() == PotSelectionStatus::InvalidConfiguration &&
+        !rejectedRange.value(),
+        "degenerate normalization range fails closed");
+
+    auto invalidClearanceRange = scoreConfig;
+    invalidClearanceRange.preferredClearanceMm =
+        geometry.ballDiameterMm + geometry.collisionMarginMm;
+    const auto rejectedClearanceRange = BilliardAlgorithm::selectBestPot(
+        kickFixture,
+        *kickFixtureTarget.value(),
+        geometry,
+        fullDirect,
+        fullKick,
+        std::optional<BilliardConfig::ScoringConfig>{invalidClearanceRange},
+        std::optional<BilliardConfig::KickGeometryConfig>{kickGeometryConfig});
+    tests.expectTrue(
+        rejectedClearanceRange.status() == PotSelectionStatus::InvalidConfiguration &&
+        !rejectedClearanceRange.value(),
+        "degenerate clearance normalization range fails closed");
+
+    auto invalidCutRange = scoreConfig;
+    invalidCutRange.maxCutAngleDeg = 0.0;
+    const auto rejectedCutRange = BilliardAlgorithm::selectBestPot(
+        kickFixture,
+        *kickFixtureTarget.value(),
+        geometry,
+        fullDirect,
+        fullKick,
+        std::optional<BilliardConfig::ScoringConfig>{invalidCutRange},
+        std::optional<BilliardConfig::KickGeometryConfig>{kickGeometryConfig});
+    tests.expectTrue(
+        rejectedCutRange.status() == PotSelectionStatus::InvalidConfiguration &&
+        !rejectedCutRange.value(),
+        "invalid cutting-angle normalization range fails closed");
+
+    auto invalidEffectiveTolerance = scoreConfig;
+    invalidEffectiveTolerance.effectiveWeightSumTolerance = -1.0;
+    const auto rejectedEffectiveTolerance = BilliardAlgorithm::selectBestPot(
+        kickFixture,
+        *kickFixtureTarget.value(),
+        geometry,
+        fullDirect,
+        fullKick,
+        std::optional<BilliardConfig::ScoringConfig>{invalidEffectiveTolerance},
+        std::optional<BilliardConfig::KickGeometryConfig>{kickGeometryConfig});
+    tests.expectTrue(
+        rejectedEffectiveTolerance.status() == PotSelectionStatus::InvalidConfiguration &&
+        !rejectedEffectiveTolerance.value(),
+        "invalid effective-weight tolerance fails closed");
+
+    auto invalidTie = scoreConfig;
+    invalidTie.tieEpsilon = std::numeric_limits<double>::quiet_NaN();
+    const auto rejectedTie = BilliardAlgorithm::selectBestPot(
+        kickFixture,
+        *kickFixtureTarget.value(),
+        geometry,
+        fullDirect,
+        fullKick,
+        std::optional<BilliardConfig::ScoringConfig>{invalidTie},
+        std::optional<BilliardConfig::KickGeometryConfig>{kickGeometryConfig});
+    tests.expectTrue(
+        rejectedTie.status() == PotSelectionStatus::InvalidConfiguration &&
+        !rejectedTie.value(),
+        "non-finite tie epsilon fails closed");
+
+    const auto missingKickRange = BilliardAlgorithm::selectBestPot(
+        kickFixture,
+        *kickFixtureTarget.value(),
+        geometry,
+        fullDirect,
+        fullKick,
+        std::optional<BilliardConfig::ScoringConfig>{scoreConfig},
+        std::nullopt);
+    tests.expectTrue(
+        missingKickRange.status() == PotSelectionStatus::ConfigurationMissing &&
+        !missingKickRange.value(),
+        "Kick scoring requires its approved rail-angle normalization range");
+
+    auto nonFiniteCandidate = fullDirect;
+    nonFiniteCandidate.feasible[4]->cuttingAngleDeg =
+        std::numeric_limits<double>::quiet_NaN();
+    const auto rejectedCandidate = BilliardAlgorithm::selectBestPot(
+        kickFixture,
+        *kickFixtureTarget.value(),
+        geometry,
+        nonFiniteCandidate,
+        fullKick,
+        std::optional<BilliardConfig::ScoringConfig>{scoreConfig},
+        std::optional<BilliardConfig::KickGeometryConfig>{kickGeometryConfig});
+    tests.expectTrue(
+        rejectedCandidate.status() == PotSelectionStatus::InvalidCandidateInput &&
+        !rejectedCandidate.value(),
+        "non-finite feasible-candidate input fails closed and is not revived");
+
+    auto contradictoryCandidate = fullDirect;
+    contradictoryCandidate.feasible[4]->cuePath.start = {-10000.0, -10000.0};
+    contradictoryCandidate.feasible[4]->cuttingAngleDeg += 1.0;
+    const auto rejectedContradictoryCandidate = BilliardAlgorithm::selectBestPot(
+        kickFixture,
+        *kickFixtureTarget.value(),
+        geometry,
+        contradictoryCandidate,
+        fullKick,
+        std::optional<BilliardConfig::ScoringConfig>{scoreConfig},
+        std::optional<BilliardConfig::KickGeometryConfig>{kickGeometryConfig});
+    tests.expectTrue(
+        rejectedContradictoryCandidate.status() ==
+            PotSelectionStatus::InvalidCandidateInput &&
+        !rejectedContradictoryCandidate.value(),
+        "finite but contradictory feasible candidate fails provenance validation");
+
+    auto overflowingDistance = fullDirect;
+    overflowingDistance.feasible[4]->cuePath.start = {
+        std::numeric_limits<double>::max(),
+        std::numeric_limits<double>::max()};
+    overflowingDistance.feasible[4]->cuePath.end = {
+        -std::numeric_limits<double>::max(),
+        -std::numeric_limits<double>::max()};
+    const auto rejectedDistance = BilliardAlgorithm::selectBestPot(
+        kickFixture,
+        *kickFixtureTarget.value(),
+        geometry,
+        overflowingDistance,
+        fullKick,
+        std::optional<BilliardConfig::ScoringConfig>{scoreConfig},
+        std::optional<BilliardConfig::KickGeometryConfig>{kickGeometryConfig});
+    tests.expectTrue(
+        rejectedDistance.status() == PotSelectionStatus::InvalidCandidateInput ||
+        rejectedDistance.status() == PotSelectionStatus::NumericalFailure,
+        "overflowing candidate distance fails closed without fallback score");
 
     return tests.exitCode();
 }

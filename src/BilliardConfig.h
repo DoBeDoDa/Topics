@@ -69,6 +69,37 @@ struct KickGeometryConfig {
     double reflectionAngleToleranceDeg;
 };
 
+enum class PlanningMode {
+    PotOnly,
+    ManualResearch
+};
+
+struct ScoringWeights {
+    double kickPenalty;
+    double cuttingAngle;
+    double totalDistance;
+    double clearanceRisk;
+    double pocketEntryAngle;
+    double kickRailAngleRisk;
+
+    [[nodiscard]] double sum() const noexcept
+    {
+        return kickPenalty + cuttingAngle + totalDistance + clearanceRisk +
+            pocketEntryAngle + kickRailAngleRisk;
+    }
+};
+
+struct ScoringConfig {
+    ScoringWeights rawWeights;
+    double effectiveWeightSumTolerance;
+    double maxCutAngleDeg;
+    double minDistanceMm;
+    double maxDistanceMm;
+    double preferredClearanceMm;
+    double tieEpsilon;
+    PlanningMode planningMode;
+};
+
 struct MotionProfile {
     double strikeZ;
     double safeZ;
@@ -101,6 +132,8 @@ extern const std::optional<double> POCKET_STABILITY_TOLERANCE_MM;
 extern const std::optional<unsigned long> MAX_INTER_FRAME_INTERVAL_MS;
 extern const std::optional<TableGeometryConfig> TABLE_GEOMETRY;
 extern const std::optional<KickGeometryConfig> KICK_GEOMETRY;
+extern const ScoringWeights INITIAL_EXPERIMENTAL_SCORING_WEIGHTS;
+extern const std::optional<ScoringConfig> SCORING_CONFIG;
 
 extern const double CAMERA_OFFSET_X_MM;
 extern const double CAMERA_OFFSET_Y_MM;

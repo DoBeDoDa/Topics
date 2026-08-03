@@ -106,6 +106,11 @@ struct PocketEntryAngle {
     double degrees;
 };
 
+struct MinimumClearance {
+    // nullopt means no non-excluded stationary obstacle exists.
+    std::optional<double> millimeters;
+};
+
 class BilliardPhysics {
 public:
     static GeometryValueResult<PlayableBallCenterRegion> derivePlayableBallCenterRegion(
@@ -156,6 +161,11 @@ public:
         const std::vector<std::size_t>& excludedObstacleIndices,
         double ballDiameterMm,
         double collisionMarginMm);
+
+    static GeometryValueResult<MinimumClearance> computeMinimumSegmentClearance(
+        Segment2D path,
+        const std::vector<Point>& obstacles,
+        const std::vector<std::size_t>& excludedObstacleIndices);
 
     static GeometryValueResult<Point> mirrorPointAcrossEffectiveRail(
         Point point,

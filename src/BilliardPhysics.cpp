@@ -70,6 +70,29 @@ Point add(Point point, Vector2D vector, double scale) noexcept
     return {point.x + vector.x * scale, point.y + vector.y * scale};
 }
 
+std::optional<double> pointToSegmentDistance(
+    Segment2D path,
+    Point point) noexcept
+{
+    const auto direction = BilliardMath::getVector(path.start, path.end);
+    const auto length = direction ? BilliardMath::getLength(*direction) : std::nullopt;
+    const auto toPoint = BilliardMath::getVector(path.start, point);
+    if (!finite(path) || !BilliardMath::isFinite(point) || !direction || !length ||
+        !toPoint || *length <= NUMERICAL_EPSILON) {
+        return std::nullopt;
+    }
+    const double lengthSquared = (*length) * (*length);
+    if (!finite(lengthSquared) || lengthSquared <= 0.0) {
+        return std::nullopt;
+    }
+    const double parameter = std::clamp(
+        dot(*toPoint, *direction) / lengthSquared,
+        0.0,
+        1.0);
+    const Point nearest = add(path.start, *direction, parameter);
+    return BilliardMath::getDistance(nearest, point);
+}
+
 bool containsInclusive(AxisAlignedBounds2D bounds, Point point) noexcept
 {
     return BilliardMath::isFinite(point) &&
@@ -951,16 +974,7 @@ GeometryCheckResult BilliardPhysics::checkSegmentCollision(
         if (excluded(index, excludedObstacleIndices)) {
             continue;
         }
-        const auto toObstacle = BilliardMath::getVector(path.start, obstacles[index]);
-        if (!toObstacle) {
-            return GeometryCheckResult::rejected(GeometryStatus::InvalidInput, index);
-        }
-        const double parameter = std::clamp(
-            dot(*toObstacle, *direction) / lengthSquared,
-            0.0,
-            1.0);
-        const Point nearest = add(path.start, *direction, parameter);
-        const auto distance = BilliardMath::getDistance(nearest, obstacles[index]);
+        const auto distance = pointToSegmentDistance(path, obstacles[index]);
         if (!distance) {
             return GeometryCheckResult::rejected(GeometryStatus::InvalidInput, index);
         }
@@ -969,6 +983,42 @@ GeometryCheckResult BilliardPhysics::checkSegmentCollision(
         }
     }
     return GeometryCheckResult::clear();
+}
+
+GeometryValueResult<MinimumClearance> BilliardPhysics::computeMinimumSegmentClearance(
+    Segment2D path,
+    const std::vector<Point>& obstacles,
+    const std::vector<std::size_t>& excludedObstacleIndices)
+{
+    if (!finite(path) || samePoint(path.start, path.end)) {
+        return GeometryValueResult<MinimumClearance>::failure(
+            samePoint(path.start, path.end)
+                ? GeometryStatus::DegenerateGeometry
+                : GeometryStatus::InvalidInput);
+    }
+    for (const std::size_t index : excludedObstacleIndices) {
+        if (index >= obstacles.size()) {
+            return GeometryValueResult<MinimumClearance>::failure(
+                GeometryStatus::InvalidInput,
+                index);
+        }
+    }
+    std::optional<double> minimum;
+    for (std::size_t index = 0; index < obstacles.size(); ++index) {
+        if (excluded(index, excludedObstacleIndices)) {
+            continue;
+        }
+        const auto distance = pointToSegmentDistance(path, obstacles[index]);
+        if (!distance || !finite(*distance) || *distance < 0.0) {
+            return GeometryValueResult<MinimumClearance>::failure(
+                GeometryStatus::InvalidInput,
+                index);
+        }
+        if (!minimum || *distance < *minimum) {
+            minimum = *distance;
+        }
+    }
+    return GeometryValueResult<MinimumClearance>::success({minimum});
 }
 
 GeometryValueResult<Point> BilliardPhysics::mirrorPointAcrossEffectiveRail(
