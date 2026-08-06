@@ -2,6 +2,7 @@
 
 #include "../src/Algorithm.h"
 #include "../src/BilliardPhysics.h"
+#include "../src/MathUtils.h"
 #include "../src/TargetSelector.h"
 
 #include <array>
@@ -183,6 +184,20 @@ template <typename Candidate>
 struct HasSecondReboundPoint<
     Candidate,
     std::void_t<decltype(std::declval<Candidate>().secondReboundPoint)>>
+    : std::true_type {};
+
+template <typename Payload, typename = void>
+struct HasPocketId : std::false_type {};
+
+template <typename Payload>
+struct HasPocketId<Payload, std::void_t<decltype(std::declval<Payload>().pocketId)>>
+    : std::true_type {};
+
+template <typename Payload, typename = void>
+struct HasPotScoring : std::false_type {};
+
+template <typename Payload>
+struct HasPotScoring<Payload, std::void_t<decltype(std::declval<Payload>().scoring)>>
     : std::true_type {};
 
 const KickPotCandidateDiagnostic* kickDiagnosticFor(
@@ -1618,6 +1633,27 @@ int main()
         directPlan->cuePathSegments.size() == 1 &&
         directPlan->forceMode == FixedForceMode::Fixed,
         "P1-09 preserves the P1-08 Direct winner and complete Phase 1 audit identity");
+    if (directPlan) {
+        ShotPlan perpendicularDirection = *directPlan;
+        perpendicularDirection.shotDirectionXY = {
+            -directPlan->shotDirectionXY.y,
+            directPlan->shotDirectionXY.x};
+        ShotPlan reverseDirection = *directPlan;
+        reverseDirection.shotDirectionXY = {
+            -directPlan->shotDirectionXY.x,
+            -directPlan->shotDirectionXY.y};
+        ShotPlan nonFiniteDirection = *directPlan;
+        nonFiniteDirection.shotDirectionXY.x =
+            std::numeric_limits<double>::quiet_NaN();
+        tests.expectTrue(directPlan->isValid(),
+            "ShotPlan accepts the normalized first cue-path direction");
+        tests.expectFalse(perpendicularDirection.isValid(),
+            "ShotPlan rejects a 90-degree direction mismatch");
+        tests.expectFalse(reverseDirection.isValid(),
+            "ShotPlan rejects a reversed direction");
+        tests.expectFalse(nonFiniteDirection.isValid(),
+            "ShotPlan rejects a non-finite direction");
+    }
 
     const auto kickPlanning = BilliardAlgorithm::planShot(
         *kickOnlyState,
@@ -1645,6 +1681,27 @@ int main()
         kickPlan->cuePathSegments[0].end.y ==
             kickPayload->candidate.reboundPoint.y,
         "P1-09 preserves the P1-08 Kick pocket, rail, rebound, and score identity");
+    if (kickPlan) {
+        ShotPlan perpendicularDirection = *kickPlan;
+        perpendicularDirection.shotDirectionXY = {
+            -kickPlan->shotDirectionXY.y,
+            kickPlan->shotDirectionXY.x};
+        ShotPlan reverseDirection = *kickPlan;
+        reverseDirection.shotDirectionXY = {
+            -kickPlan->shotDirectionXY.x,
+            -kickPlan->shotDirectionXY.y};
+        ShotPlan nonFiniteDirection = *kickPlan;
+        nonFiniteDirection.shotDirectionXY.y =
+            std::numeric_limits<double>::infinity();
+        tests.expectTrue(kickPlan->isValid(),
+            "Kick ShotPlan direction follows C-to-rebound first cue segment");
+        tests.expectFalse(perpendicularDirection.isValid(),
+            "Kick ShotPlan rejects a 90-degree first-segment mismatch");
+        tests.expectFalse(reverseDirection.isValid(),
+            "Kick ShotPlan rejects a reversed first-segment direction");
+        tests.expectFalse(nonFiniteDirection.isValid(),
+            "Kick ShotPlan rejects a non-finite direction");
+    }
 
     const auto noPotPlanning = BilliardAlgorithm::planShot(
         noPotState,
@@ -1660,6 +1717,415 @@ int main()
         !integratedNoPot->directCandidateDiagnostics.empty() &&
         !integratedNoPot->kickCandidateDiagnostics.empty(),
         "P1-09 maps PotOnly exhaustion to auditable NoPotCandidate without fallback");
+
+    std::array<std::optional<Point>, 9> manualBalls{};
+    manualBalls[0] = Point{500.0, 250.0};
+    for (std::size_t pocket = 0; pocket < geometry.pockets.size(); ++pocket) {
+        const Point virtualTarget = geometry.pockets[pocket].virtualPocketTarget;
+        manualBalls[pocket + 1] = Point{
+            manualBalls[0]->x + 0.75 * (virtualTarget.x - manualBalls[0]->x),
+            manualBalls[0]->y + 0.75 * (virtualTarget.y - manualBalls[0]->y)};
+    }
+    const StableTableState manualDirectState = state({400.0, 250.0}, manualBalls);
+    const auto potOnlyBlocked = BilliardAlgorithm::planShot(
+        manualDirectState,
+        std::optional<BilliardConfig::TableGeometryConfig>{tableConfig()},
+        p109Config);
+    const auto* blockedPotOnlyNoPlan = std::get_if<NoPlan>(&potOnlyBlocked.value());
+    tests.expectTrue(
+        potOnlyBlocked.isValid() && blockedPotOnlyNoPlan &&
+        blockedPotOnlyNoPlan->reason == NoPlanReason::NoPotCandidate &&
+        !blockedPotOnlyNoPlan->proceededToLegalContact,
+        "PotOnly remains NoPotCandidate and never enters LegalContact");
+
+    auto manualResearchConfig = p109Config;
+    manualResearchConfig.scoring->planningMode =
+        BilliardConfig::PlanningMode::ManualResearch;
+    const auto manualWithPotPlanning = BilliardAlgorithm::planShot(
+        kickFixture,
+        std::optional<BilliardConfig::TableGeometryConfig>{tableConfig()},
+        manualResearchConfig);
+    const auto* manualWithPotPlan =
+        std::get_if<ShotPlan>(&manualWithPotPlanning.value());
+    tests.expectTrue(
+        manualWithPotPlanning.isValid() && manualWithPotPlan &&
+        (manualWithPotPlan->type == ShotPlanType::DirectPot ||
+         manualWithPotPlan->type == ShotPlanType::KickPot),
+        "ManualResearch preserves a feasible Pot and does not enter LegalContact");
+    const auto directLegalPlanning = BilliardAlgorithm::planShot(
+        manualDirectState,
+        std::optional<BilliardConfig::TableGeometryConfig>{tableConfig()},
+        manualResearchConfig);
+    const auto* directLegalPlan =
+        std::get_if<ShotPlan>(&directLegalPlanning.value());
+    const auto* directLegalPayload = directLegalPlan
+        ? std::get_if<DirectLegalContactShotPlanPayload>(&directLegalPlan->payload)
+        : nullptr;
+    tests.expectTrue(
+        directLegalPlanning.isValid() && directLegalPlan && directLegalPayload &&
+        directLegalPlan->type == ShotPlanType::DirectLegalContact &&
+        directLegalPayload->audit.legalFirstContactGuaranteed &&
+        directLegalPayload->audit.directPriorityApplied &&
+        directLegalPayload->audit.potSearchStatus ==
+            PotSelectionStatus::ManualResearchPotSearchExhausted &&
+        directLegalPayload->audit.potSearchExhausted &&
+        directLegalPayload->audit.requiresExplicitExecutionAuthorization &&
+        !directLegalPayload->audit.realHardwareExecutionDefaultEnabled &&
+        directLegalPlan->cuePathSegments.size() == 1 &&
+        std::fabs(std::hypot(
+            directLegalPlan->selectedTarget.center.x -
+                directLegalPlan->ghostBallPoint.center.x,
+            directLegalPlan->selectedTarget.center.y -
+                directLegalPlan->ghostBallPoint.center.y) -
+            2.0 * geometry.ballRadiusMm) <= TOLERANCE,
+        "ManualResearch enters DirectLegalContact only after Pot exhaustion");
+    static_assert(!HasPocketId<DirectLegalContactShotPlanPayload>::value,
+        "LegalContact payload must not expose a pocket ID");
+    static_assert(!HasPotScoring<DirectLegalContactShotPlanPayload>::value,
+        "LegalContact payload must not expose Pot scoring");
+
+    StableTableState manualKickState = manualDirectState;
+    manualKickState.objectBalls[7] = Point{440.0, 250.0};
+    const auto kickLegalPlanning = BilliardAlgorithm::planShot(
+        manualKickState,
+        std::optional<BilliardConfig::TableGeometryConfig>{tableConfig()},
+        manualResearchConfig);
+    const auto* kickLegalPlan = std::get_if<ShotPlan>(&kickLegalPlanning.value());
+    const auto* kickLegalPayload = kickLegalPlan
+        ? std::get_if<KickLegalContactShotPlanPayload>(&kickLegalPlan->payload)
+        : nullptr;
+    tests.expectTrue(
+        kickLegalPlanning.isValid() && kickLegalPlan && kickLegalPayload &&
+        kickLegalPlan->type == ShotPlanType::KickLegalContact &&
+        kickLegalPlan->cuePathSegments.size() == 2 &&
+        kickLegalPayload->candidate.cuePathFirst.end.x ==
+            kickLegalPayload->candidate.reboundPoint.x &&
+        kickLegalPayload->candidate.cuePathFirst.end.y ==
+            kickLegalPayload->candidate.reboundPoint.y &&
+        kickLegalPayload->candidate.cuePathSecond.end.x ==
+            kickLegalPayload->candidate.ghostBallPoint.center.x &&
+        kickLegalPayload->candidate.cuePathSecond.end.y ==
+            kickLegalPayload->candidate.ghostBallPoint.center.y &&
+        kickLegalPayload->audit.railId == kickLegalPayload->candidate.railId &&
+        kickLegalPayload->audit.requiresExplicitExecutionAuthorization &&
+        !kickLegalPayload->audit.realHardwareExecutionDefaultEnabled,
+        "ManualResearch selects a one-rail cue-ball KickLegalContact without Pot fields");
+    static_assert(!HasPocketId<KickLegalContactShotPlanPayload>::value,
+        "KickLegalContact payload must not expose a pocket ID");
+    static_assert(!HasPotScoring<KickLegalContactShotPlanPayload>::value,
+        "KickLegalContact payload must not expose Pot scoring");
+
+    std::optional<KickLegalContactCandidate> legalKickFixture;
+    for (std::size_t railIndex = 0;
+         railIndex < geometry.railReflectionRegion.rails.size();
+         ++railIndex) {
+        const auto legalState = alignedKickState(
+            geometry,
+            railIndex,
+            oppositePocketForRail[railIndex]);
+        const auto legalTarget = selector.select(legalState);
+        tests.expectTrue(legalTarget.value().has_value(),
+            "LegalContact rail fixture preserves the lowest target");
+        if (!legalTarget.value()) {
+            continue;
+        }
+        const auto evaluation = BilliardAlgorithm::generateLegalContactForTest(
+            legalState,
+            *legalTarget.value(),
+            geometry,
+            kickConfig());
+        const auto& candidate = evaluation.kicks[railIndex];
+        if (evaluation.direct && candidate) {
+            tests.expectTrue(evaluation.selectedDirect,
+                "LegalContact selection applies Direct priority before Kick tie-breaks");
+        }
+        tests.expectTrue(candidate.has_value(),
+            "each effective rail independently produces at most one observable KickLegalContact");
+        if (!candidate) {
+            continue;
+        }
+        if (!legalKickFixture) {
+            legalKickFixture = *candidate;
+        }
+        const auto& rail = geometry.railReflectionRegion.rails[railIndex];
+        const auto mirrored = BilliardPhysics::mirrorPointAcrossEffectiveRail(
+            legalState.cueBall,
+            rail);
+        const auto directionRaw = mirrored.value()
+            ? BilliardMath::getVector(*mirrored.value(), legalTarget.value()->center)
+            : std::nullopt;
+        const auto direction = directionRaw
+            ? BilliardMath::normalize(*directionRaw)
+            : std::nullopt;
+        tests.expectTrue(mirrored.value().has_value() && direction.has_value(),
+            "KickLegalContact fixture has finite Cmirror and vKickContact");
+        if (!mirrored.value() || !direction) {
+            continue;
+        }
+        const Point expectedGhost{
+            legalTarget.value()->center.x -
+                2.0 * geometry.ballRadiusMm * direction->x,
+            legalTarget.value()->center.y -
+                2.0 * geometry.ballRadiusMm * direction->y};
+        const auto expectedRebound = BilliardPhysics::intersectRayWithEffectiveRail(
+            *mirrored.value(),
+            expectedGhost,
+            rail);
+        tests.expectNear(candidate->ghostBallPoint.center.x,
+            expectedGhost.x, TOLERANCE,
+            "KickLegalContact G X follows the approved mirror formula");
+        tests.expectNear(candidate->ghostBallPoint.center.y,
+            expectedGhost.y, TOLERANCE,
+            "KickLegalContact G Y follows the approved mirror formula");
+        tests.expectTrue(expectedRebound.value().has_value(),
+            "KickLegalContact has one valid effective-rail intersection");
+        if (expectedRebound.value()) {
+            tests.expectNear(candidate->reboundPoint.x,
+                expectedRebound.value()->x, TOLERANCE,
+                "KickLegalContact rebound X is the unique mirror intersection");
+            tests.expectNear(candidate->reboundPoint.y,
+                expectedRebound.value()->y, TOLERANCE,
+                "KickLegalContact rebound Y is the unique mirror intersection");
+        }
+        tests.expectTrue(
+            candidate->cuePathFirst.start.x == legalState.cueBall.x &&
+            candidate->cuePathFirst.start.y == legalState.cueBall.y &&
+            candidate->cuePathFirst.end.x == candidate->reboundPoint.x &&
+            candidate->cuePathFirst.end.y == candidate->reboundPoint.y &&
+            candidate->cuePathSecond.start.x == candidate->reboundPoint.x &&
+            candidate->cuePathSecond.start.y == candidate->reboundPoint.y &&
+            candidate->cuePathSecond.end.x == candidate->ghostBallPoint.center.x &&
+            candidate->cuePathSecond.end.y == candidate->ghostBallPoint.center.y,
+            "KickLegalContact path is exactly C to R to G for every effective rail");
+        tests.expectNear(std::hypot(
+            candidate->target.center.x - candidate->ghostBallPoint.center.x,
+            candidate->target.center.y - candidate->ghostBallPoint.center.y),
+            2.0 * geometry.ballRadiusMm,
+            TOLERANCE,
+            "KickLegalContact G remains exactly 2r from the target");
+    }
+
+    if (legalKickFixture) {
+        auto higherClearance = *legalKickFixture;
+        auto lowerClearance = *legalKickFixture;
+        higherClearance.minimumClearanceMm = 50.0;
+        lowerClearance.minimumClearanceMm = 40.0;
+        tests.expectTrue(BilliardAlgorithm::legalKickBetterForTest(
+            higherClearance, lowerClearance),
+            "LegalContact Kick tie-break prefers greater minimum clearance");
+
+        auto shorter = *legalKickFixture;
+        auto longer = *legalKickFixture;
+        shorter.minimumClearanceMm = 40.0;
+        longer.minimumClearanceMm = 40.0;
+        shorter.totalPathLengthMm = 100.0;
+        longer.totalPathLengthMm = 110.0;
+        tests.expectTrue(BilliardAlgorithm::legalKickBetterForTest(shorter, longer),
+            "LegalContact Kick tie-break next prefers shorter total path");
+
+        auto lowerRailCandidate = *legalKickFixture;
+        auto higherRailCandidate = *legalKickFixture;
+        lowerRailCandidate.minimumClearanceMm = 40.0;
+        higherRailCandidate.minimumClearanceMm = 40.0;
+        lowerRailCandidate.totalPathLengthMm = 100.0;
+        higherRailCandidate.totalPathLengthMm = 100.0;
+        lowerRailCandidate.railId = BilliardConfig::RailId::Rail1;
+        higherRailCandidate.railId = BilliardConfig::RailId::Rail2;
+        tests.expectTrue(BilliardAlgorithm::legalKickBetterForTest(
+            lowerRailCandidate, higherRailCandidate),
+            "LegalContact Kick final tie-break prefers lower rail ID");
+    }
+
+    if (kickLegalPlan && kickLegalPayload) {
+        ShotPlan targetEndpoint = *kickLegalPlan;
+        auto& targetPayload =
+            std::get<KickLegalContactShotPlanPayload>(targetEndpoint.payload);
+        targetEndpoint.ghostBallPoint.center = targetEndpoint.selectedTarget.center;
+        targetEndpoint.cuePathSegments.back().end =
+            targetEndpoint.selectedTarget.center;
+        targetPayload.candidate.ghostBallPoint = targetEndpoint.ghostBallPoint;
+        targetPayload.candidate.cuePathSecond.end =
+            targetEndpoint.selectedTarget.center;
+        targetPayload.audit.selectedContactGhostBallPoint =
+            targetEndpoint.ghostBallPoint;
+        tests.expectFalse(targetEndpoint.isValid(),
+            "LegalContact rejects target center as a GhostBallPoint endpoint");
+
+        ShotPlan surfaceEndpoint = *kickLegalPlan;
+        auto& surfacePayload =
+            std::get<KickLegalContactShotPlanPayload>(surfaceEndpoint.payload);
+        const Point surfaceContact{
+            (surfaceEndpoint.selectedTarget.center.x +
+                surfaceEndpoint.ghostBallPoint.center.x) / 2.0,
+            (surfaceEndpoint.selectedTarget.center.y +
+                surfaceEndpoint.ghostBallPoint.center.y) / 2.0};
+        surfaceEndpoint.ghostBallPoint.center = surfaceContact;
+        surfaceEndpoint.cuePathSegments.back().end = surfaceContact;
+        surfacePayload.candidate.ghostBallPoint = {surfaceContact};
+        surfacePayload.candidate.cuePathSecond.end = surfaceContact;
+        surfacePayload.audit.selectedContactGhostBallPoint = {surfaceContact};
+        tests.expectFalse(surfaceEndpoint.isValid(),
+            "LegalContact rejects BallSurfaceContactPoint as a cue-center endpoint");
+    }
+
+    const auto baseLegalState = alignedKickState(geometry, 0, 4);
+    const auto baseLegalTarget = selector.select(baseLegalState);
+    if (baseLegalTarget.value()) {
+        const auto baseline = BilliardAlgorithm::generateLegalContactForTest(
+            baseLegalState,
+            *baseLegalTarget.value(),
+            geometry,
+            kickConfig());
+        if (baseline.kicks[0]) {
+            const auto legalBaselineKick = *baseline.kicks[0];
+            auto firstBlockedState = baseLegalState;
+            firstBlockedState.objectBalls[1] = Point{
+                (legalBaselineKick.cuePathFirst.start.x +
+                    legalBaselineKick.cuePathFirst.end.x) / 2.0,
+                (legalBaselineKick.cuePathFirst.start.y +
+                    legalBaselineKick.cuePathFirst.end.y) / 2.0};
+            const auto firstBlocked = BilliardAlgorithm::generateLegalContactForTest(
+                firstBlockedState,
+                *baseLegalTarget.value(),
+                geometry,
+                kickConfig());
+            tests.expectFalse(firstBlocked.kicks[0].has_value(),
+                "KickLegalContact rejects collision on C-to-R");
+
+            auto secondBlockedState = baseLegalState;
+            secondBlockedState.objectBalls[1] = Point{
+                (legalBaselineKick.cuePathSecond.start.x +
+                    legalBaselineKick.cuePathSecond.end.x) / 2.0,
+                (legalBaselineKick.cuePathSecond.start.y +
+                    legalBaselineKick.cuePathSecond.end.y) / 2.0};
+            const auto secondBlocked = BilliardAlgorithm::generateLegalContactForTest(
+                secondBlockedState,
+                *baseLegalTarget.value(),
+                geometry,
+                kickConfig());
+            tests.expectFalse(secondBlocked.kicks[0].has_value(),
+                "KickLegalContact rejects collision on R-to-G");
+        }
+
+        const auto& firstRail = geometry.railReflectionRegion.rails[0];
+        const Vector2D railDirectionRaw{
+            firstRail.segment.end.x - firstRail.segment.start.x,
+            firstRail.segment.end.y - firstRail.segment.start.y};
+        const double railLength = std::hypot(
+            railDirectionRaw.x,
+            railDirectionRaw.y);
+        const Point outsideEffectiveRail{
+            firstRail.segment.start.x - railDirectionRaw.x / railLength,
+            firstRail.segment.start.y - railDirectionRaw.y / railLength};
+        const auto exclusionState = kickStateForRebound(
+            geometry,
+            0,
+            4,
+            outsideEffectiveRail);
+        const auto exclusionTarget = selector.select(exclusionState);
+        if (exclusionTarget.value()) {
+            const auto exclusion = BilliardAlgorithm::generateLegalContactForTest(
+                exclusionState,
+                *exclusionTarget.value(),
+                geometry,
+                kickConfig());
+            tests.expectFalse(exclusion.kicks[0].has_value(),
+                "KickLegalContact rejects a rebound outside the effective rail exclusion boundary");
+        }
+
+        const Point railMidpoint{
+            (firstRail.segment.start.x + firstRail.segment.end.x) / 2.0,
+            (firstRail.segment.start.y + firstRail.segment.end.y) / 2.0};
+        const auto zeroFirstSegmentState = kickStateForRebound(
+            geometry,
+            0,
+            4,
+            railMidpoint,
+            0.0);
+        const auto zeroFirstSegmentTarget = selector.select(zeroFirstSegmentState);
+        if (zeroFirstSegmentTarget.value()) {
+            const auto zeroFirstSegment =
+                BilliardAlgorithm::generateLegalContactForTest(
+                    zeroFirstSegmentState,
+                    *zeroFirstSegmentTarget.value(),
+                    geometry,
+                    kickConfig());
+            bool namedZeroLengthDiagnostic = false;
+            for (const auto& diagnostic : zeroFirstSegment.diagnostics) {
+                namedZeroLengthDiagnostic = namedZeroLengthDiagnostic ||
+                    (diagnostic.railId == BilliardConfig::RailId::Rail1 &&
+                     diagnostic.reason ==
+                        LegalContactRejectionReason::FirstSegmentInvalid &&
+                     diagnostic.geometryStatus ==
+                        GeometryStatus::DegenerateGeometry);
+            }
+            tests.expectTrue(
+                !zeroFirstSegment.kicks[0] && namedZeroLengthDiagnostic,
+                "KickLegalContact rejects zero-length C-to-R with a named diagnostic");
+        }
+    }
+
+    std::array<std::optional<Point>, 9> zeroLengthBalls{};
+    zeroLengthBalls[0] = Point{500.0, 250.0};
+    const StableTableState zeroLengthLegalState =
+        state({480.0, 250.0}, zeroLengthBalls);
+    const EligibleTarget zeroLengthTarget{1, *zeroLengthBalls[0]};
+    const auto zeroLengthLegal = BilliardAlgorithm::generateLegalContactForTest(
+        zeroLengthLegalState,
+        zeroLengthTarget,
+        geometry,
+        kickConfig());
+    tests.expectFalse(zeroLengthLegal.direct.has_value(),
+        "DirectLegalContact rejects a zero-length C-to-G path");
+
+    auto nonFiniteLegalState = baseLegalState;
+    nonFiniteLegalState.cueBall.x = std::numeric_limits<double>::quiet_NaN();
+    if (baseLegalTarget.value()) {
+        const auto nonFiniteLegal = BilliardAlgorithm::generateLegalContactForTest(
+            nonFiniteLegalState,
+            *baseLegalTarget.value(),
+            geometry,
+            kickConfig());
+        bool anyKick = false;
+        for (const auto& candidate : nonFiniteLegal.kicks) {
+            anyKick = anyKick || candidate.has_value();
+        }
+        tests.expectTrue(!nonFiniteLegal.direct && !anyKick,
+            "LegalContact rejects non-finite cue geometry without fallback");
+    }
+
+    std::array<std::optional<Point>, 9> parallelBalls{};
+    parallelBalls[0] = Point{200.0, -80.0};
+    const StableTableState parallelState = state({100.0, 100.0}, parallelBalls);
+    const EligibleTarget parallelTarget{1, *parallelBalls[0]};
+    const auto parallelLegal = BilliardAlgorithm::generateLegalContactForTest(
+        parallelState,
+        parallelTarget,
+        geometry,
+        kickConfig());
+    bool parallelRejected = false;
+    for (const auto& diagnostic : parallelLegal.diagnostics) {
+        parallelRejected = parallelRejected ||
+            (diagnostic.railId == BilliardConfig::RailId::Rail1 &&
+             diagnostic.reason == LegalContactRejectionReason::NoRailIntersection);
+    }
+    tests.expectTrue(!parallelLegal.kicks[0] && parallelRejected,
+        "KickLegalContact fails closed when the mirror ray is parallel to the rail");
+
+    auto noLegalConfig = p109Config;
+    noLegalConfig.scoring->planningMode =
+        BilliardConfig::PlanningMode::ManualResearch;
+    const auto noLegalPlanning = BilliardAlgorithm::planShot(
+        noPotState,
+        std::optional<BilliardConfig::TableGeometryConfig>{tableConfig()},
+        noLegalConfig);
+    const auto* noLegal = std::get_if<NoPlan>(&noLegalPlanning.value());
+    tests.expectTrue(
+        noLegalPlanning.isValid() && noLegal &&
+        noLegal->reason == NoPlanReason::NoLegalContact &&
+        noLegal->proceededToLegalContact &&
+        !noLegal->legalContactDiagnostics.empty(),
+        "ManualResearch returns NoLegalContact when direct and one-rail contact fail");
 
     std::array<std::optional<Point>, 9> noNumberedBalls{};
     const StableTableState noTargetState = state({500.0, 250.0}, noNumberedBalls);

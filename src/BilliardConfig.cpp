@@ -3,6 +3,7 @@
 
 namespace BilliardConfig {
 
+// 連線：手臂IP、視覺服務IP與人工部署的連接埠。
 const char* const ARM_IP = "192.168.0.1";
 const char* const VISION_SERVER_IP = "127.0.0.1";
 const int VISION_SERVER_PORT = 12345;
@@ -18,20 +19,21 @@ const double YAW_OFFSET_DEG = 0.0;      // RZ 瞄準角的固定補償量
 const double MIN_AIM_DISTANCE_MM = 5.0; // 拒絕建立路徑的最小瞄準向量長度
 const double MAX_REACH_RADIUS_MM = 850.0;
 
-// P1-03不猜測production輸入邊界。部署前須填入經核准的具名值；
-// 缺少時BilliardApp fail closed，不會開啟production vision session。
+// 影像：32值CSV最大長度、等待完整資料最長時間與Base0 XY合法範圍。
+// 未核准前保持nullopt，BilliardApp不得開啟production vision session。
 const std::optional<std::size_t> VISION_MAX_FRAME_BYTES = std::nullopt;
 const std::optional<unsigned long> VISION_RECEIVE_TIMEOUT_MS = std::nullopt;
 const std::optional<AxisAlignedBounds2D> VISION_OBSERVATION_BOUNDS = std::nullopt;
 
-// P1-04不猜測production穩定參數；部署核准前保持ConfigurationMissing。
+// 穩定：球三次偵測最大偏移、袋口最大偏移及相鄰資料最大時間。
 const std::optional<double> STABLE_FRAME_TOLERANCE_MM = std::nullopt;
 const std::optional<double> POCKET_STABILITY_TOLERANCE_MM = std::nullopt;
 const std::optional<unsigned long> MAX_INTER_FRAME_INTERVAL_MS = std::nullopt;
-// P1-05 production geometry is fail-closed until a versioned calibration is approved.
+// 球桌／袋口／庫邊：版本化標定未核准前保持ConfigurationMissing。
 const std::optional<TableGeometryConfig> TABLE_GEOMETRY = std::nullopt;
-// P1-07 does not guess production kick-angle acceptance parameters.
+// Kick：碰庫角與理想鏡射容差未核准前保持ConfigurationMissing。
 const std::optional<KickGeometryConfig> KICK_GEOMETRY = std::nullopt;
+// 評分：六項初始實驗權重；正規化範圍仍須人工核准。
 const ScoringWeights INITIAL_EXPERIMENTAL_SCORING_WEIGHTS = {
     0.30,
     0.30,
@@ -39,12 +41,12 @@ const ScoringWeights INITIAL_EXPERIMENTAL_SCORING_WEIGHTS = {
     0.10,
     0.05,
     0.05};
-// P1-08 normalization ranges and tie epsilon require explicit calibration.
 const std::optional<ScoringConfig> SCORING_CONFIG = std::nullopt;
-// P1-09 keeps production planning fail-closed until the Base0 calibration
-// revision and all planning configurations are explicitly approved together.
+// Base0平面標定版本：必須與目前Python部署使用的版本化設定一致。
+const std::optional<std::string> BASE0_PLANAR_CALIBRATION_REVISION = std::nullopt;
+// Shot Brain：集中組合Base0版本、Kick與評分設定；缺值即fail closed。
 const BrainConfig BRAIN_CONFIG = {
-    std::nullopt,
+    BASE0_PLANAR_CALIBRATION_REVISION,
     KICK_GEOMETRY,
     SCORING_CONFIG};
 

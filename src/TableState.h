@@ -1498,7 +1498,9 @@ private:
 
 enum class ShotPlanType {
     DirectPot,
-    KickPot
+    KickPot,
+    DirectLegalContact,
+    KickLegalContact
 };
 
 enum class FixedForceMode {
@@ -1602,7 +1604,93 @@ struct KickPotShotPlanPayload {
     }
 };
 
-using ShotPlanPayload = std::variant<DirectPotShotPlanPayload, KickPotShotPlanPayload>;
+enum class LegalContactRejectionReason {
+    GhostGeometryInvalid,
+    RailGeometryInvalid,
+    NoRailIntersection,
+    FirstSegmentInvalid,
+    FirstSegmentBlocked,
+    SecondSegmentInvalid,
+    SecondSegmentBlocked,
+    ReflectionInvariantFailed,
+    KickAngleRejected,
+    NumericalFailure
+};
+
+struct LegalContactCandidateDiagnostic {
+    std::optional<BilliardConfig::RailId> railId;
+    LegalContactRejectionReason reason;
+    GeometryStatus geometryStatus;
+    std::optional<std::size_t> relatedObstacleIndex;
+};
+
+struct DirectLegalContactCandidate {
+    EligibleTarget target;
+    GhostBallPoint ghostBallPoint;
+    Segment2D cuePath;
+    std::optional<double> minimumClearanceMm;
+    double totalPathLengthMm;
+};
+
+struct KickLegalContactCandidate {
+    EligibleTarget target;
+    BilliardConfig::RailId railId;
+    GhostBallPoint ghostBallPoint;
+    Point reboundPoint;
+    Segment2D effectiveRailReference;
+    Segment2D cuePathFirst;
+    Segment2D cuePathSecond;
+    std::optional<double> minimumClearanceMm;
+    double totalPathLengthMm;
+    double incidenceAngleDeg;
+};
+
+struct LegalContactAuditFields {
+    bool legalFirstContactGuaranteed;
+    GhostBallPoint selectedContactGhostBallPoint;
+    bool directPriorityApplied;
+    std::optional<double> minimumClearanceMm;
+    double totalPathLengthMm;
+    std::optional<BilliardConfig::RailId> railId;
+    bool potSearchExhausted;
+    PotSelectionStatus potSearchStatus;
+    bool requiresExplicitExecutionAuthorization;
+    bool realHardwareExecutionDefaultEnabled;
+    std::vector<LegalContactCandidateDiagnostic> candidateDiagnostics;
+
+    [[nodiscard]] bool isValid() const noexcept
+    {
+        return legalFirstContactGuaranteed &&
+            std::isfinite(selectedContactGhostBallPoint.center.x) &&
+            std::isfinite(selectedContactGhostBallPoint.center.y) &&
+            directPriorityApplied &&
+            (!minimumClearanceMm ||
+             (std::isfinite(*minimumClearanceMm) && *minimumClearanceMm >= 0.0)) &&
+            std::isfinite(totalPathLengthMm) && totalPathLengthMm > 0.0 &&
+            (!railId || static_cast<std::size_t>(*railId) < 6) &&
+            potSearchExhausted &&
+            potSearchStatus == PotSelectionStatus::ManualResearchPotSearchExhausted &&
+            requiresExplicitExecutionAuthorization &&
+            !realHardwareExecutionDefaultEnabled;
+    }
+};
+
+struct DirectLegalContactShotPlanPayload {
+    DirectLegalContactCandidate candidate;
+    LegalContactAuditFields audit;
+};
+
+struct KickLegalContactShotPlanPayload {
+    KickLegalContactCandidate candidate;
+    BilliardConfig::KickGeometryConfig kickGeometry;
+    LegalContactAuditFields audit;
+};
+
+using ShotPlanPayload = std::variant<
+    DirectPotShotPlanPayload,
+    KickPotShotPlanPayload,
+    DirectLegalContactShotPlanPayload,
+    KickLegalContactShotPlanPayload>;
 
 struct ShotPlan {
     ShotPlanType type;
@@ -1627,6 +1715,16 @@ struct ShotPlan {
         const double directionLength = std::hypot(
             shotDirectionXY.x,
             shotDirectionXY.y);
+        const Vector2D firstPathDirection{
+            cuePathSegments.empty()
+                ? std::numeric_limits<double>::quiet_NaN()
+                : cuePathSegments.front().end.x - cuePathSegments.front().start.x,
+            cuePathSegments.empty()
+                ? std::numeric_limits<double>::quiet_NaN()
+                : cuePathSegments.front().end.y - cuePathSegments.front().start.y};
+        const double firstPathLength = std::hypot(
+            firstPathDirection.x,
+            firstPathDirection.y);
         if (!source.isValid() || selectedTarget.ballNumber < 1 ||
             selectedTarget.ballNumber > 9 || !std::isfinite(selectedTarget.center.x) ||
             !std::isfinite(selectedTarget.center.y) ||
@@ -1635,6 +1733,11 @@ struct ShotPlan {
             !std::isfinite(ghostBallPoint.center.x) ||
             !std::isfinite(ghostBallPoint.center.y) || cuePathSegments.empty() ||
             cuePathSegments.size() > 2 ||
+            !std::isfinite(firstPathLength) || firstPathLength <= 0.0 ||
+            std::fabs(shotDirectionXY.x -
+                firstPathDirection.x / firstPathLength) > UNIT_VECTOR_TOLERANCE ||
+            std::fabs(shotDirectionXY.y -
+                firstPathDirection.y / firstPathLength) > UNIT_VECTOR_TOLERANCE ||
             (minimumClearanceMm &&
              (!std::isfinite(*minimumClearanceMm) || *minimumClearanceMm < 0.0)) ||
             forceMode != FixedForceMode::Fixed || !limitations.isValid()) {
@@ -1657,26 +1760,139 @@ struct ShotPlan {
                     cuePathSegments[0].end) &&
                 direct->scoring.rawCosts.minimumClearanceMm == minimumClearanceMm;
         }
-        const auto* kick = std::get_if<KickPotShotPlanPayload>(&payload);
-        return kick && cuePathSegments.size() == 2 && kick->isValid() &&
+        if (type == ShotPlanType::KickPot) {
+            const auto* kick = std::get_if<KickPotShotPlanPayload>(&payload);
+            return kick && cuePathSegments.size() == 2 && kick->isValid() &&
+                kick->candidate.target.ballNumber == selectedTarget.ballNumber &&
+                samePoint(kick->candidate.target.center, selectedTarget.center) &&
+                samePoint(kick->candidate.ghostBallPoint.center,
+                    ghostBallPoint.center) &&
+                samePoint(kick->candidate.cuePathFirst.start,
+                    cuePathSegments[0].start) &&
+                samePoint(kick->candidate.cuePathFirst.end,
+                    cuePathSegments[0].end) &&
+                samePoint(kick->candidate.cuePathSecond.start,
+                    cuePathSegments[1].start) &&
+                samePoint(kick->candidate.cuePathSecond.end,
+                    cuePathSegments[1].end) &&
+                kick->scoring.rawCosts.minimumClearanceMm == minimumClearanceMm;
+        }
+        const double contactDistance = std::hypot(
+            selectedTarget.center.x - ghostBallPoint.center.x,
+            selectedTarget.center.y - ghostBallPoint.center.y);
+        if (!std::isfinite(contactDistance) ||
+            std::fabs(contactDistance - 2.0 * source.ballRadiusMm) >
+                UNIT_VECTOR_TOLERANCE) {
+            return false;
+        }
+        if (type == ShotPlanType::DirectLegalContact) {
+            const auto* direct =
+                std::get_if<DirectLegalContactShotPlanPayload>(&payload);
+            const double pathLength = direct
+                ? std::hypot(
+                    direct->candidate.cuePath.end.x -
+                        direct->candidate.cuePath.start.x,
+                    direct->candidate.cuePath.end.y -
+                        direct->candidate.cuePath.start.y)
+                : std::numeric_limits<double>::quiet_NaN();
+            return direct && cuePathSegments.size() == 1 &&
+                direct->audit.isValid() &&
+                samePoint(direct->audit.selectedContactGhostBallPoint.center,
+                    ghostBallPoint.center) &&
+                direct->audit.minimumClearanceMm == minimumClearanceMm &&
+                direct->audit.totalPathLengthMm ==
+                    direct->candidate.totalPathLengthMm &&
+                !direct->audit.railId &&
+                direct->candidate.target.ballNumber == selectedTarget.ballNumber &&
+                samePoint(direct->candidate.target.center, selectedTarget.center) &&
+                samePoint(direct->candidate.ghostBallPoint.center,
+                    ghostBallPoint.center) &&
+                samePoint(direct->candidate.cuePath.start,
+                    cuePathSegments[0].start) &&
+                samePoint(direct->candidate.cuePath.end,
+                    cuePathSegments[0].end) &&
+                direct->candidate.minimumClearanceMm == minimumClearanceMm &&
+                std::isfinite(direct->candidate.totalPathLengthMm) &&
+                std::isfinite(pathLength) && pathLength > 0.0 &&
+                std::fabs(direct->candidate.totalPathLengthMm - pathLength) <=
+                    UNIT_VECTOR_TOLERANCE;
+        }
+        const auto* kick =
+            std::get_if<KickLegalContactShotPlanPayload>(&payload);
+        if (!kick || cuePathSegments.size() != 2 || !kick->audit.isValid() ||
+            !samePoint(kick->audit.selectedContactGhostBallPoint.center,
+                ghostBallPoint.center) ||
+            kick->audit.minimumClearanceMm != minimumClearanceMm ||
+            kick->audit.totalPathLengthMm !=
+                kick->candidate.totalPathLengthMm ||
+            kick->audit.railId != kick->candidate.railId ||
+            !std::isfinite(kick->kickGeometry.maxKickRailAngleDeg) ||
+            kick->kickGeometry.maxKickRailAngleDeg < 0.0 ||
+            kick->kickGeometry.maxKickRailAngleDeg > 90.0 ||
+            !std::isfinite(kick->kickGeometry.reflectionDirectionTolerance) ||
+            kick->kickGeometry.reflectionDirectionTolerance < 0.0 ||
+            kick->kickGeometry.reflectionDirectionTolerance > 2.0 ||
+            !std::isfinite(kick->kickGeometry.reflectionAngleToleranceDeg) ||
+            kick->kickGeometry.reflectionAngleToleranceDeg < 0.0 ||
+            kick->kickGeometry.reflectionAngleToleranceDeg > 180.0) {
+            return false;
+        }
+        const auto segmentLength = [](Segment2D segment) noexcept {
+            return std::hypot(
+                segment.end.x - segment.start.x,
+                segment.end.y - segment.start.y);
+        };
+        const double firstLength = segmentLength(kick->candidate.cuePathFirst);
+        const double secondLength = segmentLength(kick->candidate.cuePathSecond);
+        const Segment2D rail = kick->candidate.effectiveRailReference;
+        const Vector2D railVector{
+            rail.end.x - rail.start.x,
+            rail.end.y - rail.start.y};
+        const Vector2D reboundOffset{
+            kick->candidate.reboundPoint.x - rail.start.x,
+            kick->candidate.reboundPoint.y - rail.start.y};
+        const double railLengthSquared =
+            railVector.x * railVector.x + railVector.y * railVector.y;
+        const double railCross =
+            railVector.x * reboundOffset.y - railVector.y * reboundOffset.x;
+        const double railProjection =
+            railVector.x * reboundOffset.x + railVector.y * reboundOffset.y;
+        return
+            static_cast<std::size_t>(kick->candidate.railId) < 6 &&
+            std::isfinite(railLengthSquared) && railLengthSquared > 0.0 &&
+            std::isfinite(railCross) &&
+            std::fabs(railCross) <= UNIT_VECTOR_TOLERANCE &&
+            std::isfinite(railProjection) && railProjection >= 0.0 &&
+            railProjection <= railLengthSquared &&
             kick->candidate.target.ballNumber == selectedTarget.ballNumber &&
             samePoint(kick->candidate.target.center, selectedTarget.center) &&
-            samePoint(kick->candidate.ghostBallPoint.center, ghostBallPoint.center) &&
+            samePoint(kick->candidate.ghostBallPoint.center,
+                ghostBallPoint.center) &&
+            samePoint(kick->candidate.reboundPoint,
+                kick->candidate.cuePathFirst.end) &&
+            samePoint(kick->candidate.reboundPoint,
+                kick->candidate.cuePathSecond.start) &&
             samePoint(kick->candidate.cuePathFirst.start,
                 cuePathSegments[0].start) &&
-            samePoint(kick->candidate.cuePathFirst.end,
-                cuePathSegments[0].end) &&
-            samePoint(kick->candidate.cuePathSecond.start,
-                cuePathSegments[1].start) &&
             samePoint(kick->candidate.cuePathSecond.end,
                 cuePathSegments[1].end) &&
-            kick->scoring.rawCosts.minimumClearanceMm == minimumClearanceMm;
+            kick->candidate.minimumClearanceMm == minimumClearanceMm &&
+            std::isfinite(kick->candidate.totalPathLengthMm) &&
+            std::isfinite(firstLength) && firstLength > 0.0 &&
+            std::isfinite(secondLength) && secondLength > 0.0 &&
+            std::fabs(kick->candidate.totalPathLengthMm -
+                (firstLength + secondLength)) <= UNIT_VECTOR_TOLERANCE &&
+            std::isfinite(kick->candidate.incidenceAngleDeg) &&
+            kick->candidate.incidenceAngleDeg >= 0.0 &&
+            kick->candidate.incidenceAngleDeg <=
+                kick->kickGeometry.maxKickRailAngleDeg;
     }
 };
 
 enum class NoPlanReason {
     NoEligibleTarget,
     NoPotCandidate,
+    NoLegalContact,
     InvalidBrainConfiguration,
     NumericalPlanningFailure
 };
@@ -1697,28 +1913,37 @@ struct NoPlan {
     bool proceededToLegalContact;
     std::vector<DirectPotCandidateDiagnostic> directCandidateDiagnostics;
     std::vector<KickPotCandidateDiagnostic> kickCandidateDiagnostics;
+    std::vector<LegalContactCandidateDiagnostic> legalContactDiagnostics;
     PlanningDiagnostic diagnostic;
 
     [[nodiscard]] bool isValid() const noexcept
     {
-        if (feasiblePotCount != 0 || proceededToLegalContact) {
+        if (feasiblePotCount != 0) {
             return false;
         }
         if (source && !source->isValid()) {
             return false;
         }
         if (reason == NoPlanReason::NoEligibleTarget) {
-            return source && !selectedTarget &&
+            return !proceededToLegalContact && source && !selectedTarget &&
                 diagnostic.targetStatus ==
                     TargetQualificationStatus::NoEligibleTarget;
         }
         if (reason == NoPlanReason::NoPotCandidate) {
-            return source && selectedTarget &&
+            return !proceededToLegalContact && source && selectedTarget &&
                 selectedTarget->ballNumber >= 1 && selectedTarget->ballNumber <= 9 &&
                 diagnostic.selectionStatus == PotSelectionStatus::Success;
         }
+        if (reason == NoPlanReason::NoLegalContact) {
+            return proceededToLegalContact && source && selectedTarget &&
+                selectedTarget->ballNumber >= 1 && selectedTarget->ballNumber <= 9 &&
+                diagnostic.selectionStatus ==
+                    PotSelectionStatus::ManualResearchPotSearchExhausted &&
+                !legalContactDiagnostics.empty();
+        }
         if (reason == NoPlanReason::InvalidBrainConfiguration) {
-            return diagnostic.geometryStatus == GeometryStatus::ConfigurationMissing ||
+            return !proceededToLegalContact &&
+                (diagnostic.geometryStatus == GeometryStatus::ConfigurationMissing ||
                 diagnostic.geometryStatus == GeometryStatus::InvalidConfiguration ||
                 diagnostic.kickStatus == KickPotGenerationStatus::ConfigurationMissing ||
                 diagnostic.kickStatus == KickPotGenerationStatus::InvalidGeometryConfiguration ||
@@ -1726,15 +1951,16 @@ struct NoPlan {
                 diagnostic.selectionStatus == PotSelectionStatus::InvalidConfiguration ||
                 (!source && !diagnostic.targetStatus && !diagnostic.geometryStatus &&
                  !diagnostic.directStatus && !diagnostic.kickStatus &&
-                 !diagnostic.selectionStatus);
+                 !diagnostic.selectionStatus));
         }
-        return diagnostic.targetStatus == TargetQualificationStatus::InvalidStableState ||
+        return !proceededToLegalContact &&
+            (diagnostic.targetStatus == TargetQualificationStatus::InvalidStableState ||
             diagnostic.directStatus == DirectPotGenerationStatus::InvalidStableState ||
             diagnostic.directStatus == DirectPotGenerationStatus::SelectedTargetMismatch ||
             diagnostic.kickStatus == KickPotGenerationStatus::InvalidStableState ||
             diagnostic.kickStatus == KickPotGenerationStatus::SelectedTargetMismatch ||
             diagnostic.selectionStatus == PotSelectionStatus::InvalidCandidateInput ||
-            diagnostic.selectionStatus == PotSelectionStatus::NumericalFailure;
+            diagnostic.selectionStatus == PotSelectionStatus::NumericalFailure);
     }
 };
 

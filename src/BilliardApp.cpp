@@ -340,10 +340,10 @@ bool BilliardApp::executeMotionPlan(const MotionPlan& plan) {
 
     array<double, 6> actualReadyPose;
     if (!robot.getCurrentPosition(actualReadyPose, sdkCode)) {
-        cout << "[Warning] get_current_position failed at ready pose. SDK code="
+        cout << "[Error] get_current_position failed at ready pose. SDK code="
              << sdkCode << endl;
-        actualReadyPose = plan.readyPose;
         printAlarmCodes();
+        return false;
     }
 
     bool linearPathReachable = false;
@@ -353,16 +353,17 @@ bool BilliardApp::executeMotionPlan(const MotionPlan& plan) {
         linearPathReachable,
         sdkCode
     )) {
-        cout << "[Diagnostic] motion_check_lin failed. SDK code="
-             << sdkCode << ". PTP will still be attempted." << endl;
+        cout << "[Error] motion_check_lin API failed. SDK code="
+             << sdkCode << ". Motion is blocked." << endl;
         printAlarmCodes();
-    } else {
-        cout << "[Diagnostic] Ready-to-strike LIN path: "
-             << (linearPathReachable ? "reachable" : "not reachable")
-             << ". This run uses PTP." << endl;
-        if (!linearPathReachable) {
-            printAlarmCodes();
-        }
+        return false;
+    }
+    cout << "[Diagnostic] Ready-to-strike LIN path: "
+         << (linearPathReachable ? "reachable" : "not reachable")
+         << ". This run uses PTP." << endl;
+    if (!linearPathReachable) {
+        printAlarmCodes();
+        return false;
     }
 
     cout << "[Motion] Move from ready pose to strike pose with PTP..." << endl;

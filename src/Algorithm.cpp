@@ -472,6 +472,345 @@ bool tieBreakBetter(const ScoredPotCandidate& candidate, const ScoredPotCandidat
         : 0;
     return candidateRail < currentRail;
 }
+
+using LegalContactCandidate =
+    std::variant<DirectLegalContactCandidate, KickLegalContactCandidate>;
+
+struct LegalContactSearchResult {
+    std::optional<LegalContactCandidate> selected;
+    std::optional<DirectLegalContactCandidate> feasibleDirect;
+    std::array<std::optional<KickLegalContactCandidate>, 6> feasibleKicks{};
+    std::vector<LegalContactCandidateDiagnostic> diagnostics;
+};
+
+bool clearanceBetter(
+    const std::optional<double>& candidate,
+    const std::optional<double>& current) noexcept
+{
+    if (candidate.has_value() != current.has_value()) {
+        return !candidate.has_value();
+    }
+    return candidate && *candidate > *current;
+}
+
+bool legalKickBetter(
+    const KickLegalContactCandidate& candidate,
+    const KickLegalContactCandidate& current) noexcept
+{
+    if (candidate.minimumClearanceMm != current.minimumClearanceMm) {
+        return clearanceBetter(
+            candidate.minimumClearanceMm,
+            current.minimumClearanceMm);
+    }
+    if (candidate.totalPathLengthMm != current.totalPathLengthMm) {
+        return candidate.totalPathLengthMm < current.totalPathLengthMm;
+    }
+    return static_cast<std::size_t>(candidate.railId) <
+        static_cast<std::size_t>(current.railId);
+}
+
+LegalContactSearchResult generateLegalContact(
+    const StableTableState& table,
+    const EligibleTarget& selectedTarget,
+    const ResolvedTableGeometry& geometry,
+    const BilliardConfig::KickGeometryConfig& kickConfig)
+{
+    LegalContactSearchResult result;
+    std::vector<Point> obstacles;
+    obstacles.reserve(table.objectBalls.size());
+    std::optional<std::size_t> selectedObstacleIndex;
+    for (std::size_t index = 0; index < table.objectBalls.size(); ++index) {
+        if (!table.objectBalls[index]) continue;
+        if (index == static_cast<std::size_t>(selectedTarget.ballNumber - 1)) {
+            selectedObstacleIndex = obstacles.size();
+        }
+        obstacles.push_back(*table.objectBalls[index]);
+    }
+    if (!selectedObstacleIndex) {
+        result.diagnostics.push_back({
+            std::nullopt,
+            LegalContactRejectionReason::GhostGeometryInvalid,
+            GeometryStatus::InvalidInput,
+            std::nullopt});
+        return result;
+    }
+    const std::vector<std::size_t> targetExclusion{*selectedObstacleIndex};
+    const auto cueTargetDistance = BilliardMath::getDistance(
+        table.cueBall,
+        selectedTarget.center);
+    if (!cueTargetDistance ||
+        *cueTargetDistance < geometry.ballDiameterMm) {
+        result.diagnostics.push_back({
+            std::nullopt,
+            LegalContactRejectionReason::GhostGeometryInvalid,
+            GeometryStatus::DegenerateGeometry,
+            std::nullopt});
+        return result;
+    }
+
+    const auto directDirectionRaw = BilliardMath::getVector(
+        table.cueBall,
+        selectedTarget.center);
+    const auto directDirection = directDirectionRaw
+        ? BilliardMath::normalize(*directDirectionRaw)
+        : std::nullopt;
+    if (directDirection) {
+        const Point ghost{
+            selectedTarget.center.x -
+                geometry.ballDiameterMm * directDirection->x,
+            selectedTarget.center.y -
+                geometry.ballDiameterMm * directDirection->y};
+        const Segment2D cuePath{table.cueBall, ghost};
+        const GeometryCheckResult region =
+            BilliardPhysics::checkSegmentWithinPlayableRegion(
+                cuePath,
+                geometry.playableBallCenterRegion);
+        const GeometryCheckResult collision =
+            BilliardPhysics::checkSegmentCollision(
+                cuePath,
+                obstacles,
+                targetExclusion,
+                geometry.ballDiameterMm,
+                geometry.collisionMarginMm);
+        std::optional<double> minimumClearance;
+        double totalDistance = 0.0;
+        if (region.status() == GeometryStatus::Clear &&
+            collision.status() == GeometryStatus::Clear) {
+            if (accumulateClearance(
+                    minimumClearance,
+                    cuePath,
+                    obstacles,
+                    targetExclusion) &&
+                accumulateDistance(totalDistance, cuePath)) {
+                result.feasibleDirect = DirectLegalContactCandidate{
+                    selectedTarget,
+                    GhostBallPoint{ghost},
+                    cuePath,
+                    minimumClearance,
+                    totalDistance};
+            }
+            if (!result.feasibleDirect) {
+                result.diagnostics.push_back({
+                    std::nullopt,
+                    LegalContactRejectionReason::NumericalFailure,
+                    GeometryStatus::InvalidInput,
+                    std::nullopt});
+            }
+        } else {
+            const bool blocked = collision.status() == GeometryStatus::Blocked;
+            result.diagnostics.push_back({
+                std::nullopt,
+                blocked
+                    ? LegalContactRejectionReason::FirstSegmentBlocked
+                    : LegalContactRejectionReason::FirstSegmentInvalid,
+                blocked ? collision.status() : region.status(),
+                blocked ? relatedIndex(collision) : relatedIndex(region)});
+        }
+    } else {
+        result.diagnostics.push_back({
+            std::nullopt,
+            LegalContactRejectionReason::GhostGeometryInvalid,
+            GeometryStatus::DegenerateGeometry,
+            std::nullopt});
+    }
+
+    std::optional<KickLegalContactCandidate> selectedKick;
+    for (std::size_t railIndex = 0;
+         railIndex < geometry.railReflectionRegion.rails.size();
+         ++railIndex) {
+        const EffectiveCueBallRailSegment& rail =
+            geometry.railReflectionRegion.rails[railIndex];
+        auto reject = [&](LegalContactRejectionReason reason,
+                          GeometryStatus status,
+                          std::optional<std::size_t> related = std::nullopt) {
+            result.diagnostics.push_back({
+                rail.physicalRailId,
+                reason,
+                status,
+                related});
+        };
+        const auto mirroredCue = BilliardPhysics::mirrorPointAcrossEffectiveRail(
+            table.cueBall,
+            rail);
+        if (!mirroredCue.value()) {
+            reject(
+                LegalContactRejectionReason::RailGeometryInvalid,
+                mirroredCue.status());
+            continue;
+        }
+        const auto kickDirectionRaw = BilliardMath::getVector(
+            *mirroredCue.value(),
+            selectedTarget.center);
+        const auto kickDirection = kickDirectionRaw
+            ? BilliardMath::normalize(*kickDirectionRaw)
+            : std::nullopt;
+        if (!kickDirection) {
+            reject(
+                LegalContactRejectionReason::GhostGeometryInvalid,
+                GeometryStatus::DegenerateGeometry);
+            continue;
+        }
+        const Point ghost{
+            selectedTarget.center.x - geometry.ballDiameterMm * kickDirection->x,
+            selectedTarget.center.y - geometry.ballDiameterMm * kickDirection->y};
+        if (!BilliardMath::isFinite(ghost)) {
+            reject(
+                LegalContactRejectionReason::GhostGeometryInvalid,
+                GeometryStatus::InvalidInput);
+            continue;
+        }
+        const auto rebound = BilliardPhysics::intersectRayWithEffectiveRail(
+            *mirroredCue.value(),
+            ghost,
+            rail);
+        if (!rebound.value()) {
+            reject(
+                LegalContactRejectionReason::NoRailIntersection,
+                rebound.status());
+            continue;
+        }
+        const Segment2D first{table.cueBall, *rebound.value()};
+        const Segment2D second{*rebound.value(), ghost};
+        const GeometryCheckResult firstRegion =
+            BilliardPhysics::checkSegmentWithinPlayableRegion(
+                first,
+                geometry.playableBallCenterRegion);
+        const GeometryCheckResult secondRegion =
+            BilliardPhysics::checkSegmentWithinPlayableRegion(
+                second,
+                geometry.playableBallCenterRegion);
+        if (firstRegion.status() != GeometryStatus::Clear ||
+            secondRegion.status() != GeometryStatus::Clear) {
+            const bool firstFailed = firstRegion.status() != GeometryStatus::Clear;
+            reject(
+                firstFailed
+                    ? LegalContactRejectionReason::FirstSegmentInvalid
+                    : LegalContactRejectionReason::SecondSegmentInvalid,
+                firstFailed ? firstRegion.status() : secondRegion.status(),
+                relatedIndex(firstFailed ? firstRegion : secondRegion));
+            continue;
+        }
+        const auto incomingRaw = BilliardMath::getVector(first.start, first.end);
+        const auto outgoingRaw = BilliardMath::getVector(second.start, second.end);
+        const auto incoming = incomingRaw
+            ? BilliardMath::normalize(*incomingRaw)
+            : std::nullopt;
+        const auto outgoing = outgoingRaw
+            ? BilliardMath::normalize(*outgoingRaw)
+            : std::nullopt;
+        if (!incoming || !outgoing) {
+            reject(
+                LegalContactRejectionReason::ReflectionInvariantFailed,
+                GeometryStatus::DegenerateGeometry);
+            continue;
+        }
+        const double incomingNormal =
+            incoming->x * rail.inwardUnitNormal.x +
+            incoming->y * rail.inwardUnitNormal.y;
+        const double outgoingNormal =
+            outgoing->x * rail.inwardUnitNormal.x +
+            outgoing->y * rail.inwardUnitNormal.y;
+        const Vector2D idealReflected{
+            incoming->x - 2.0 * incomingNormal * rail.inwardUnitNormal.x,
+            incoming->y - 2.0 * incomingNormal * rail.inwardUnitNormal.y};
+        const double reflectionDifference = std::hypot(
+            outgoing->x - idealReflected.x,
+            outgoing->y - idealReflected.y);
+        const Vector2D negativeIncoming{-incoming->x, -incoming->y};
+        const auto incidenceAngle = angleFromNormal(
+            negativeIncoming,
+            rail.inwardUnitNormal);
+        const auto reflectionAngle = angleFromNormal(
+            *outgoing,
+            rail.inwardUnitNormal);
+        if (!std::isfinite(incomingNormal) || !std::isfinite(outgoingNormal) ||
+            incomingNormal >= 0.0 || outgoingNormal <= 0.0 ||
+            !std::isfinite(reflectionDifference) ||
+            reflectionDifference > kickConfig.reflectionDirectionTolerance ||
+            !incidenceAngle || !reflectionAngle ||
+            std::fabs(*incidenceAngle - *reflectionAngle) >
+                kickConfig.reflectionAngleToleranceDeg) {
+            reject(
+                LegalContactRejectionReason::ReflectionInvariantFailed,
+                GeometryStatus::DirectionRejected);
+            continue;
+        }
+        if (*incidenceAngle > kickConfig.maxKickRailAngleDeg) {
+            reject(
+                LegalContactRejectionReason::KickAngleRejected,
+                GeometryStatus::DirectionRejected);
+            continue;
+        }
+        const GeometryCheckResult firstCollision =
+            BilliardPhysics::checkSegmentCollision(
+                first,
+                obstacles,
+                {},
+                geometry.ballDiameterMm,
+                geometry.collisionMarginMm);
+        const GeometryCheckResult secondCollision =
+            BilliardPhysics::checkSegmentCollision(
+                second,
+                obstacles,
+                targetExclusion,
+                geometry.ballDiameterMm,
+                geometry.collisionMarginMm);
+        if (firstCollision.status() != GeometryStatus::Clear ||
+            secondCollision.status() != GeometryStatus::Clear) {
+            const bool firstFailed =
+                firstCollision.status() != GeometryStatus::Clear;
+            const GeometryCheckResult& failed =
+                firstFailed ? firstCollision : secondCollision;
+            reject(
+                failed.status() == GeometryStatus::Blocked
+                    ? (firstFailed
+                        ? LegalContactRejectionReason::FirstSegmentBlocked
+                        : LegalContactRejectionReason::SecondSegmentBlocked)
+                    : (firstFailed
+                        ? LegalContactRejectionReason::FirstSegmentInvalid
+                        : LegalContactRejectionReason::SecondSegmentInvalid),
+                failed.status(),
+                relatedIndex(failed));
+            continue;
+        }
+        std::optional<double> minimumClearance;
+        double totalDistance = 0.0;
+        if (!accumulateClearance(minimumClearance, first, obstacles, {}) ||
+            !accumulateClearance(
+                minimumClearance,
+                second,
+                obstacles,
+                targetExclusion) ||
+            !accumulateDistance(totalDistance, first) ||
+            !accumulateDistance(totalDistance, second)) {
+            reject(
+                LegalContactRejectionReason::NumericalFailure,
+                GeometryStatus::InvalidInput);
+            continue;
+        }
+        KickLegalContactCandidate candidate{
+            selectedTarget,
+            rail.physicalRailId,
+            GhostBallPoint{ghost},
+            *rebound.value(),
+            rail.segment,
+            first,
+            second,
+            minimumClearance,
+            totalDistance,
+            *incidenceAngle};
+        result.feasibleKicks[railIndex] = candidate;
+        if (!selectedKick || legalKickBetter(candidate, *selectedKick)) {
+            selectedKick = candidate;
+        }
+    }
+    if (result.feasibleDirect) {
+        result.selected = *result.feasibleDirect;
+    } else if (selectedKick) {
+        result.selected = *selectedKick;
+    }
+    return result;
+}
 }
 
 DirectPotGenerationResult BilliardAlgorithm::generateDirectPotCandidates(
@@ -1225,22 +1564,24 @@ PlanningResult BilliardAlgorithm::planShot(
         std::optional<EligibleTarget> selectedTarget,
         PlanningDiagnostic diagnostic,
         std::vector<DirectPotCandidateDiagnostic> directDiagnostics = {},
-        std::vector<KickPotCandidateDiagnostic> kickDiagnostics = {}) {
+        std::vector<KickPotCandidateDiagnostic> kickDiagnostics = {},
+        bool proceededToLegalContact = false,
+        std::vector<LegalContactCandidateDiagnostic> legalDiagnostics = {}) {
         return PlanningResult::noPlan(NoPlan{
             reason,
             std::move(source),
             std::move(selectedTarget),
             0,
-            false,
+            proceededToLegalContact,
             std::move(directDiagnostics),
             std::move(kickDiagnostics),
+            std::move(legalDiagnostics),
             std::move(diagnostic)});
     };
 
     if (!brainConfig.base0PlanarCalibrationRevision ||
         brainConfig.base0PlanarCalibrationRevision->empty() ||
-        !brainConfig.kickGeometry || !brainConfig.scoring ||
-        brainConfig.scoring->planningMode != BilliardConfig::PlanningMode::PotOnly) {
+        !brainConfig.kickGeometry || !brainConfig.scoring) {
         return noPlan(
             NoPlanReason::InvalidBrainConfiguration,
             std::nullopt,
@@ -1362,6 +1703,142 @@ PlanningResult BilliardAlgorithm::planShot(
         *kickResult.value(),
         brainConfig.scoring,
         brainConfig.kickGeometry);
+
+    std::vector<DirectPotCandidateDiagnostic> directDiagnostics;
+    for (const auto& diagnostic : directResult.value()->rejected) {
+        if (diagnostic) directDiagnostics.push_back(*diagnostic);
+    }
+    std::vector<KickPotCandidateDiagnostic> kickDiagnostics;
+    for (const auto& pocketDiagnostics : kickResult.value()->rejected) {
+        for (const auto& diagnostic : pocketDiagnostics) {
+            if (diagnostic) kickDiagnostics.push_back(*diagnostic);
+        }
+    }
+
+    if (selection.isValid() && !selection.value() &&
+        selection.status() == PotSelectionStatus::ManualResearchPotSearchExhausted) {
+        LegalContactSearchResult legal = generateLegalContact(
+            table,
+            selectedTarget,
+            geometry,
+            *brainConfig.kickGeometry);
+        if (!legal.selected) {
+            return noPlan(
+                NoPlanReason::NoLegalContact,
+                source,
+                selectedTarget,
+                PlanningDiagnostic{
+                    std::nullopt,
+                    std::nullopt,
+                    std::nullopt,
+                    std::nullopt,
+                    PotSelectionStatus::ManualResearchPotSearchExhausted},
+                std::move(directDiagnostics),
+                std::move(kickDiagnostics),
+                true,
+                std::move(legal.diagnostics));
+        }
+
+        const bool direct =
+            std::holds_alternative<DirectLegalContactCandidate>(*legal.selected);
+        ShotPlan plan{
+            direct
+                ? ShotPlanType::DirectLegalContact
+                : ShotPlanType::KickLegalContact,
+            source,
+            selectedTarget,
+            {},
+            {},
+            {},
+            direct
+                ? std::get<DirectLegalContactCandidate>(*legal.selected)
+                      .minimumClearanceMm
+                : std::get<KickLegalContactCandidate>(*legal.selected)
+                      .minimumClearanceMm,
+            FixedForceMode::Fixed,
+            {true, true, true},
+            std::move(directDiagnostics),
+            std::move(kickDiagnostics),
+            DirectLegalContactShotPlanPayload{}};
+        Point initialPathEnd{};
+        if (direct) {
+            const DirectLegalContactCandidate candidate =
+                std::get<DirectLegalContactCandidate>(*legal.selected);
+            initialPathEnd = candidate.cuePath.end;
+            plan.ghostBallPoint = candidate.ghostBallPoint;
+            plan.cuePathSegments = {candidate.cuePath};
+            plan.payload = DirectLegalContactShotPlanPayload{
+                candidate,
+                LegalContactAuditFields{
+                    true,
+                    candidate.ghostBallPoint,
+                    true,
+                    candidate.minimumClearanceMm,
+                    candidate.totalPathLengthMm,
+                    std::nullopt,
+                    true,
+                    PotSelectionStatus::ManualResearchPotSearchExhausted,
+                    true,
+                    false,
+                    legal.diagnostics}};
+        } else {
+            const KickLegalContactCandidate candidate =
+                std::get<KickLegalContactCandidate>(*legal.selected);
+            initialPathEnd = candidate.cuePathFirst.end;
+            plan.ghostBallPoint = candidate.ghostBallPoint;
+            plan.cuePathSegments = {
+                candidate.cuePathFirst,
+                candidate.cuePathSecond};
+            plan.payload = KickLegalContactShotPlanPayload{
+                candidate,
+                *brainConfig.kickGeometry,
+                LegalContactAuditFields{
+                    true,
+                    candidate.ghostBallPoint,
+                    true,
+                    candidate.minimumClearanceMm,
+                    candidate.totalPathLengthMm,
+                    candidate.railId,
+                    true,
+                    PotSelectionStatus::ManualResearchPotSearchExhausted,
+                    true,
+                    false,
+                    legal.diagnostics}};
+        }
+        const auto vector = BilliardMath::getVector(
+            table.cueBall,
+            initialPathEnd);
+        const auto direction = vector
+            ? BilliardMath::normalize(*vector)
+            : std::nullopt;
+        if (!direction) {
+            return noPlan(
+                NoPlanReason::NumericalPlanningFailure,
+                source,
+                selectedTarget,
+                PlanningDiagnostic{
+                    std::nullopt,
+                    std::nullopt,
+                    std::nullopt,
+                    std::nullopt,
+                    PotSelectionStatus::NumericalFailure});
+        }
+        plan.shotDirectionXY = *direction;
+        if (!plan.isValid()) {
+            return noPlan(
+                NoPlanReason::NumericalPlanningFailure,
+                source,
+                selectedTarget,
+                PlanningDiagnostic{
+                    std::nullopt,
+                    std::nullopt,
+                    std::nullopt,
+                    std::nullopt,
+                    PotSelectionStatus::NumericalFailure});
+        }
+        return PlanningResult::shotPlan(std::move(plan));
+    }
+
     if (!selection.isValid() || !selection.value()) {
         const PotSelectionStatus status = selection.isValid()
             ? selection.status()
@@ -1381,17 +1858,6 @@ PlanningResult BilliardAlgorithm::planShot(
                 std::nullopt,
                 std::nullopt,
                 status});
-    }
-
-    std::vector<DirectPotCandidateDiagnostic> directDiagnostics;
-    for (const auto& diagnostic : directResult.value()->rejected) {
-        if (diagnostic) directDiagnostics.push_back(*diagnostic);
-    }
-    std::vector<KickPotCandidateDiagnostic> kickDiagnostics;
-    for (const auto& pocketDiagnostics : kickResult.value()->rejected) {
-        for (const auto& diagnostic : pocketDiagnostics) {
-            if (diagnostic) kickDiagnostics.push_back(*diagnostic);
-        }
     }
 
     if (const auto* empty = std::get_if<PotOnlyNoPlan>(&*selection.value())) {
@@ -1518,5 +1984,32 @@ bool BilliardAlgorithm::tieBreakBetterForTest(
     const ScoredPotCandidate& current) noexcept
 {
     return tieBreakBetter(candidate, current);
+}
+
+BilliardAlgorithm::LegalContactTestEvaluation
+BilliardAlgorithm::generateLegalContactForTest(
+    const StableTableState& table,
+    const EligibleTarget& selectedTarget,
+    const ResolvedTableGeometry& geometry,
+    const BilliardConfig::KickGeometryConfig& kickConfig)
+{
+    LegalContactSearchResult result = generateLegalContact(
+        table,
+        selectedTarget,
+        geometry,
+        kickConfig);
+    return {
+        std::move(result.feasibleDirect),
+        std::move(result.feasibleKicks),
+        std::move(result.diagnostics),
+        result.selected &&
+            std::holds_alternative<DirectLegalContactCandidate>(*result.selected)};
+}
+
+bool BilliardAlgorithm::legalKickBetterForTest(
+    const KickLegalContactCandidate& candidate,
+    const KickLegalContactCandidate& current) noexcept
+{
+    return legalKickBetter(candidate, current);
 }
 #endif
