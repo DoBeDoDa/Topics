@@ -4,6 +4,8 @@
 #include "BilliardConfig.h"
 #include "HRSDK.h"
 
+#pragma comment(lib, "HRSDK.lib")
+
 void __stdcall arm_callback(uint16_t, uint16_t, unsigned short*, int) {}
 
 RobotController::RobotController() : id(-1), connected(false) {}

@@ -11,8 +11,6 @@
 #endif
 #include <winsock2.h>
 
-#pragma comment(lib, "HRSDK.lib")
-
 struct MotionResult {
     bool success;
     bool timedOut;
