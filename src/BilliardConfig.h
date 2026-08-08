@@ -115,6 +115,80 @@ struct MotionProfile {
     double standoffExtraMm;
 };
 
+enum class PoseSearchOrder {
+    AThenB,
+    BThenA
+};
+
+enum class AxisOffsetOrder {
+    LowerThenHigher,
+    HigherThenLower
+};
+
+enum class PoseTieBreak {
+    FirstInApprovedSearchOrder
+};
+
+enum class ExecutionPolicyMode {
+    OfflineFake,
+    ManualDiagnostic,
+    RealHardware
+};
+
+struct FixedForceEnvelopeLimits {
+    bool enabled;
+    double minTotalPathLengthMm;
+    double maxTotalPathLengthMm;
+    std::optional<double> maxCuttingAngleDeg;
+    std::optional<double> maxPocketEntryAngleDeg;
+    std::optional<double> maxExecutableKickRailAngleDeg;
+};
+
+struct FixedForceEnvelopeConfig {
+    std::string calibrationRevision;
+    FixedForceEnvelopeLimits directPot;
+    FixedForceEnvelopeLimits kickPot;
+    FixedForceEnvelopeLimits directLegalContact;
+    FixedForceEnvelopeLimits kickLegalContact;
+};
+
+struct PneumaticTimingProfileReference {
+    std::string calibrationRevision;
+    unsigned long pneumaticPulseMs;
+    unsigned long directionChangeDelayMs;
+    unsigned long mechanismCompletionWaitMs;
+};
+
+struct MotionPlanningConfig {
+    std::optional<std::string> calibrationRevision;  // P2-01姿態標定版本。
+    std::optional<std::string> base0PlanarCalibrationRevision;  // 必須與ShotPlan一致。
+    std::optional<std::string> cueForwardAxisCalibrationRevision;  // Tool軸人工校正版號。
+    std::optional<double> strikeZMm;  // 人工核准的擊球Z。
+    std::optional<double> safeApproachZMm;  // 人工核准的接近Z。
+    std::optional<double> readyGapMm;  // 縮回桿尖至母球表面的間距。
+    std::optional<double> safeLiftHeightMm;  // 從runtime actual pose垂直上升量。
+    std::optional<double> a0Deg;  // 人工核准A基準。
+    std::optional<double> b0Deg;  // 人工核准B基準。
+    std::optional<double> deltaADeg;  // A基準兩側核准範圍。
+    std::optional<double> deltaBDeg;  // B基準兩側核准範圍。
+    std::optional<double> stepADeg;  // A搜尋固定step。
+    std::optional<double> stepBDeg;  // B搜尋固定step。
+    std::optional<PoseSearchOrder> searchOrder;
+    std::optional<AxisOffsetOrder> axisOffsetOrder;
+    std::optional<PoseTieBreak> tieBreak;
+    std::optional<double> cToolOffsetDeg;  // 擊球方向到C的人工校正offset。
+    std::optional<std::array<double, 3>> cueForwardAxisTool;  // Tool-local球桿forward axis。
+    std::optional<double> maxCueDirectionErrorDeg;  // Base0 XY投影允許方向誤差。
+    std::optional<double> directionUnitTolerance;  // ShotPlan單位向量容差。
+    std::optional<std::string> executionPolicyRevision;  // 獨立版本化的執行政策識別。
+    std::optional<ExecutionPolicyMode> policyMode;
+    std::optional<bool> legalContactExecutionAuthorized;  // 預設及real hardware必須false。
+    // 固定力度只作可執行範圍gate；P2-01不執行氣動命令。
+    std::optional<FixedForceEnvelopeConfig> fixedForceEnvelope;
+    // 僅保存後續executor所需的版本化timing reference。
+    std::optional<PneumaticTimingProfileReference> pneumaticTimingProfile;
+};
+
 // 連線：人工部署的控制器、視覺服務與連接埠。
 extern const char* const ARM_IP;  // 手臂控制器IP。
 extern const char* const VISION_SERVER_IP;  // 視覺服務IP。
@@ -167,5 +241,8 @@ extern const MotionProfile PRODUCTION_MOTION;
 
 // 定位測試刻意與桌面保持距離，避免末端工具碰撞桌面。
 extern const MotionProfile TEST_MOTION;
+
+// P2-01：未完成人工姿態／Tool軸校正前不得建立ExecutionPlan。
+extern const std::optional<MotionPlanningConfig> MOTION_PLANNING_CONFIG;
 
 }  // namespace BilliardConfig
