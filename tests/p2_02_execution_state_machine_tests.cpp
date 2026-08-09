@@ -93,7 +93,7 @@ ExecutionPlan validExecutionPlan()
          0.0, 200.0, 90.0, 90.0, std::nullopt},
         {"pneumatic-test-v1", 100, 50, 100},
         "policy-test-v1",
-        BilliardConfig::ExecutionPolicyMode::OfflineFake,
+        BilliardConfig::ExecutionPolicyMode::PlanningTest,
         ExecutionPolicyDecision::PotAccepted};
 }
 

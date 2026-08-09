@@ -205,9 +205,7 @@ bool validConfig(const BilliardConfig::MotionPlanningConfig& config) noexcept
             BilliardConfig::AxisOffsetOrder::HigherThenLower) ||
         *config.tieBreak !=
             BilliardConfig::PoseTieBreak::FirstInApprovedSearchOrder ||
-        (*config.policyMode != BilliardConfig::ExecutionPolicyMode::OfflineFake &&
-         *config.policyMode !=
-            BilliardConfig::ExecutionPolicyMode::ManualDiagnostic &&
+        (*config.policyMode != BilliardConfig::ExecutionPolicyMode::PlanningTest &&
          *config.policyMode !=
             BilliardConfig::ExecutionPolicyMode::RealHardware)) {
         return false;
@@ -422,8 +420,7 @@ bool ExecutionPlan::isValid() const noexcept
                 actual.pathCheck == required.pathCheck;
         });
     const bool validPolicyMode =
-        policyMode == BilliardConfig::ExecutionPolicyMode::OfflineFake ||
-        policyMode == BilliardConfig::ExecutionPolicyMode::ManualDiagnostic ||
+        policyMode == BilliardConfig::ExecutionPolicyMode::PlanningTest ||
         policyMode == BilliardConfig::ExecutionPolicyMode::RealHardware;
     const bool validTiming = validTimingProfile(pneumaticTimingProfile);
     const bool validEnvelopeShape =

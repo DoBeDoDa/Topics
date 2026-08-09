@@ -225,7 +225,7 @@ BilliardConfig::MotionPlanningConfig motionConfig()
     config.maxCueDirectionErrorDeg = 0.01;
     config.directionUnitTolerance = 1e-9;
     config.executionPolicyRevision = "execution-policy-test-v1";
-    config.policyMode = BilliardConfig::ExecutionPolicyMode::OfflineFake;
+    config.policyMode = BilliardConfig::ExecutionPolicyMode::PlanningTest;
     config.legalContactExecutionAuthorized = false;
     const BilliardConfig::FixedForceEnvelopeLimits directPot{
         true, 0.0, 5000.0, 90.0, 180.0, std::nullopt};

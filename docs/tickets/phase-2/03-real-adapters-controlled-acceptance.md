@@ -42,6 +42,11 @@ Planned — 唯一New coverage gap。
 
 ## 9. Scope
 
+- Production runtime只允許`PlanningTest | RealHardware`；PlanningTest只輸出
+  P2-01 Cartesian Base0／Tool1 TCP `X,Y,Z,A,B,C`且零硬體命令，
+  RealHardware才可在完整authorization後接入real adapters。
+- Manual diagnostic屬Controlled Hardware Acceptance程序，不是第三個
+  production runtime mode。
 - SDK return／timeout／motion-state error mapping、Tool1／Base0顯式設定確認、reachable與motion_check_lin。
 - dual DO互斥、同pulse、OFF evidence、PolicyAcceptedPneumaticCompletion與UnknownUnsafe。
 - no-fire calibration verification、低速安全高度、氣壓安全狀態、單球可立即停止擊發、actual-pose SafeLift及CameraPose return。
@@ -65,6 +70,14 @@ Planned — 唯一New coverage gap。
 3. LIN前必須motion_check_lin；reachable不等於路徑安全；失敗不得改PTP。
 4. DO failure best-effort雙OFF；無法確認進UnknownUnsafe並要求人工安全處置。
 5. 一個Start一個cycle，不得連續自動驗收。
+6. Cartesian `X,Y,Z,A,B,C` PTP使用`ptp_pos()`，LIN使用`lin_pos()`；
+   `ptp_axis()`只可用於joint `A1～A6`。`motion_reachable()`只驗證
+   Cartesian target，LIN segment另以`motion_check_lin()`檢查。
+7. RealHardware當次生命週期先以零硬體呼叫驗證靜態授權／deployment config，
+   再connect、依序建立DO1 OFF與DO2 OFF證據、設定Tool1／Base0及controller；
+   CameraPose到達停止並完成settle、flush/reset及current-cycle capture後，
+   才建立與驗證當次ShotPlan及P2-01 ExecutionPlan。不得使用pre-camera或
+   stale plan。
 
 ## 14. Fail-Closed Requirements
 

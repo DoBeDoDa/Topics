@@ -3,6 +3,8 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -10,6 +12,105 @@
 #define NOMINMAX
 #endif
 #include <winsock2.h>
+
+#include "MotionPlanner.h"
+
+struct HrSdkApi {
+    std::function<int(const char*)> openConnection;
+    std::function<void(int)> closeConnection;
+    std::function<int(int)> clearAlarm;
+    std::function<int(int, int)> setMotorState;
+    std::function<int(int, int)> setOverrideRatio;
+    std::function<int(int, int)> setToolNumber;
+    std::function<int(int, int)> setBaseNumber;
+    std::function<int(int)> getToolNumber;
+    std::function<int(int)> getBaseNumber;
+    std::function<int(int, double*)> getCurrentPosition;
+    std::function<int(int, double*)> getCurrentJoints;
+    std::function<int(int, double*, bool&)> checkReachable;
+    std::function<int(int, double*, double*, bool&)> checkLinearPath;
+    std::function<int(int, int, double*)> movePtpPosition;
+    std::function<int(int, int, double, double*)> moveLinearPosition;
+    std::function<int(int, int, double*)> movePtpAxis;
+    std::function<int(int)> getMotionState;
+    std::function<int(int)> abortMotion;
+    std::function<int(int, int, bool)> setDigitalOutput;
+    std::function<int(int, int)> getDigitalOutput;
+    std::function<int(int, int&, std::uint64_t*)> getAlarmCodes;
+    std::function<unsigned long()> tickCountMs;
+    std::function<void(unsigned long)> sleepMs;
+};
+
+enum class RobotAdapterStatus {
+    Success,
+    ConfigurationMissing,
+    InvalidConfiguration,
+    Unauthorized,
+    NotConnected,
+    SdkFailure,
+    NotReachable,
+    NotStopped,
+    UnknownUnsafe
+};
+
+struct RobotAdapterResult {
+    RobotAdapterStatus status;
+    int sdkCode;
+
+    [[nodiscard]] bool succeeded() const noexcept
+    {
+        return status == RobotAdapterStatus::Success;
+    }
+};
+
+struct RobotPoseAdapterResult {
+    RobotAdapterStatus status;
+    int sdkCode;
+    std::optional<RobotPoseABC> value;
+
+    [[nodiscard]] bool isValid() const noexcept
+    {
+        return (status == RobotAdapterStatus::Success) == value.has_value() &&
+            (!value || value->isFinite());
+    }
+};
+
+struct HrSdkPoseResult {
+    RobotAdapterStatus status;
+    std::optional<std::array<double, 6>> value;
+
+    [[nodiscard]] bool isValid() const noexcept
+    {
+        return (status == RobotAdapterStatus::Success) == value.has_value();
+    }
+};
+
+enum class RealPneumaticStatus {
+    Completed,
+    KnownSafeFailure,
+    UnknownUnsafe
+};
+
+enum class RealPneumaticEvidence {
+    PhysicalOffConfirmed
+};
+
+struct RealPneumaticResult {
+    RealPneumaticStatus status;
+    std::optional<RealPneumaticEvidence> evidence;
+    int sdkCode;
+
+    [[nodiscard]] bool isValid() const noexcept
+    {
+        const bool knownStatus = status == RealPneumaticStatus::Completed ||
+            status == RealPneumaticStatus::KnownSafeFailure ||
+            status == RealPneumaticStatus::UnknownUnsafe;
+        const bool knownEvidence = !evidence ||
+            *evidence == RealPneumaticEvidence::PhysicalOffConfirmed;
+        return knownStatus && knownEvidence &&
+            ((status == RealPneumaticStatus::Completed) == evidence.has_value());
+    }
+};
 
 struct MotionResult {
     bool success;
@@ -27,21 +128,44 @@ class RobotController {
 private:
     int id;
     bool connected;
+    bool unknownUnsafeLatched;
+    HrSdkApi api;
 
     MotionResult waitForMotion(int sdkCode, bool wait);
+    [[nodiscard]] static HrSdkApi productionApi();
+    [[nodiscard]] RobotAdapterResult validateRealExecution(
+        const ExecutionPlan& plan,
+        const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config)
+        const;
+    [[nodiscard]] HrSdkPoseResult mapPoseToHrSdk(
+        const RobotPoseABC& pose,
+        const BilliardConfig::HrSdkAngleMappingConfig& mapping) const;
+    [[nodiscard]] RobotPoseAdapterResult mapPoseFromHrSdk(
+        const std::array<double, 6>& pose,
+        const BilliardConfig::HrSdkAngleMappingConfig& mapping) const;
+    [[nodiscard]] bool outputsPhysicallyOff(
+        const BilliardConfig::RealHardwareExecutionConfig& config,
+        int& sdkCode) const;
+    [[nodiscard]] bool bestEffortOutputsOff(
+        const BilliardConfig::RealHardwareExecutionConfig& config,
+        int& sdkCode);
+    [[nodiscard]] RealPneumaticResult latchUnknownUnsafe(int sdkCode) noexcept;
 
 public:
     RobotController();
+    explicit RobotController(HrSdkApi injectedApi);
     ~RobotController();
 
     bool connect(const std::string& ip);
-    void disconnect();
+    RobotAdapterResult disconnect();
+    RobotAdapterResult clearAlarm();
     int getId() const;
     bool isConnected() const;
 
-    void setMotorState(int state);
-    void setOverrideRatio(int ratio);
-    void setToolNumber(int toolNumber);
+    RobotAdapterResult setMotorState(int state);
+    RobotAdapterResult setOverrideRatio(int ratio);
+    RobotAdapterResult setToolNumber(int toolNumber);
+    RobotAdapterResult setBaseNumber(int baseNumber);
     int getCurrentToolNumber() const;
     int getCurrentBaseNumber() const;
     bool getCurrentPosition(std::array<double, 6>& position, int& sdkCode) const;
@@ -62,6 +186,49 @@ public:
     MotionResult moveToAxis(const double joint[6], bool wait = true);
     MotionResult moveToPosition(const double position[6], bool wait = true);
     MotionResult moveLinearTo(const double position[6], bool wait = true);
-    void setDigitalOutput(int index, bool state);
-    void firePneumatic(int index, DWORD durationMs);
+    [[nodiscard]] static RobotAdapterResult validateRealHardwareConfiguration(
+        const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config);
+    [[nodiscard]] static RobotAdapterResult validateRealExecutionConfiguration(
+        const ExecutionPlan& plan,
+        const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config);
+    [[nodiscard]] RobotAdapterResult establishSafeOutputsOff(
+        const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config);
+    [[nodiscard]] RobotAdapterResult activateConfiguredToolAndBase(
+        const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config);
+    [[nodiscard]] RobotAdapterResult activateConfiguredToolAndBase(
+        const ExecutionPlan& plan,
+        const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config);
+    [[nodiscard]] RobotAdapterResult checkedConfiguredJointPtp(
+        const std::array<double, 6>& joints,
+        const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config);
+    [[nodiscard]] RobotAdapterResult checkedPtp(
+        const ExecutionPlan& plan,
+        const RobotPoseABC& pose,
+        const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config);
+    [[nodiscard]] RobotAdapterResult checkedJointPtp(
+        const ExecutionPlan& plan,
+        const std::array<double, 6>& joints,
+        const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config);
+    [[nodiscard]] RobotAdapterResult checkedLin(
+        const ExecutionPlan& plan,
+        const RobotPoseABC& start,
+        const RobotPoseABC& end,
+        const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config);
+    [[nodiscard]] RobotAdapterResult checkVerticalSafeLift(
+        const ExecutionPlan& plan,
+        const RobotPoseABC& actual,
+        const RobotPoseABC& target,
+        const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config);
+    [[nodiscard]] RobotAdapterResult checkedVerticalSafeLift(
+        const ExecutionPlan& plan,
+        const RobotPoseABC& actual,
+        const RobotPoseABC& target,
+        const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config);
+    [[nodiscard]] RobotPoseAdapterResult readActualPose(
+        const ExecutionPlan& plan,
+        const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config);
+    [[nodiscard]] RobotAdapterResult confirmStopped() const;
+    [[nodiscard]] RealPneumaticResult executePneumaticSequence(
+        const ExecutionPlan& plan,
+        const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config);
 };

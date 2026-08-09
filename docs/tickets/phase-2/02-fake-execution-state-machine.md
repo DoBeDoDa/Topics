@@ -44,6 +44,8 @@ Planned
 
 - WaitingForStart→StartRequested→CameraPose gate→capture／planning result→ExecutionPlan validation→StrikeReady→dual DO→actual pose SafeLift→CameraPose→WaitingForStart。
 - ExecutionPolicy、FixedForceEnvelope、MotionAdapter／PneumaticAdapter Results、SafeFailure與UnknownUnsafe。
+- fake Motion／Pneumatic adapters僅是automated/offline test harness，
+  不是production runtime mode；本票不新增Fake production mode。
 
 ## 10. Out of Scope
 

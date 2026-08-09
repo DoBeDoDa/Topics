@@ -4,9 +4,9 @@
 
 - 狀態：Approved
 - Final Workflow Verification：PASS（2026-08-01）
-- 規格版本：1.0
+- 規格版本：1.1
 - 能力範圍：P2-01 至 P2-03
-- 唯一權威：Base0 planar XY到ExecutionPlan／Pose、ExecutionPolicy、fake狀態機、PTP／LIN、固定力度、雙DO、HRSDK與硬體驗收
+- 唯一權威：Base0 planar XY到ExecutionPlan／Pose、ExecutionPolicy、test-only fake狀態機、PTP／LIN、固定力度、雙DO、HRSDK與硬體驗收
 
 ## 1. Problem Statement
 
@@ -16,6 +16,24 @@
 
 Phase 2只消費有效的Base0平面XY ShotPlan，由既有MotionPlanner直接以XY、人工校正Strike Z、人工核准小區間A／B搜尋及方向C產生ExecutionPlan，不做TableFrame→Base0或第二次平面映射。再由fake adapters驗證完整狀態機、錯誤注入、雙DO互鎖及垂直safe lift；最後P2-03才接入HRSDK與真實DO。
 
+正式BilliardApp runtime只提供兩種運行模式：
+
+1. PlanningTest：
+   接收既有32值Base0座標，完成穩定判斷、Phase 1 ShotPlan
+   與P2-01 ExecutionPlan建立及診斷輸出；
+   不初始化、不連線、不操作真實Robot、HRSDK或DO。
+
+2. RealHardware：
+   在全部ExecutionPolicy、calibration及revision驗證通過後，
+   使用既有BilliardApp single-cycle流程及P2-03 real adapters
+   執行完整真實擊球。
+
+P2-02 fake adapters僅供automated/offline tests驗證RealHardware
+state machine安全性，不是production runtime mode。
+
+人工Tool/Base/DO/+Z等診斷屬Controlled Hardware Acceptance，
+不是第三種BilliardApp runtime mode。
+
 ## 3. User Stories
 
 1. 作為機械手臂開發者，我要直接由Base0平面XY方案建立Tool1 TCP Pose，而不重新計算撞球策略或轉換平面座標。
@@ -23,6 +41,8 @@ Phase 2只消費有效的Base0平面XY ShotPlan，由既有MotionPlanner直接�
 3. 作為操作者，我要讓未授權LegalContact、未校正力度或無效frame阻止執行。
 4. 作為硬體操作者，我要讓LIN檢查失敗、DO互鎖失敗或通訊中斷停止所有後續正常動作。
 5. 作為故障處理者，我要能區分已知安全失敗與無法確認DO狀態的UnknownUnsafe。
+
+6. 作為演算法開發者，我要在不初始化或操作真實機械手臂與DO的情況下，接收正常32值座標並完成Phase 1／P2-01規劃及終端診斷，以驗證選球、路徑、碰撞、評分與最終ExecutionPlan是否正確。
 
 ## 4. Capability Boundaries
 
@@ -42,6 +62,8 @@ Phase 2只消費有效的Base0平面XY ShotPlan，由既有MotionPlanner直接�
 - 驗證ExecutionPolicy、固定力度envelope、DO互斥與UnknownUnsafe。
 - 以既有BilliardApp owner驗證StartRequested、CameraPose、capture cycle、planning、execution、safe lift、return及WaitingForStart的完整單cycle流程。
 - 不連結真實HRSDK或DO。
+- P2-02 fake adapters及fake execution只屬automated/offline test harness，
+不得作為production BilliardApp::run() runtime mode。
 
 ### P2-03：Real Adapters and Controlled Acceptance
 
@@ -49,7 +71,10 @@ Phase 2只消費有效的Base0平面XY ShotPlan，由既有MotionPlanner直接�
 - 驗證Tool1／Base0、SDK回傳碼、reachable與LIN。
 - 只有最後驗收步驟可在受控環境使用真實硬體。
 - 以相同BilliardApp流程接入既有RobotController／HRSDK／DO，不承接vision Socket或另建application state machine。
+- Production BilliardApp只在RealHardware mode使用P2-03 real adapters。
 
+PlanningTest mode不得初始化RobotController硬體連線，
+不得送出Tool/Base、motor、motion或DO命令。
 ### Existing Responsibility Owners
 
 | ID | 既有owner |
@@ -137,6 +162,8 @@ ExecutionPlan至少包含：
 - ExecutionPolicy決策。
 - DO1／DO2 timing profile reference。
 - 每個狀態的preconditions、success conditions與failure transition。
+- Production ExecutionPolicy mode只區分PlanningTest與RealHardware。
+Fake adapter selection屬test dependency injection，不是ExecutionPlan runtime mode。
 
 ExecutionPlan不得修改目標球、袋口、反彈點、評分或策略類型。
 
@@ -144,13 +171,43 @@ ExecutionPlan建構結果遵守共同Result規則：只有成功status可攜帶E
 
 ## 8. ExecutionPolicy
 
-ExecutionPolicy至少區分fake、manual diagnostic與real hardware模式。
+ExecutionPolicy的production runtime mode只區分：
+
+1. PlanningTest
+2. RealHardware
+
+PlanningTest：
+
+- 可接收正式32-value Base0座標。
+- 可執行vision receive/stability、Phase 1 PlanningResult及P2-01 ExecutionPlan。
+- 可輸出完整規劃診斷。
+- 不初始化真實HRSDK hardware session。
+- 不設定真實Tool/Base。
+- 不啟用motor。
+- 不送出PTP/LIN。
+- 不操作DO1/DO2。
+- 不需要RealHardware專用的實機calibration gate才能進行純規劃。
+
+RealHardware：
+
+- 執行完整真實擊球cycle。
+- 預設disabled。
+- 必須explicit authorization。
+- 任何真實hardware command之前，
+  必須驗證全部必要policy、calibration與revision。
+- LegalContact預設禁止。
+
+Fake adapters不是ExecutionPolicy production runtime mode。
+它們只用於P2-02/P2-03 automated/offline tests。
 
 - Pot方案只有位於對應FixedForceEnvelope且全部校正有效時可執行。
 - LegalContact在real hardware預設禁止。
 - 未授權LegalContact轉成`NoExecutablePlan`並要求人工介入，不得自動擊發。
 - LegalContact完成專門路徑、力度及單球驗收後，才可由顯式設定啟用。
 - policy缺失、矛盾或未版本化時回`ConfigurationMissing／InvalidConfiguration`。
+- Manual diagnostic不是BilliardApp production runtime mode。
+Tool1、Base0、ABC mapping、DO、Base0 +Z等人工診斷，
+屬P2-03 Controlled Hardware Acceptance程序。
 
 ## 9. FixedForceEnvelope
 
@@ -175,47 +232,77 @@ Phase 1已把超過`maxKickRailAngleDeg`的Kick視為幾何不可行，因此它
 
 ## 10. Motion Sequence
 
-P2-02以fake、P2-03以real adapters驗證同一個既有`BilliardApp` application cycle；不得新增Start manager或第二個application。正常順序：
+10.1 PlanningTest
 
-```text
 WaitingForStart
 → StartRequested
-→ move to CameraPose
-→ verify CameraPose success and motion stopped
-→ camera settle
-→ flush/discard old Socket buffer and reset stability
-→ open this shot-cycle capture window
-→ receive three valid local events from this cycle
-→ StableTableState → PlanningResult
-→ NoPlan: CycleCompleted → WaitingForStart
-→ ShotPlan: validating policy / calibrations
-→ Joint PTP to transit
-→ Cartesian PTP to safe approach
-→ read actual pose
-→ motion_check_lin(actual, StrikeReadyPose)
-→ LIN to StrikeReadyPose
-→ verify motion stopped and StrikeReady preconditions
-→ DO1 ON
-→ DO1 OFF
-→ directionChangeDelay
-→ DO2 ON
-→ DO2 OFF
-→ mechanismCompletionWait
-→ verify PolicyAcceptedPneumaticCompletion
-→ read current actual pose
-→ derive PostStrikeSafeLiftPose from current actual pose
-→ motion_check_lin(current actual pose, PostStrikeSafeLiftPose)
-→ vertical LIN to PostStrikeSafeLiftPose
-→ verify safe height reached
-→ Joint PTP to camera joint
-→ verify CameraPose and motion stopped
+→ flush/discard stale vision data as applicable
+→ reset current-cycle stability
+→ open planning receive cycle
+→ receive current-cycle 32-value events
+→ three-event stability
+→ StableTableState
+→ Phase 1 PlanningResult
+→ if ShotPlan: build P2-01 ExecutionPlan
+→ print planning diagnostics/result
 → CycleCompleted
 → WaitingForStart
-```
 
-一個`StartRequested`只授權上述一個cycle。完成、NoPlan或SafeFailure後不得自動捕捉／規劃／擊發下一球；新cycle必須等待新的StartRequested。UnknownUnsafe維持terminal，不得返回WaitingForStart。
+PlanningTest禁止：
+
+Robot connection
+Tool command
+Base command
+motor command
+PTP
+LIN
+DO1
+DO2
+CameraPose robot motion
+safe lift robot motion
+
+10.2 RealHardware
+
+WaitingForStart
+→ StartRequested
+→ verify mode == RealHardware
+→ with zero hardware calls, validate RealHardware authorization and static deployment configuration
+→ initialize/connect real hardware
+→ establish DO1 safe OFF state
+→ establish DO2 safe OFF state
+→ configure/confirm Tool1 and Base0
+→ required motor/controller preparation
+→ only now move CameraPose
+→ confirm CameraPose reached and stopped
+→ camera settle
+→ flush/discard stale vision input and reset current-cycle accumulation
+→ open the current-cycle capture window
+→ receive current-cycle 32-value frames and complete three-event stability
+→ Phase 1 ShotPlan／NoPlan
+→ build the current P2-01 ExecutionPlan
+→ validate this ExecutionPlan's ExecutionPolicy, revisions, LegalContact authorization and FixedForce/pneumatic profile
+→ perform RealHardware-only Cartesian reachability and required LIN path checks
+→ StrikeReady
+→ DO
+→ actual pose
+→ safe lift
+→ CameraPose
+→ WaitingForStart
+
+RealHardware不得在CameraPose到達、停止、settle及current-cycle capture完成前，
+建立或使用本次ShotPlan／ExecutionPlan。靜態authorization／deployment config
+可在connect前fail closed驗證，但當次plan policy與revision只能在current-cycle
+ExecutionPlan建立後驗證。
 
 - 正式送出笛卡兒目標前必須設定並確認Tool1與Base0。
+- ExecutionPlan的`X,Y,Z,A,B,C`是Base0中的Cartesian Tool1 TCP Pose，
+  不是joint values；Cartesian PTP必須使用既有HRSDK `ptp_pos()`，
+  Cartesian LIN必須使用`lin_pos()`。
+- `ptp_axis()`只接受joint `A1～A6`，不得傳入Cartesian `X,Y,Z,A,B,C`。
+- Cartesian target reachability使用`motion_reachable()`；它只證明target
+  pose可達，不證明整條PTP path安全。
+- LIN segment必須使用`motion_check_lin(start,end)`檢查，失敗或不可達
+  均不得呼叫`lin_pos()`，也不得fallback成PTP。
 - 每次motion command、position read及SDK診斷都必須檢查具名結果。
 - 取得actual pose失敗不得以planned pose代替。
 - LIN check失敗不得改用PTP下降。
@@ -249,13 +336,32 @@ Clift = Cs
 正常序列：
 
 ```text
-best-effort DO1 OFF and DO2 OFF at initialization
-→ DO1 ON for pneumaticPulseMs
-→ DO1 OFF
-→ wait directionChangeDelayMs
-→ DO2 ON for pneumaticPulseMs
-→ DO2 OFF
-→ wait mechanismCompletionWaitMs
+RealHardware initialization：
+
+DO1 OFF
+→ 驗證DO1 OFF command result
+→ 若policy要求則確認目前可接受的OFF evidence
+→ 成功後才處理DO2
+
+DO2 OFF
+→ 驗證DO2 OFF command result
+→ 若policy要求則確認目前可接受的OFF evidence
+
+只有雙DO都達到ExecutionPolicy接受的safe startup evidence，
+才允許第一次Robot motion。
+validate RealHardware authorization
+↓
+validate configurations
+↓
+connect/init hardware
+↓
+DO1 OFF + check
+↓
+DO2 OFF + check
+↓
+Tool/Base/controller preparation
+↓
+CameraPose
 ```
 
 - DO1與DO2共用人工調整的`pneumaticPulseMs`。
@@ -278,6 +384,9 @@ best-effort DO1 OFF and DO2 OFF at initialization
 本章所有結果均區分成功value與Diagnostic metadata。只有成功status可攜帶ExecutionPlan或執行成功value；失敗、`NoExecutablePlan`及`UnknownUnsafe`的成功value必須為空，但可攜帶具名原因、狀態、已接受命令及安全處置等Diagnostic。Diagnostic不得包含或被當作fallback Pose、ExecutionPlan或允許後續動作的依據。
 
 對外測試seam統一為`ShotPlan + ExecutionPolicy + calibrations → ExecutionResult`。ExecutionResult以具名status表達計畫拒絕、SafeFailure、Completed或UnknownUnsafe，並遵守上述success value／Diagnostic metadata不變量。Completed audit必須記錄採用的pneumatic completion evidence及其結果是`PhysicalOffConfirmed`或僅為policy接受的`OffCommandAccepted`。
+
+UnknownUnsafe只適用於已進入RealHardware hardware interaction的cycle；
+PlanningTest不存在真實DO／Robot state，因此不得虛構UnknownUnsafe hardware evidence。
 
 ### 12.1 SafeFailure
 
@@ -311,6 +420,10 @@ MotionAdapter與PneumaticAdapter所有操作回傳具名結果，禁止`void`吞
 
 Fake adapters必須能注入：連線失敗、設定Tool/Base失敗、position read失敗、unreachable、LIN check失敗、motion失敗、DO1／DO2各步失敗、timeout及未知狀態。
 
+Fake adapters只存在automated/offline test seam。
+Production BilliardApp::run()不得將Fake視為runtime mode。
+
+
 Real adapters只做SDK語意轉換與錯誤映射；不得包含策略、幾何、預設Pose或失敗fallback。
 
 ## 14. Testing Decisions
@@ -325,8 +438,9 @@ Real adapters只做SDK語意轉換與錯誤映射；不得包含策略、幾何�
 - 驗證只有ShotPlan成功value可產生ExecutionPlan；NoPlan、pipeline Diagnostic與CandidateDiagnostic皆被拒絕，且不會生成fallback Pose／Plan。
 
 ### P2-02
+P2-02使用test-only fake adapters驗證未來RealHardware execution state machine。
+P2-02不要求production BilliardApp::run()提供Fake runtime mode。
 
-- 使用fake adapters驗證每一合法狀態轉移與每一錯誤注入點。
 - 驗證一個StartRequested恰好一個cycle、CameraPose stopped／settle前不收frame、舊buffer flush、三幀只屬當前cycle、完成後返回WaitingForStart且不自動下一球。
 - 驗證未授權LegalContact、未校正envelope、非法時間、DO互斥、OFF失敗及UnknownUnsafe。
 - 驗證Phase 1幾何門檻與Phase 2力度門檻來自不同設定來源且保持分離：超過Phase 1 `BrainConfig.maxKickRailAngleDeg`的項目不可能成為輸入ShotPlan；通過Phase 1但超過`FixedForceEnvelopeConfig.maxExecutableKickRailAngleDeg`或其他FixedForceEnvelope範圍者回`NoExecutablePlan`。
@@ -349,9 +463,35 @@ Real adapters只做SDK語意轉換與錯誤映射；不得包含策略、幾何�
 
 任一步失敗即停止後續驗收，不得跳級。
 
+PlanningTest
+必須證明：
+收到座標
+→ Phase1
+→ P2-01
+→ 輸出結果
+並且：
+0 HRSDK connect
+0 Tool/Base
+0 motor
+0 motion
+0 DO
+
+RealHardware
+必須證明：
+policy/config validation
+發生在任何hardware command之前
+以及：
+DO1安全建立
+→ DO2安全建立
+→ 才能CameraPose
+
+
 ## 15. Acceptance Gates
 
 真實硬體執行前必須全部滿足：
+本章Acceptance Gates僅限制RealHardware mode。
+PlanningTest不要求完成RealHardware實機驗收即可進行純規劃，
+但仍必須遵守Phase1/P2-01本身所需的資料與規劃設定。
 
 - Base0 planar calibration與Tool1 calibration有效且revision一致；不存在C++ TableFrame→Base0步驟。
 - A／B核准搜尋範圍、C／HRSDK角度映射、`cueForwardAxisTool`、`CToolOffset`及方向投影已以不擊發診斷確認；不得只因程式假設`+X`而通過。

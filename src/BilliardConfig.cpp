@@ -556,5 +556,15 @@ const MotionProfile TEST_MOTION = {
 // Strike Z、ready gap、A/B核准範圍、C offset、Tool forward axis及
 // safe approach/lift尚未共同驗收前保持nullopt，MotionPlanner必須fail closed。
 const std::optional<MotionPlanningConfig> MOTION_PLANNING_CONFIG = std::nullopt;
+const ExecutionPolicyMode PRODUCTION_RUNTIME_MODE = ExecutionPolicyMode::PlanningTest;
+
+// ============================================================
+// 18. P2-03 Real Hardware Authorization / Calibration
+// ============================================================
+
+// ABC↔HRSDK RX/RY/RZ、Tool1/Base0 revision、Base0 +Z安全方向與
+// DO1/DO2 timing尚未完成受控實機核准；不得以測試值代替production值。
+const std::optional<RealHardwareExecutionConfig>
+    REAL_HARDWARE_EXECUTION_CONFIG = std::nullopt;
 
 }

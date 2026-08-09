@@ -122,6 +122,7 @@ enum class ExecutionCycleFailureReason {
     CycleAlreadyActive,
     CycleIdentityExhausted,
     MissingFakeAdapter,
+    HardwareConnectionFailed,
     CameraPoseMotionFailed,
     CameraPoseNotStopped,
     CameraSettleFailed,
@@ -249,6 +250,38 @@ struct OfflineExecutionSeam {
     std::function<OfflineStepResult()> confirmReturnCameraStopped;
 };
 
+// P2-03 僅提供非硬體生命週期依賴；Robot/DO 一律由既有 RobotController 承接。
+struct RealExecutionCycleServices {
+    std::function<OfflineStepResult()> settleCamera;
+    std::function<OfflineStepResult()> flushStaleVisionBuffer;
+    std::function<OfflineStepResult()> resetCycleAccumulation;
+    std::function<OfflineStepResult()> openCaptureWindow;
+    std::function<OfflinePhase1Result()> runPhase1;
+    std::function<ExecutionPlanResult()> buildExecutionPlan;
+};
+
+#ifdef BILLIARDS_P2_03_TEST_SEAM
+struct BilliardAppRunTestSeam {
+    std::optional<BilliardConfig::ExecutionPolicyMode> policyMode;
+    std::optional<std::string> policyRevision;
+    std::optional<bool> legalContactExecutionAuthorized;
+    RobotController* robot;
+    std::optional<BilliardConfig::RealHardwareExecutionConfig> realConfig;
+    std::function<bool()> startRequested;
+    std::optional<RealExecutionCycleServices> realServices;
+    std::optional<BilliardConfig::ExecutionPolicyMode> motionPlanningPolicyMode;
+    std::optional<BilliardConfig::MotionPlanningConfig> motionPlanningConfig;
+    std::optional<MotionPlanningChecks> motionPlanningChecks;
+    std::optional<AxisAlignedBounds2D> observationBounds;
+    std::optional<StabilityConfig> stabilityConfig;
+    std::optional<BilliardConfig::TableGeometryConfig> tableGeometryConfig;
+    std::optional<BilliardConfig::BrainConfig> brainConfig;
+    std::optional<ConnectionIdentity> connectionIdentity;
+    std::vector<std::string> currentCycleFrames;
+    std::function<void(const ExecutionPlanResult&)> executionPlanObserved;
+};
+#endif
+
 class BilliardApp {
 private:
     RobotController robot;
@@ -259,17 +292,32 @@ private:
     std::optional<PlanningResult> pendingPlanningResult;
     TargetSelector targetSelector;
     MotionPlanner motionPlanner;
+    std::optional<MotionPlanningChecks> offlineMotionPlanningChecks;
     bool needCameraMove;
     ShotCycleIdentity nextShotCycleIdentity;
+#ifdef BILLIARDS_P2_03_TEST_SEAM
+    std::optional<BilliardAppRunTestSeam> runTestSeam;
+#endif
 
 public:
     BilliardApp();
+    explicit BilliardApp(MotionPlanningChecks offlineChecks);
+#ifdef BILLIARDS_P2_03_TEST_SEAM
+    explicit BilliardApp(BilliardAppRunTestSeam seam);
+#endif
 
     bool initialize();
     void run();
     [[nodiscard]] static ExecutionCycleResult runOfflineSingleCycle(
         OfflineExecutionRuntime& runtime,
         const OfflineExecutionSeam& seam);
+    [[nodiscard]] static ExecutionCycleResult runRealSingleCycle(
+        OfflineExecutionRuntime& runtime,
+        RobotController& robot,
+        const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config,
+        const RealExecutionCycleServices& services);
+    [[nodiscard]] static PneumaticCompletionResult mapRealPneumaticResult(
+        const RealPneumaticResult& result) noexcept;
 
 private:
     bool waitForStartRequest();
@@ -292,6 +340,25 @@ private:
     ) const;
     void printAlarmCodes() const;
 };
+
+inline PneumaticCompletionResult BilliardApp::mapRealPneumaticResult(
+    const RealPneumaticResult& result) noexcept
+{
+    if (!result.isValid()) {
+        return {PneumaticCompletionStatus::UnknownUnsafe, std::nullopt};
+    }
+    switch (result.status) {
+    case RealPneumaticStatus::Completed:
+        return {PneumaticCompletionStatus::PolicyAccepted,
+            PneumaticCompletionEvidence::PhysicalOffConfirmed};
+    case RealPneumaticStatus::KnownSafeFailure:
+        return {PneumaticCompletionStatus::Failure, std::nullopt};
+    case RealPneumaticStatus::UnknownUnsafe:
+        return {PneumaticCompletionStatus::UnknownUnsafe, std::nullopt};
+    default:
+        return {PneumaticCompletionStatus::UnknownUnsafe, std::nullopt};
+    }
+}
 
 inline ExecutionCycleResult BilliardApp::runOfflineSingleCycle(
     OfflineExecutionRuntime& runtime,

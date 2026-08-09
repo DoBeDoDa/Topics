@@ -130,8 +130,7 @@ enum class PoseTieBreak {
 };
 
 enum class ExecutionPolicyMode {
-    OfflineFake,
-    ManualDiagnostic,
+    PlanningTest,
     RealHardware
 };
 
@@ -189,6 +188,39 @@ struct MotionPlanningConfig {
     std::optional<PneumaticTimingProfileReference> pneumaticTimingProfile;
 };
 
+enum class RobotAngleComponent {
+    A,
+    B,
+    C
+};
+
+struct HrSdkAngleMappingConfig {
+    std::string calibrationRevision;
+    // RX／RY／RZ各自取用哪個核心A／B／C角度。
+    std::array<RobotAngleComponent, 3> rxRyRzSources;
+    std::array<double, 3> scales;
+    std::array<double, 3> offsetsDeg;
+};
+
+struct RealHardwareExecutionConfig {
+    std::optional<std::string> authorizationRevision;
+    bool realHardwareExecutionEnabled;
+    int baseNumber;
+    int toolNumber;
+    std::optional<std::string> base0CalibrationRevision;
+    std::optional<std::string> tool1ControllerCalibrationRevision;
+    std::optional<HrSdkAngleMappingConfig> angleMapping;
+    std::optional<std::string> safeUpCalibrationRevision;
+    // ExecutionPolicy獨立要求的三個revision，必須逐一符合deployment校正。
+    std::optional<std::string> requiredTool1CalibrationRevision;
+    std::optional<std::string> requiredAbcMappingRevision;
+    std::optional<std::string> requiredSafeUpCalibrationRevision;
+    std::optional<bool> base0PositiveZSafeConfirmed;
+    std::optional<int> strikeDoIndex;
+    std::optional<int> retractDoIndex;
+    std::optional<PneumaticTimingProfileReference> approvedTimingProfile;
+};
+
 // 連線：人工部署的控制器、視覺服務與連接埠。
 extern const char* const ARM_IP;  // 手臂控制器IP。
 extern const char* const VISION_SERVER_IP;  // 視覺服務IP。
@@ -244,5 +276,10 @@ extern const MotionProfile TEST_MOTION;
 
 // P2-01：未完成人工姿態／Tool軸校正前不得建立ExecutionPlan。
 extern const std::optional<MotionPlanningConfig> MOTION_PLANNING_CONFIG;
+// Production runtime僅允許零硬體規劃測試與明確授權的真實硬體。
+extern const ExecutionPolicyMode PRODUCTION_RUNTIME_MODE;
+// P2-03：未完成人工／實機驗收前，真實motion與DO一律保持停用。
+extern const std::optional<RealHardwareExecutionConfig>
+    REAL_HARDWARE_EXECUTION_CONFIG;
 
 }  // namespace BilliardConfig
