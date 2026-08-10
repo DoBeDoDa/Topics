@@ -1,718 +1,361 @@
-# 撞球機械手臂系統重構 Master Spec
+# 撞球機械手臂重構 Master Architecture Spec
 
 ## 文件資訊
 
-- 狀態：Approved for phased implementation
-- 規格版本：1.1
-- 建立日期：2026-07-30
-- Repository：`C:\Users\User\Desktop\Topics-main-git`
-- 基準分支：`main`
-- 基準 Commit：`b278db0`
-- Phase 1 詳細規格：[`phase-1-math-geometry-refactor-spec.md`](phase-1-math-geometry-refactor-spec.md)
+- 狀態：Approved
+- Final Workflow Verification：PASS（2026-08-01）
+- 規格版本：2.0
+- 基準 commit：`216bcb7`
+- 適用系統：Python 視覺、C++ 擊球大腦、C++ 擊球手
+- 下一步：To Tickets／Existing Ticket Refactor；本文件不構成實作或真實硬體操作授權
 
-本文件整合完整 Grill Me 訪談結果與基準 Commit 的實際程式碼。它是後續階段的總體約束，不授權任何未列入當期 Phase 的機械手臂動作、HRSDK 連線或氣壓輸出。
+## 1. 權威與文件關係
 
-## 1. 系統背景
+發生衝突時依序採用：
 
-本系統使用 HIWIN RA605-GC 機械手臂、Base 0 與 Tool 1，結合 Python 視覺、C++ 撞球策略、姿態規劃、HRSDK 運動控制及氣壓推桿完成九號球擊球。
+1. 使用者明確 Confirmed Decisions。
+2. 本次架構健檢修正。
+3. 本 Master Spec。
+4. 各子系統 active spec。
+5. P1-01、P1-02 已完成實作與其測試。
+6. 實際程式碼與 Git 歷史。
+7. superseded spec。
+8. 舊 tickets。
 
-目前程式已包含：
+Active specs：
 
-- Python 視覺端持續傳送 32 個 CSV 座標值。
-- C++ 端解析母球、1 至 9 號球及 6 個袋口。
-- `TargetSelector` 選擇最低號目標球及袋口。
-- `Algorithm` 建立直球或反彈球瞄準點。
-- `MotionPlanner` 產生手臂笛卡兒姿態。
-- `RobotController` 封裝 HRSDK。
-- `BilliardApp` 串接視覺、策略、規劃與實際動作。
+- `python-cpp-external-contract.md`：wire、Robot Base0 planar XY 與 Parser 邊界。
+- `phase-1-shot-brain-spec.md`：C++ 擊球大腦。
+- `phase-2-shot-executor-spec.md`：C++ 擊球手。
 
-目前主要問題不是單一函式錯誤，而是純數學、視覺 sentinel、撞球物理、機械姿態與硬體控制的語意互相滲透。重構必須分階段完成，禁止一次改寫所有子系統。
+`../archive/specs/phase-1-math-geometry-refactor-spec.md` 已被取代，只保留歷史與 P1-01／P1-02 追溯用途。
 
-## 2. Repository 基準與現況
+相同規則只由一份 active spec 定義；其他文件只能引用，不得複製後改寫。
+後續To Tickets必須只使用上述三份子系統active specs與本Master的明確allowlist；
+`docs/archive`及任何superseded文件一律排除，即使工具遞迴掃描`docs`亦不得納入。
 
-掃描時確認：
+## 2. Problem Statement
 
-- `main` 正確追蹤 `origin/main`。
-- Remote fetch/push 均為 `https://github.com/DoBeDoDa/Topics.git`。
-- `main` 與 `origin/main` ahead 0、behind 0。
-- 工作樹乾淨。
-- Repository 沒有既有 `docs/specs` 結構、CMakeLists 或單元測試框架。
-- `.vscode/tasks.json` 使用 MSVC `cl.exe`，但沒有 `/std:c++17`。
-- `README.md` 目前只有簡短專案名稱。
+目前系統將相機補償、wire sentinel、撞球幾何、候選選擇、機械姿態與 HRSDK／DO 控制混在同一流程。無效資料可能被轉成預設 Point 或角度，不可行球路可能被強制執行，LIN 檢查失敗後仍可能繼續移動，且軟體無法在通訊失敗時保證氣動輸出已關閉。
 
-## 3. Grill Me 已確認結論
+重構必須建立三個不可跨越的責任區：Python 視覺、C++ 擊球大腦、C++ 擊球手，並使演算法完全離線可驗證、硬體執行預設拒絕未校正或未知狀態。
 
-### 3.1 MathUtils
+## 3. Solution
 
-`MathUtils` 只保留純數學與通用幾何責任：
+系統採兩個 Phase、十二個主要能力切片：
 
-- 有限值檢查。
-- 二維向量建立。
-- 向量長度。
-- 點距離。
-- 向量正規化。
-- 二維方向角。
-- 向量夾角。
-- 必要的矩陣、座標軸及角度轉換。
+- Phase 1只消費Python已完成校正與轉換的Robot Base0平面XY毫米資料，直接在同一平面產生可稽核`ShotPlan | NoPlan`。
+- Phase 2直接使用ShotPlan的Base0平面XY，以人工校正Z、核准範圍內的A／B搜尋及由擊球方向計算的C建立Tool1 TCP執行計畫；不得再做TableFrame→Base0或第二次平面映射。計畫先以fake驗證，再由最後一張ticket接入HRSDK與真實雙DO。
+- 所有可能失敗的邊界使用具名結果；禁止預設成功、強制 fallback 或失敗後繼續正常流程。
 
-以下責任必須移出或移除：
+## 4. User Stories
 
-- 相機補償移至 `CameraCompensator`。
-- 移除 `getTiltOffset()`。
-- 移除 `MotionProfile::tiltRyDeg` 的混合語意。
-- 移除 `YAW_OFFSET_DEG`。
+1. 作為視覺開發者，我要讓 Python 成為全部相機校正與補償的唯一責任端，避免 double compensation。
+2. 作為演算法開發者，我要只接收Robot Base0平面XY毫米座標，讓Phase 1不依賴相機處理或機械手臂API。
+3. 作為測試者，我要從receive-event stream離線重現Phase1PipelineResult，並在Stable seam以StableTableState獨立重現PlanningResult。
+4. 作為操作者，我要在沒有合法方案時看到具名原因，而不是讓系統強制擊球。
+5. 作為安全審查者，我要能由 ShotPlan 查明路徑、角度、淨空、分數與設定版本。
+6. 作為機械手臂開發者，我要由ExecutionPlan取得以Base0平面XY、人工Strike Z、核准A／B及方向C建立的Pose，而不重新計算撞球策略或轉換平面座標。
+7. 作為硬體操作者，我要讓未校正力度、未知 DO 狀態或失敗路徑阻止一切後續動作。
+8. 作為 ticket 作者，我要能依十二個能力邊界建立可獨立驗證、commit 與回滾的工作。
 
-零向量、NaN、Infinity、運算溢位或退化幾何不得回傳 0 度、原始點或看似成功的預設值。
+## 5. 系統責任邊界
 
-### 3.2 視覺資料
+### 5.1 Python 視覺
 
-- Socket 協定維持 32 個 CSV 值及換行框架。
-- `-9999.0` 只保留為 wire protocol sentinel，且只接受精確成對
-  `x == -9999.0 && y == -9999.0`。
-- Parser 必須立即將精確成對 sentinel 轉成 `std::nullopt`；只有單軸等於
-  sentinel 時整幀為 `Invalid`。
-- 不使用 `-9000.0` 或任何範圍門檻判斷 missing。其他小於 `-9000.0` 的有限
-  座標仍是 present point，交由補償後桌面範圍驗證拒絕。
-- Sentinel 不得進入 MathUtils、BilliardPhysics、Algorithm 或 MotionPlanner。
-- NaN、Infinity、格式錯誤、極端值與桌面外座標必須 fail closed。
-- 規劃前需要連續 3 幀穩定資料。
-- 三幀 presence pattern 必須完全一致；任一球或袋口出現／消失即為
-  `Unstable`。
-- 每個存在物件分別取三個 X 與三個 Y 的中位數；三幀中每個點到其中位數點的
-  歐氏距離皆不得超過 `stableFrameToleranceMm`。
-- 穩定成功後只使用中位數座標產生核心 `TableState`。
-- 任一單幀處理結果不是 `Valid` 時不得組成三幀輸入，也不得產生穩定結果。
-- 3 幀穩定容差尚待實測，不得猜測；缺少時回 `ConfigurationMissing`。
+唯一負責：影像擷取、球體辨識、鏡頭校正、perspective transform、homography、pixel轉Robot Base0平面XY毫米、固定offset與相機殘差補償，並以既有newline-delimited 32值CSV送出當次球與六袋Base0平面XY。
 
-### 3.3 幾何與碰撞
+Python 不負責撞球候選、碰撞安全、Base0 XY之後的Robot Pose／Tool姿態、HRSDK 或 DO。
 
-- 零長度路徑是 `Invalid`，不是 `Clear`。
-- 路徑檢查使用 `Clear`、`Blocked`、`Invalid` 三態。
-- 鬼球點、鏡射點、交點、正規化、方向角與夾角必須顯式表示失敗。
-- 球路安全距離為「球直徑加可配置安全餘量」。
-- 正式安全餘量尚待實測，不得猜測。
-- `checkRoute` 必須先驗證路徑與參數；驗證成功且障礙列表為空時回
-  `Clear`，退化路徑或無效參數仍回 `Invalid`。
-- 有效且非退化輸入下，Algorithm 現有直球／反彈策略排序不得在 Phase 1 改變。
+### 5.2 C++ Phase 1
 
-### 3.4 機械手臂與工具
+Phase 1由兩個不可混用的責任層組成：
 
-Cartesian Pose 格式：
+- `Phase1Pipeline`：接收ReceiveEvent stream，執行SingleFrameResult、
+  StabilityResult及Phase1PipelineResult生命週期。P1-03負責External Contract、
+  既有32值External Contract、本地shot-cycle/session邊界、Parser與單幀驗證；P1-04只負責三幀穩定生命週期。
+- `ShotBrain`：只接受StableTableState、TableGeometryConfig與BrainConfig，負責
+  撞球幾何、DirectPot、一次母球KickPot、共同評分及PlanningResult。V1預設`PlanningMode = PotOnly`；LegalContact只可作顯式manual／research能力。
+  P1-09整合此層，但不接收CSV或ReceiveEvent。
 
-```text
-X, Y, Z, RX, RY, RZ
-```
+ShotBrain不得負責Parser、receive freshness、timeout或三幀累積；只有
+StabilityResult中的Stable success value可以呼叫ShotBrain。
 
-已確認：
+Phase 1 P1-01至P1-09的核心演算法與驗收完全離線，不得執行相機補償、任何平面座標轉換、真實production Socket、HRSDK、RobotController、DO或真實機械手臂。P1-03以fake byte／connection／cycle source驗證既有32值contract、本地session／shot-cycle gate及parser；同一ticket可原地補強既有SocketClient與BilliardApp的production framing、stale-buffer protection及connection lifecycle，但不得在離線驗收中開啟Socket。Phase1Pipeline與ShotBrain核心不得依賴SocketClient。
 
-- 使用 Tool 1 與 Base 0。
-- Tool 1 TCP 以氣壓推桿完全縮回時標定。
-- Tool 1 相對法蘭只有平移，沒有旋轉偏移。
-- Tool `+X` 是擊球方向。
-- Tool `-X` 是退桿方向。
-- 擊球點是推桿縮回時 Tool 1 TCP 到達的位置。
-- 水平且工具朝下的基準 RX 為 `-180°`。
-- 水平擊球的基準 RY 為 `0°`。
-- RZ 不是固定值。
-- 同一擊球候選中，TCP 的 X、Y、Z、RZ 固定。
-- 搜尋 RX／RY 時不重新計算 TCP XYZ。
-- TCP 距母球中心的基準距離為 50 mm。
-- 擊球 Z 由實機手動調整。
+### 5.3 C++ Phase 2：Shot Executor
 
-擊球方向與 RZ 定義：
+唯一負責：由Base0平面XY ShotPlan建立Base0中的Tool1 TCP Pose、ExecutionPolicy、ExecutionPlan、PTP／LIN、fake與real adapters、雙DO與安全終止。StrikeReadyPose的X／Y由母球中心及擊球方向直接計算，Z來自人工校正Strike Z，A／B只可在版本化且人工核准的小區間內確定性搜尋，C由平面擊球方向計算；每個A／B候選還必須驗證校正球桿forward axis投影與擊球方向一致。
+
+Phase 2不得執行TableFrame→Base0、相機補償、camera offset correction或第二次平面座標映射。
+
+### 5.4 概念責任與既有檔案映射
+
+Spec中的概念名稱不強制對應同名cpp；本專案採repository-constrained原地重構：
+
+- `ShotBrain`概念由既有`Algorithm + BilliardPhysics + TargetSelector`承接。
+- `Phase1Pipeline`概念由既有`BilliardApp`協調、`VisionDataParser`及唯一三幀穩定狀態物件共同承接。
+- `ExecutionPlan`概念由既有`MotionPlan／MotionPlanner`原地演進。
+- Execution State Machine由既有`BilliardApp + RobotController`承接。
+- Production Transport由既有`SocketClient + BilliardApp`整合承接。
+
+不得因概念名稱新增`ShotBrain.cpp`、`Phase1Pipeline.cpp`、`ExecutionPlanner.cpp`、第二個MotionPlanner、第二個RobotController、第二個SocketClient、第二個VisionDataParser、CameraCompensator、TableFrameToBase0Converter、第二個BilliardApp或第二套MathUtils／BilliardPhysics。
+
+## 6. 全域資料流
 
 ```text
-shotDirection = aimTarget - cueBall
-shotRzDeg = atan2(shotDirection.y, shotDirection.x)
+Python calibrated Robot Base0 planar-XY-mm CSV
+→ ReceiveEvent
+→ Phase1Pipeline
+   → SingleFrameResult
+   → StabilityResult
+      └─ Stable success value only
+         → ShotBrain(
+              StableTableState,
+              TableGeometryConfig,
+              BrainConfig)
+         → PlanningResult = ShotPlan | NoPlan
+   → Phase1PipelineResult
+      └─ PlanningCompleted(PlanningResult)
+         ├─ NoPlan: stop before Phase 2
+         └─ ShotPlan success value
+            → ExecutionPolicy
+            → Base0 XY + calibrated Z/A/B/C → Tool1/TCP ExecutionPlan
+→ fake state machine
+→ HRSDK / dual-DO adapters
+→ Completed | SafeFailure | UnknownUnsafe
 ```
 
-不得使用 RX、RY 或 HRSDK Euler 值反推二維擊球方向。不得對 RZ 加固定補償。
-
-### 3.5 姿態搜尋
-
-暫定搜尋範圍：
+使用者操作與真實執行的唯一端到端順序為；一個`StartRequested`只允許一個shot cycle，完成後不得自動開始下一球：
 
 ```text
-RX：-180° 至 -175°
-RY：0° 至 -5°
-步距：1°
+WaitingForStart
+→ StartRequested
+→ BilliardApp協調手臂移至CameraPose
+→ 確認CameraPose成功且Robot motion stopped
+→ 等待camera settle
+→ SocketClient丟棄／flush CameraPose前的舊buffer
+→ 重置三幀累積並開啟本shot-cycle capture window
+→ Python拍照、辨識及pixel→Robot Base0 planar XY
+→ SocketClient接收已轉換完成的newline-delimited 32值XY
+→ VisionDataParser嚴格解析
+→ 同一connection與shot cycle內、capture window開啟後的三個本地ReceiveEvent
+→ 球與六袋資料一致性及三幀穩定
+→ 最低號目標球
+→ 六袋GhostBallPoint
+→ DirectPot及一次母球碰庫KickPot
+→ 碰撞檢查及共同評分（Direct顯著soft preference；高品質Kick可勝出）
+├─ PotOnly無可行Direct／Kick：NoPlan(NoPotCandidate)
+│  → CycleCompleted → WaitingForStart；不得自動LegalContact
+└─ Base0 planar XY ShotPlan
+   → MotionPlanner以Base0 XY、人工Strike Z、核准A/B及方向C建立Pose
+   → Robot移至StrikeReadyPose並確認停止
+   → DO1 ON → DO1 OFF → directionChangeDelay → DO2 ON → DO2 OFF
+   → mechanismCompletionWait
+   → PolicyAcceptedPneumaticCompletion
+   → 讀取actual pose，保持X/Y/A/B/C不變，檢查並垂直LIN至PostStrikeSafeLiftPose
+   → 確認安全高度
+   → PTP返回CameraPose並確認停止
+   → CycleCompleted
+   → WaitingForStart
 ```
 
-搜尋規則：
+NoPlan只表示合法StableTableState已交給ShotBrain，但沒有合法撞球規劃結果。
+Parser錯誤、NeedMoreEvents、Unstable、timeout、receive錯誤或connection reset屬於
+Phase1PipelineResult，不得成為NoPlanReason。
 
-1. 先固定 RX=`-180°`，依序搜尋 RY。
-2. 無有效姿態時，再逐步搜尋 RX=`-179°` 至 `-175°`。
-3. `RX<-180°` 在實測前禁止啟用。
-4. 不得把 `RX=-185°` 自動改寫成 `+175°`。
-5. 不得只因 Euler 角數學等價就假設關節組態與路徑等價。
+Phase 1幾何統一使用PlayableBallCenterRegion、PocketExitSegment、PocketCaptureCorridor與
+RailReflectionRegion；Kick統一使用PhysicalRailSegment、
+EffectiveCueBallRailSegment及CueBallReboundPoint。這些幾何的唯一完整定義位於
+Phase 1 Shot Brain Spec。
 
-### 3.6 建議運動流程
+GhostBallPoint唯一表示母球與目標球首次接觸瞬間的母球球心位置，不是Robot TCP
+strike position。ShotPlan不得包含Robot TCP位置；Phase 2不得直接把GhostBallPoint
+轉成Robot Pose，而必須使用ShotPlan中的母球目前中心與擊球方向，依Phase 2 Shot
+Executor Spec建立TCP strike-ready位置。
 
-未來目標流程：
+第一版KickPot只使用EffectiveCueBallRailSegment上的理想鏡射幾何，假設母球球心
+方向滿足入射角等於反射角。此模型不估測或補償庫邊恢復係數、碰庫速度衰減、球體
+旋轉、桌布摩擦或庫邊材質差異。Phase 1只依幾何門檻建立候選；Phase 2只以實驗核准
+的單一固定力度envelope作fail-closed執行gate，不得對個別候選動態調整力度。
 
-```text
-Joint PTP 到 transitJoint
-→ Cartesian PTP 到 safeApproachPose
-→ 讀取實際目前姿態
-→ motion_check_lin(actualPose, strikeTcpPose)
-→ 短距離 LIN 到 strikeTcpPose
-→ 手臂停止
-→ 氣壓擊發及收回
-→ Joint PTP 直接回 CAMERA_JOINT
-```
+V1維持既有newline-delimited 32值CSV，不新增mandatory Python control handshake、
+sender frame ID或sender timestamp。freshness由既有`BilliardApp + SocketClient`在本地
+建立：connection identity、shot-cycle identity、嚴格遞增ReceiveEvent ID、CameraPose
+settle後才開啟的capture window、舊buffer flush及三幀累積reset。disconnect、reconnect、
+timeout或Parser failure均使本cycle累積失效；只有同一cycle中capture window開啟後的
+三個有效event可形成StableTableState。RuntimeCalibrationAttestation、
+AttestedVisionSession及versioned control message只列於External Contract的
+`Future Hardening / Optional Future Protocol`，不是V1 production gate、ticket或驗收依賴。
 
-LIN 檢查失敗時不得自動改用未驗證的 PTP 下降。
+32值wire中的六袋XY是本cycle規劃使用的唯一pocket center來源，必須與動態球一起通過
+presence、finite、固定Pocket ID及三幀一致性／median規則。`TableGeometryConfig`只擁有
+Pocket ID／type、rail topology、inward／outward normals、effective rails、capture corridor、
+exit、collision與revision，並可對wire位置做容差驗證；它不得以另一組static pocket center
+取代當次wire pocket center，也不得把不穩定單幀袋口與Stable球狀態混用。
 
-### 3.7 自動比賽
+Tool1的物理球桿forward axis是版本化人工校正屬性，不預設為局部`+X`。P2-03必須在
+no-fire驗收中確認Tool1 TCP、forward axis、`CToolOffset`、A／B／C映射及Base0 `+Z`
+確為物理安全上方；任一未確認即`CalibrationRequired`且禁止擊發。
 
-系統分為：
+ShotPlan稽核採`CommonAuditFields + plan-type-specific variant payload`。Pot、Kick及
+LegalContact欄位的唯一適用性契約位於Phase 1 Shot Brain Spec；不適用欄位不得以0、
+預設角度、空Point或其他假成功值補齊。
 
-- `CompetitionAuto`
-- `ManualDiagnostic`
+## 7. 全域安全不變量
 
-CompetitionAuto 使用接在電腦上的按鈕模擬鍵盤 `H`：
+- NaN、Infinity、溢位、退化幾何、缺少必要設定、矛盾資料、無交點、不可行路徑、不可達姿態及通訊／硬體失敗一律 fail-closed。
+- 禁止回傳 `Point{0,0}`、預設 Point、原始輸入 Point、0 度或任意 Pose 作為失敗 fallback。
+- 不可行候選必須在評分前排除，不得只給低分。
+- 被拒候選只能存在CandidateDiagnostic；不得轉型為正式Candidate、ShotPlan或
+  ExecutionPlan。
+- 規劃失敗不得建立 ExecutionPlan；執行失敗不得觸發後續正常 DO 或移動。
+- `motion_reachable()` 只代表目標可達，不代表 PTP 路徑安全。
+- LIN 必須先通過 `motion_check_lin()`；失敗不得改用未驗證 PTP。
+- DO1 與 DO2 永遠互斥。
+- OFF命令失敗、結果未知或通訊中斷時進入`UnknownUnsafe`，禁止任何後續
+  機械手臂動作。
+- 無DO回讀時，成功寫入OFF只能記為`OffCommandAccepted`；是否允許繼續取決於
+  P2-03硬體安全案例與ExecutionPolicy，不得宣稱`PhysicalOffConfirmed`。
+- 擊球後第一個Robot motion只能是保持X／Y／A／B／C不變且已通過`motion_check_lin()`的垂直safe lift；確認安全高度前禁止任何retract PTP或camera PTP。氣動狀態未知時禁止抬升與返回。
 
-- 使用按下沿觸發。
-- 必須釋放按鍵後才接受下一次觸發。
-- 回拍照點後等待對手，不立即規劃。
-- H 按下後清除舊 Socket 資料。
-- 只接受觸發後重新累積的 3 幀穩定資料。
-- 視覺或幾何無效可以重新取像。
-- 手臂警報不得自動忽略。
-- 警報排除後，必須重新按 H 並從取像開始。
+## 8. 結果與設定語意
 
-### 3.8 氣壓
+所有Result統一分成success value與Diagnostic metadata：
 
-- DO1：擊出。
-- DO2：收回。
-- 電磁閥會保持切換後狀態。
-- DO1 與 DO2 不得同時 ON。
-- DO2 完成收回後必須 OFF。
-- DO2 OFF 後手臂才可返回拍照點。
-- 命令脈衝與機構完成等待必須使用不同參數。
-- 正式時間尚待實測。
+- 成功status必須有success value。
+- 非成功status不得有success value。
+- 成功與失敗都可以帶有Diagnostic metadata。
+- Diagnostic不得被轉型或視為合法Point、Pose、Candidate、StableTableState、
+  ShotPlan或ExecutionPlan，也不得包含fallback成功值。
 
-第一輪實機擊球測試：
+設定錯誤統一分類：
 
-- 氣壓電源供應器不通電。
-- 程式可以執行 DO 邏輯。
-- 實際氣壓閥由人工操作。
-- 只測試單顆球。
-- 不執行正式連續比賽。
+- `ConfigurationMissing`：必要設定、校正或 normalization range 不存在。
+- `InvalidConfiguration`：設定非有限、負值、範圍反轉或不符合不變量。
+- `CalibrationRequired`：結構有效但尚未完成真實執行校正。
+- `IntegrationRequired`：必要production application／infrastructure adapter尚未整合或完成相容性驗收；不得以此狀態表示校正缺失。
+- `UnsupportedConfigurationVersion`：Deployment Calibration Manifest或其他版本化設定使用不受支援的schema version。
 
-## 4. 現有程式碼與需求的衝突
+上述狀態可供離線測試，但不得被轉成可執行硬體計畫。
 
-### 4.1 Safety Critical
+## 9. Phase 與十二個能力切片
 
-1. `MathUtils::getAngleBetweenVectors()` 在任一零向量時回傳 `0.0`，可能把無效幾何當成完美夾角。
-2. `MathUtils::getVectorAngle(0, 0)` 透過 `atan2` 產生看似合法的 0 度。
-3. `BilliardPhysics::isPathBlocked()` 在零長度路徑時回傳 `false`，語意等同 `Clear`。
-4. `getGhostBall()`、`getPerpendicularTarget()` 與 `getSlantedBankTarget()` 在退化情況回傳輸入點，製造假成功。
-5. `VisionDataParser` 沒有拒絕所有非有限值；Infinity 可被標記為 detected。
-6. `MotionProfile::tiltRyDeg` 同時被當成 Pose RY 與三角函數傾角。
-7. `getTiltOffset()` 對姿態 RY 使用 sin/cos；輸入 `-180°` 時會反轉 XY 方向。
-8. `MotionPlanner` 將 `getTiltOffset()` 的 Z 結果丟棄。
-9. `BilliardApp` 在 `motion_check_lin()` 失敗或回報不可達後仍明確執行 PTP。
-10. Algorithm 對不安全的反彈路線仍建立「強制開火」決策。
-11. 手臂運動期間 Python 持續送資料；目前返回拍照點後可能消費舊影像。
+| ID | 能力 | Phase |
+|---|---|---|
+| P1-01 | C++17 與離線測試框架 | Brain |
+| P1-02 | 安全型別、GeometryResults 與純 MathUtils | Brain |
+| P1-03 | 既有32值External Contract、本地Cycle／Session Boundary、嚴格 Parser 與單幀驗證 | Brain |
+| P1-04 | 三幀穩定生命週期與 StableTableState | Brain |
+| P1-05 | 桌面、袋口、庫邊與碰撞幾何 | Brain |
+| P1-06 | 最低號球資格與 DirectPot | Brain |
+| P1-07 | 一次母球 KickPot | Brain |
+| P1-08 | Direct／Kick共同評分、確定性選擇與 PotOnly；LegalContact為選配研究能力 | Brain |
+| P1-09 | ShotBrain 與 ShotPlan／NoPlan | Brain |
+| P2-01 | ShotPlan→ExecutionPlan、StrikeReadyPose 與球桿方向驗證 | Executor |
+| P2-02 | fake adapters、狀態機與雙 DO 安全 | Executor |
+| P2-03 | HRSDK／真實 DO adapters 與受控驗收 | Executor |
 
-### 4.2 設定衝突
+不得為單一函式、enum、測試、build 修正或單一檔案另建主要 ticket。
 
-目前 `PRODUCTION_MOTION`：
+### 9.1 Existing Responsibility Owners
 
-```text
-RX = 0°
-RY = -180°
-```
-
-已確認模型：
-
-```text
-RX = -180°
-RY = 0° 起始
-```
-
-目前設定不可視為已通過實機驗證的正式姿態。
-
-Repository 的 `AGENTS.md` 仍將「Tool +Y 或 -Y」、「固定參考姿態」及「沿 Tool Y 位移 50 mm」列為未確認。完整 Grill Me 訪談已明確確認 Tool `+X`／`-X`、RX=`-180°`、RY=`0°`基準及50 mm TCP距離，因此本規格採用最新訪談結論。`AGENTS.md` 的文字同步應在後續取得授權時獨立處理；Euler旋轉順序等未確認項目仍維持未確認。
-
-### 4.3 數值與建置
-
-- `0.001` 同時比較 mm、mm²及交點行列式。
-- `-9000.0` 門檻會把合法解析但桌面外的有限值誤判為 missing；Phase 1 必須
-  移除該門檻，只保留精確成對 `-9999.0`。
-- 距離使用 `sqrt(dx*dx+dy*dy)`，可能不必要地溢位。
-- 建置未指定 C++17。
-- 沒有純數學測試目標。
-
-## 5. 模組責任與架構邊界
-
-### 5.1 目標模組
-
-| 模組 | 目標責任 |
+| ID | 必須優先原地修改的既有owner |
 |---|---|
-| MathUtils | 純數學、有限值、向量、角度、矩陣 |
-| CameraCompensator | 僅執行單點的現有線性相機殘差補償 |
-| VisionDataParser | 嚴格解析 32 欄 CSV、精確成對 sentinel 轉 `ParsedVisionFrame` 中的 optional |
-| VisionFrameProcessor | 持有／使用 CameraCompensator，執行單幀補償、必要資料與桌面範圍驗證，成功後產生 `ProcessedVisionFrame` |
-| StableFrameValidator | 對三個單幀 Valid 結果執行 presence、中位數及距離驗證，成功後唯一產生 `TableState` |
-| TargetSelector | 只根據三幀穩定後的 `TableState` 選球；不得持有、建構或呼叫 CameraCompensator |
-| BilliardPhysics | 鬼球、碰撞、鏡射及交點 |
-| ShotCandidateValidator | 組合幾何結果，拒絕無效候選 |
-| Algorithm | 直球／反彈策略與目標選擇 |
-| MotionPlanner | 建立姿態候選與動作意圖，不呼叫 HRSDK |
-| HiwinOrientationAdapter | 將已確認的姿態模型轉成 HRSDK Euler |
-| RobotController | HRSDK、Tool/Base、reachable、LIN、PTP及警報 |
-| BilliardApp | 流程協調與狀態機 |
-| PneumaticController | DO1／DO2互斥狀態機 |
+| P1-01 | 既有離線建置與測試框架；已完成 |
+| P1-02 | `Point`、`GeometryResults`、`MathUtils`；已完成 |
+| P1-03 | `SocketClient`、`VisionDataParser`、`TableState`、`BilliardConfig`及必要的`BilliardApp` session integration |
+| P1-04 | `TableState`、`BilliardConfig`及唯一三幀穩定狀態物件 |
+| P1-05 | `BilliardPhysics`、`Point`、`GeometryResults`、`BilliardConfig` |
+| P1-06 | `TargetSelector`、`Algorithm`、`BilliardPhysics`、`TableState` |
+| P1-07 | `Algorithm`、`BilliardPhysics`、`Point` |
+| P1-08 | `Algorithm`、`BilliardPhysics`、`TargetSelector`、`BilliardConfig` |
+| P1-09 | `Algorithm`、`TableState`、`BilliardApp` |
+| P2-01 | `MotionPlanner`、`BilliardConfig`、`MathUtils` |
+| P2-02 | `BilliardApp`、`MotionPlanner`、`RobotController`介面、`BilliardConfig`及tests中的fake adapters |
+| P2-03 | `RobotController`、`BilliardApp`、`BilliardConfig`，必要時既有`main.cpp` |
 
-### 5.2 依賴方向
+P1-04是Phase 1唯一可能合理新增production cpp的切片，但仍須先證明責任目前不存在、沒有合理既有owner、新檔不形成重複且會成為唯一owner。其他ticket不得以概念名稱強迫拆檔或建立平行實作。
 
-```text
-SocketClient
-→ VisionDataParser
-→ ParsedVisionFrame
-→ VisionFrameProcessor
-    └─ CameraCompensator
-→ ProcessedVisionFrame（已補償且單幀 Valid）
-→ StableFrameValidator
-→ TableState（三幀中位數、穩定且已驗證的 Base0 座標）
-→ TargetSelector
-→ Algorithm / BilliardPhysics
-→ ShotCandidateValidator
-→ MotionPlanner
-→ BilliardApp
-→ RobotController / PneumaticController
-→ HRSDK / digital outputs
-```
+### 9.2 Repository-Constrained Refactor治理
 
-MathUtils 不得依賴 BilliardConfig、CameraCompensator、Algorithm、MotionPlanner 或 HRSDK。
+1. 每張ticket先列Existing Responsibility Owners、相關headers／tests及允許修改的責任。
+2. 優先修改既有函式、類別與資料型別；不建立平行v2系統。
+3. 不得保留舊實作再新增同功能實作；拆檔必須搬移責任，不得複製責任。
+4. 新檔案必須證明責任目前不存在、沒有合理既有owner、不會形成重複，且新檔會成為唯一owner。
+5. 不要求每個cpp都修改；只在現有缺口確實需要時改動。
+6. 所有變更維持可編譯、可獨立review與回滾的小步commit。
+7. 不得為符合概念架構而改變使用者指定的實際擊球流程。
 
-## 6. 資料流
+### 9.3 Existing Ticket Refactoring治理
 
-### 6.1 視覺資料流
+- To Tickets先建立完整Existing Ticket Inventory，再逐張與四份active specs及既有C++ owners比較。
+- 每張舊ticket必須標記`Keep | Refactor | Rename | Move | Merge | Split | Superseded | Completed`；只有確有未覆蓋能力缺口時才可標記`New`。
+- 有效需求、診斷、失敗處理與測試必須保留並追蹤；過時責任必須移除，驗收條件及owner必須重新綁定。rename／move／merge／split只在能力邊界確實需要時執行。
+- 不得將舊tickets整批archive後另造十二張平行文件。十二個ID是固定能力identity，不代表必須建立十二份全新Markdown。
+- P1-01與P1-02標記`Completed`，保留implementation commit、已完成scope、tests及依active specs重新驗證的結果；後續只開delta work，不重寫其歷史。
+- CameraCompensator或VisionFrameProcessor等舊ticket中的C++相機補償責任失效，但其中仍有效的validation、diagnostics、failure handling及tests必須先遷移並建立trace，整張ticket才可Superseded／archive。
+- To Tickets的權威allowlist仍只有本Master及三份active specs；`docs/archive`及superseded spec不得成為需求來源。
+
+## 10. Testing Decisions
+
+主要測試 seam：
 
 ```text
-TCP newline frame
-→ 嚴格解析 32 tokens
-→ 非有限值檢查
-→ 成對 sentinel 轉 std::nullopt
-→ ParsedVisionFrame
-→ VisionFrameProcessor
-→ 逐點 CameraCompensator
-→ 補償後 Base0 桌面範圍及必要資料驗證
-→ ProcessedVisionFrame
-→ StableFrameValidator（三個單幀 Valid 結果）
-→ presence pattern 一致性
-→ 每個存在物件的 X/Y 中位數與歐氏距離驗證
-→ TableState（中位數座標）
-→ TargetSelector
+Parser seam:
+raw wire + receive metadata → SingleFrameResult
+
+Pipeline seam:
+ReceiveEvent stream → Phase1PipelineResult
+
+Brain seam:
+StableTableState + TableGeometryConfig + BrainConfig → PlanningResult
+
+Executor seam:
+ShotPlan + ExecutionPolicy + calibrations → ExecutionResult + recorded commands
 ```
 
-解析、補償、範圍與穩定驗證是不同責任。任何階段失敗都不得產生部分可用的核心球桌狀態。
+- Brain seam驗證KickPot在effective rail的理想入射角／反射角相等不變量，並證明Phase 1不讀取力度或庫邊／桌布動力學參數。
+- Executor seam驗證全部可執行方案只使用同一個已校正固定氣動脈衝；超出FixedForceEnvelope時fail-closed，且不依候選距離或角度動態改變力度。
 
-固定階段型別不得互換：
+- P1-01至P1-09全部完全離線，不載入HRSDK、production Socket、RobotController或DO，沒有真實transport例外。
+- P1-03以fake byte／connection／cycle source離線驗證newline framing、最大frame長度、嚴格32值Parser、本地ReceiveEvent、disconnect語意、cycle/session reset與stale-buffer protection，不開真實Socket。
+- 既有`SocketClient + BilliardApp` production transport integration只接收既有32值data frame，執行本地capture-window gate後把bytes交給P1-03邊界；它不得包含規劃／硬體邏輯、不得成為ShotBrain依賴，也不得移入P2-03 HRSDK／DO adapter。
+- P2-01、P2-02 只使用 fake／mock。
+- P2-03 先通過 adapter contract 與錯誤注入，最後才允許氣壓斷電、低速、單球、人工急停環境的受控硬體驗收。
+- 測試驗證外部行為與安全不變量，不綁定私有函式或容器順序。
 
-- `ParsedVisionFrame`：已解析 sentinel 與有限值，但尚未補償。
-- `ProcessedVisionFrame`：已補償並通過單幀必要資料與桌面範圍驗證。
-- `TableState`：只由 `StableFrameValidator` 三幀穩定成功後產生。
-
-`TargetSelector` 不得 include、持有、建構、注入或呼叫 `CameraCompensator`；
-其唯一視覺核心輸入是 `TableState`。
-
-### 6.2 擊球資料流
+### 10.1 Production Readiness Prerequisites
 
 ```text
-cueBall + aimTarget
-→ shotDirection
-→ 正規化二維擊球方向
-→ shotRzDeg
-→ 固定 strikeTcpPose XYZ/RZ
-→ RX/RY候選
-→ reachable及路徑驗證
-→ 動作執行
+Operating-system Socket
+→ existing SocketClient + BilliardApp integration
+→ CameraPose settled + stale-buffer flush + shot-cycle gate
+→ P1-03 data/session interface
+→ ReceiveEvent
+→ Phase1Pipeline
 ```
 
-RX／RY 是姿態候選，不是二維擊球方向來源。
-
-Phase 1 完成後 `MotionProfile` 的欄位與順序固定為：
-
-```cpp
-struct MotionProfile {
-    double strikeZ;
-    double safeZ;
-    double rxDeg;
-    double ryDeg;
-    double standoffExtraMm;
-};
-```
-
-`moveBackMm` 必須移除；PRODUCTION_MOTION 與 TEST_MOTION 只做舊值逐欄遷移，
-不得改變現有 RX／RY 數值。現有 PRODUCTION_MOTION 尚未通過實機驗證，
-編譯成功不得解讀為姿態安全。
-
-## 7. 安全原則
-
-1. 所有無效輸入 fail closed。
-2. 不以假角度、假座標或預設點繼續規劃。
-3. `motion_reachable()` 只證明終點可達，不證明 PTP 路徑安全。
-4. LIN 必須使用 `motion_check_lin()`。
-5. LIN 檢查失敗不可改用 PTP 強制下降。
-6. 未確認 Euler 規則前，不實作矩陣轉 HRSDK Euler。
-7. 未校正的安全參數不得填入猜測值。
-8. Tool 1／Base 0 必須在正式笛卡兒命令前主動設定並確認。
-9. 改變 RX／RY 即使 TCP 不變，也必須視為可能造成大幅關節動作。
-10. 任何自動擊發前，所有幾何、姿態、路徑及氣壓狀態都必須有效。
-11. 有效資料下的策略相容，不代表不安全候選可以強制執行。
-12. 所有「status + optional payload」Result 必須符合雙向不變量：success
-    status 必須有值，任何非 success status 必須為 `std::nullopt`；禁止矛盾組合。
-13. Phase 1 Implement 與測試不得執行 `main`、`calibrate`、`test_cueball`
-    或任何連結 RobotController／HRSDK／數位輸出的程式。
-14. Phase 1 只允許執行兩個不依賴 HRSDK 的離線測試；編譯成功不代表目前姿態
-    可安全上機。
-
-## 8. 自動比賽狀態機概要
-
-Phase 5 應使用明確 enum state，不得以零散 bool 表示：
-
-```text
-Initializing
-→ ReturningToCamera
-→ WaitingForStart
-→ FlushingVision
-→ CollectingStableFrames
-→ SelectingTarget
-→ PlanningShot
-→ SearchingPose
-→ MovingToTransit
-→ MovingToApproach
-→ ValidatingLinearPath
-→ MovingToStrike
-→ Firing
-→ Retracting
-→ ReturningToCamera
-```
-
-失敗分支：
-
-- 視覺格式／穩定失敗：回 `CollectingStableFrames`。
-- 幾何候選失敗：嘗試下一候選；全部失敗後重新取像。
-- 姿態不可達：嘗試下一姿態或路線。
-- HRSDK錯誤、警報、動作逾時：進入 `FaultLatched`。
-- `FaultLatched` 只能由人工排除，之後回 `WaitingForStart`，並要求新的 H 按鍵。
-
-## 9. 分階段計畫
-
-### Phase 1：MathUtils、CameraCompensator與安全幾何
-
-依賴：
-
-- C++17編譯器。
-- 本文件及 Phase 1 詳細規格。
-- 不依賴HRSDK、手臂或氣壓。
-
-修改範圍：
-
-- MathUtils、Point、CameraCompensator。
-- ParsedVisionFrame、ProcessedVisionFrame、TableState、VisionDataParser、
-  VisionFrameProcessor、StableFrameValidator、TargetSelector。
-- BilliardPhysics及必要Algorithm呼叫端。
-- MotionPlanner與BilliardConfig僅做新API及固定五欄 `MotionProfile` 的必要相容遷移。
-- BilliardApp與test_cueball僅處理新失敗結果。
-- 建置設定與兩個純離線測試執行檔。
-
-驗收：
-
-- C++17。
-- `phase1_core_tests`與`phase1_algorithm_regression_tests`均不include或link
-  HRSDK、RobotController、SocketClient或數位輸出程式。
-- Sentinel不進核心幾何。
-- 只有`StableFrameValidator`可產生`TableState`。
-- 三幀presence、中位數及距離規則具有離線fixture測試。
-- 所有退化幾何顯式失敗。
-- 有效輸入的直球／反彈決策回歸結果不變。
-- `MotionProfile`欄位固定為strikeZ、safeZ、rxDeg、ryDeg、standoffExtraMm，
-  並移除moveBackMm。
-- 不執行main、calibrate或test_cueball。
-
-回滾：
-
-- 單一Phase提交。
-- 回滾整個Phase提交即可恢復原API與呼叫端。
-- 不回滾或覆寫Phase開始前的使用者變更。
-
-禁止跨越：
-
-- 不實作H按鈕。
-- 不實作DO狀態機。
-- 不改寫HRSDK運動。
-- 不執行姿態搜尋。
-- 不改Algorithm策略排序。
-- 不執行任何連結RobotController／HRSDK或數位輸出的程式。
-
-### Phase 2：MotionPlanner、CartesianPose與姿態候選
-
-依賴：
-
-- Phase 1完成。
-- `STRIKE_TCP_Z_MM`可保持未校正，但正式動作必須被禁用。
-- Euler文件未確認時只能產生語意姿態候選，不能建立未證實的矩陣轉Euler。
-
-預計檔案：
-
-- `Point.h`或新 `CartesianPose.h`
-- `BilliardConfig.h/.cpp`
-- `MotionPlanner.h/.cpp`
-- `BilliardApp.h/.cpp`
-- 新 `HiwinOrientationAdapter.h/.cpp`，初期可只有明確blocked介面
-- MotionPlanner純測試
-
-驗收：
-
-- 核心不傳遞笛卡兒 `std::array<double,6>`。
-- strike TCP的XYZ/RZ在RX／RY候選間固定。
-- 搜尋範圍與順序符合規格。
-- MotionPlanner不包含HRSDK。
-- 沒有實際運動。
-
-回滾：
-
-- 回滾Phase 2提交，Phase 1純幾何仍可獨立保留。
-
-禁止跨越：
-
-- 不自動角度wrap。
-- 不假設Euler順序。
-- 不呼叫motion_reachable或運動命令。
-
-### Phase 3：RobotController安全運動流程
-
-依賴：
-
-- Phase 2。
-- Needs Documentation項目完成。
-- 安全接近Z與測試環境完成硬體確認。
-
-預計檔案：
-
-- `RobotController.h/.cpp`
-- `BilliardApp.h/.cpp`
-- `BilliardConfig.h/.cpp`
-- 運動診斷測試程式
-
-驗收：
-
-- Tool 1／Base 0設定及讀回確認。
-- 每個候選終點使用reachable。
-- LIN使用實際起點執行motion_check_lin。
-- LIN檢查失敗不送PTP下降。
-- 動作錯誤立即fail closed。
-- 低速、無氣壓測試通過。
-
-回滾：
-
-- 關閉新運動流程，恢復ManualDiagnostic計算輸出模式。
-- 可回滾Phase 3而保留前兩Phase。
-
-禁止跨越：
-
-- 不通電氣壓。
-- 不啟用CompetitionAuto。
-- 不把endpoint reachable視為path safe。
-
-### Phase 4：DO1／DO2氣壓狀態機
-
-依賴：
-
-- Phase 3。
-- DO編號及保持型閥行為已確認。
-- 脈衝與等待時間完成硬體驗證。
-
-預計檔案：
-
-- 新 `PneumaticController.h/.cpp`
-- `RobotController.h/.cpp`
-- `BilliardConfig.h/.cpp`
-- `BilliardApp.h/.cpp`
-- mock digital-output tests
-
-驗收：
-
-- DO1、DO2永不同時ON。
-- DO1完成後OFF。
-- DO2完成收回後OFF。
-- DO2 OFF前禁止回拍照點。
-- 逾時或錯誤轉安全狀態。
-- 以mock驗證完整時序。
-
-回滾：
-
-- 設定中停用automatic pneumatic。
-- 返回人工氣壓操作。
-
-禁止跨越：
-
-- 未量測時間不得通電。
-- 第一輪整合測試不連續擊球。
-
-### Phase 5：CompetitionAuto、H按鈕與視覺週期
-
-依賴：
-
-- Phase 1至4。
-- 3幀穩定容差已校正。
-- 舊影像清除策略完成整合測試。
-- 自動擊發前必須有獨立安全閘門，禁止執行Algorithm目前的「強制開火」不安全候選。
-
-預計檔案：
-
-- `BilliardApp.h/.cpp`
-- `SocketClient.h/.cpp`
-- 新 `StartTrigger.h/.cpp`
-- 新 `CompetitionStateMachine.h/.cpp`
-- StableFrameValidator與CompetitionAuto整合相關檔案
-
-驗收：
-
-- H按下沿只觸發一回合。
-- 長按不重複觸發。
-- 等待對手期間持續排空舊影像。
-- H後只接受新3幀。
-- 視覺失敗可重試。
-- HRSDK警報進FaultLatched。
-- 警報後必須新H重新開始。
-
-回滾：
-
-- 關閉CompetitionAuto，使用ManualDiagnostic。
-
-禁止跨越：
-
-- 不允許不安全候選因比賽自動化而強制執行。
-- 不使用警報前的舊計畫或舊影像。
-
-### Phase 6：低速實機驗證與參數校正
-
-依賴：
-
-- 前述Phase通過離線及mock測試。
-- 安全環境、急停、人工監看。
-
-涉及檔案：
-
-- `BilliardConfig.h/.cpp`
-- 測試與驗證紀錄文件
-- 必要的診斷程式，不直接改策略
-
-驗收順序：
-
-1. 不連氣壓的計算與reachable診斷。
-2. 低速、無氣壓運動。
-3. RX=`-180°`、RY=`0°`基準。
-4. RY依序至`-5°`。
-5. RX依序至`-175°`。
-6. 桌面邊界姿態與Joint PTP回程。
-7. 氣壓電源不通電，程式DO時序演練。
-8. 人工氣壓單球擊打。
-9. 所有結果合格後才能討論自動氣壓及連續比賽。
-
-回滾：
-
-- 恢復上一組已驗證設定。
-- 停用CompetitionAuto與automatic pneumatic。
-- 返回ManualDiagnostic。
-
-禁止跨越：
-
-- 不跳過姿態增量測試。
-- 不直接從未驗證姿態進入自動連續擊球。
-
-### 後續獨立策略工作
-
-`SafetyShotPlanner` 必須與目前直球／反彈策略分離。九號球安全球必須先碰最低號球；是否要求碰庫由比賽規則設定，目前訪談結論為不強制。此工作不屬於Phase 1，且需要獨立規格。
-
-## 10. 未決事項
-
-### Needs Documentation
-
-| 項目 | 阻擋階段 | 說明 |
-|---|---|---|
-| HRSDK Euler旋轉順序 | Phase 2/3 | 禁止自行假設 |
-| HRSDK Euler角度範圍 | Phase 2/3 | 包含RX及RZ邊界 |
-| HRSDK奇異點規則 | Phase 2/3 | 包含腕部組態 |
-| `-180°/+180°`等價姿態行為 | Phase 2/3 | 禁止自動wrap |
-| `motion_check_lin`完整保證範圍 | Phase 3 | 不等同碰撞檢查 |
-
-### Needs Hardware Validation
-
-| 項目 | 阻擋階段 | 說明 |
-|---|---|---|
-| `STRIKE_TCP_Z_MM` | Phase 3/6 | 使用者依實際調整 |
-| 安全接近Z | Phase 3/6 | 短LIN起點 |
-| 3幀穩定容差 | Phase 5 | 單位mm |
-| 球路安全餘量 | 正式策略／自動模式 | 單位mm |
-| 庫邊安全餘量 | 後續反彈重構 | 單位mm |
-| Base 0固定桌面幾何 | 後續反彈重構 | 六段有效庫邊與袋口 |
-| DO1／DO2脈衝 | Phase 4 | 命令時間 |
-| 氣缸完成等待 | Phase 4 | 機構時間 |
-| 全桌Joint PTP回CAMERA_JOINT | Phase 3/6 | 連桿與工具掃掠 |
-| RX／RY實際擊球效果 | Phase 6 | 高度、跳球、桌面間隙 |
-| RX小於-180° | 未排程 | 未實測前禁用 |
-
-缺少上述值時不得填猜測值。任何需要該值的production路徑必須明確回報 `ConfigurationMissing` 或維持功能停用。
-
-## 11. 實機驗證計畫
-
-### 11.1 前置條件
-
-- Tool 1與Base 0已設定並讀回確認。
-- 正式姿態轉換已有文件依據。
-- 急停可立即使用。
-- 速度使用低速設定。
-- 氣壓電源保持斷電，除非進入人工單球擊球步驟。
-- 桌面、球桿、法蘭及關節掃掠區有人工監看。
-
-### 11.2 記錄項目
-
-- 計畫Pose與實際Pose。
-- 實際關節角。
-- reachable與motion_check_lin結果。
-- 每段動作SDK code、時間與警報。
-- Tool X實際方向。
-- RX／RY對擊球高度及法蘭位置的影響。
-- PTP回程最小桌面與球桿間隙。
-- 單球擊打的方向、接觸高度、跳球與桌面風險。
-
-### 11.3 通過條件
-
-- 無未預期翻腕。
-- 無法蘭、球桿或連桿碰撞。
-- LIN檢查與實際短LIN行為一致。
-- RZ保持母球到aimTarget方向。
-- 固定strike TCP XYZ不因候選搜尋被修改。
-- RY範圍內沒有不可接受的跳球或桌面接觸。
-
-## 12. 回滾策略
-
-1. 每個Phase獨立提交，不混合跨Phase功能。
-2. 每個Phase先通過離線測試才合併下一Phase。
-3. 以整個Phase提交為最小回滾單位。
-4. 安全設定使用feature flag或模式切換：
-   - `CompetitionAuto`可退回`ManualDiagnostic`。
-   - automatic pneumatic可退回人工控制。
-   - 實際運動可退回計算及診斷輸出。
-5. 不得使用`git reset --hard`覆寫使用者資料。
-6. 不得刪除或提交`History/`、`debug_frame.png`、`黑白棋盤.docx`。
-7. `src/test_cueball.cpp`的使用者既有輸出換行不得被無關修改覆寫。
-
-## 13. 全系統驗收標準
-
-- 每個Phase符合自身驗收條件。
-- C++核心明確使用C++17。
-- Sentinel只存在wire protocol。
-- 所有幾何失敗都能傳遞到動作閘門。
-- 有效輸入下Algorithm策略回歸相容。
-- 不安全或Invalid候選永不觸發動作。
-- 姿態、運動、氣壓與自動比賽各自具有明確狀態及錯誤處理。
-- 未校正值不會被預設猜測值取代。
-- HRSDK、氣壓與實機測試只在對應Phase授權後執行。
+- 現有`SocketClient`是唯一production transport owner；P1-03可原地擴充其最大frame長度、newline framing、connection lifecycle、本地identity及clean close／error區分。
+- 該integration不得被宣稱由P1-03離線fake驗收自動完成；未整合或未驗收時，Phase 1與ShotBrain仍可完全離線完成，但production端到端operation狀態為`IntegrationRequired`並禁止啟用。
+- 此production readiness前置依賴不新增第13個主要能力identity。
+- To Tickets必須以Existing Ticket Refactoring方式，透過`Keep | Refactor | Rename | Move | Merge | Split | Superseded | Completed`，使最終active ticket set完整覆蓋既定12個能力identity。
+- 十二個ID代表能力coverage，不代表必須重新產生12份新的Markdown ticket。
+- 只有在完整Existing Ticket Inventory與coverage分析後，確認沒有任何existing ticket可以合理承接某能力時，才允許建立`New` ticket。
+- `CalibrationRequired`只用於校正／FixedForceEnvelope未完成；transport integration缺失使用`IntegrationRequired`。
+- Production vision Socket責任不屬於P2-03；P2-03只負責HRSDK、真實DO及受控機械手臂驗收。不得另建`ProductionVisionTransportAdapter.cpp`包裝或重複既有SocketClient；只有在明確取代並移除舊owner責任時才可另案審查。
+
+## 11. Out of Scope
+
+- target-bank、兩次以上庫邊、組合球、借球、跳球。
+- 母球碰撞後位置、洗袋、旋轉、二次碰撞及完整動力學。
+- 自動校正評分權重或固定力度。
+- 未經 ExecutionPolicy 授權的 LegalContact 真實執行。
+- 在本規格階段執行 main、calibrate、test_cueball、HRSDK、DO 或機械手臂。
+
+## 12. Further Notes
+
+- 評分權重為 `Initial Experimental Weights`，不是 production 最佳值。
+- 暫定 `0 mm` 碰撞 margin 只可作離線實驗；真實執行前必須校正。
+- Base0、Tool1、人工Strike Z、A／B基準及核准搜尋範圍、C adapter映射與safe-lift高度均須驗證，不等同已證明所有姿態與路徑安全。
+- To Tickets 必須引用 active specs，不得以 superseded spec 或舊 tickets 覆蓋本文件。

@@ -1,6 +1,6 @@
 # P1-01 — C++17建置與離線測試框架
 
-**Status:** ready-for-agent
+**Status:** Completed
 
 **Blocked by:** None — can start immediately
 
@@ -86,11 +86,11 @@ cl.exe /std:c++17 /EHsc /nologo /utf-8 /I .\tests `
 
 ## 11. 驗收條件
 
-- [ ] 所有相關task明確使用C++17。
-- [ ] 兩個測試骨架都可獨立編譯與執行。
-- [ ] 兩個測試執行檔exit code均為0。
-- [ ] 測試target沒有任何HRSDK／RobotController／SocketClient／DO依賴。
-- [ ] production原始碼零變更。
+- [x] 所有相關task明確使用C++17。
+- [x] 兩個測試骨架都可獨立編譯與執行。
+- [x] 兩個測試執行檔exit code均為0。
+- [x] 測試target沒有任何HRSDK／RobotController／SocketClient／DO依賴。
+- [x] production原始碼零變更。
 
 ## 12. 回滾方式
 
@@ -121,3 +121,32 @@ A  tests/phase1_algorithm_regression_tests.cpp
 test: add isolated C++17 phase 1 harness
 ```
 
+## 16. Approved Spec References
+
+- Master Spec §9 P1-01、§10 Testing Decisions。
+- Phase 1 Shot Brain Spec §4 P1-01、§16。
+
+## 17. Existing Responsibility Owners
+
+- `.vscode/tasks.json`與既有`tests/TestHarness.h`、兩個Phase 1離線測試target。
+- Existing Files Explicitly Not to Duplicate：不得建立第二套test harness或平行build system。
+
+## 18. Hardware Level與Regression Requirements
+
+- Hardware Level：完全離線；禁止Socket、HRSDK、RobotController與DO。
+- Regression：後續P1-03至P2-03不得破壞兩個離線target的隔離與C++17建置。
+
+## 19. Definition of Done與完成證據
+
+- Implementation commit：`bca0eb4`。
+- Completed scope與existing tests保留，不重建、不改回Planned。
+- Approved Specs revalidation：PASS（2026-08-01），無新增delta requirement。
+
+## 20. Requirement Traceability
+
+- 舊P1-01全部有效要求由本Completed ticket保留。
+- 十二能力coverage：P1-01，Coverage Complete = YES。
+
+## 21. New File Justification
+
+- None expected；本票已完成，後續不得以同一能力建立新ticket或新框架。

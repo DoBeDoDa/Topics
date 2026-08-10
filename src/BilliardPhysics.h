@@ -1,25 +1,182 @@
-// 宣告撞球路徑與碰撞判斷所需的幾何函式。
 #pragma once
-#include "Point.h"
+
+#include <array>
+#include <cstddef>
+#include <optional>
+#include <string>
 #include <vector>
+
+#include "BilliardConfig.h"
+#include "GeometryResults.h"
+#include "Point.h"
+
+struct PocketBoundaryCut {
+    BilliardConfig::PocketId pocketId;
+    Point entranceCenter;
+    Segment2D pocketExitSegment;
+    Vector2D outwardUnitNormal;
+};
+
+struct PlayableBallCenterRegion {
+    AxisAlignedBounds2D bounds;
+    std::vector<PocketBoundaryCut> pocketBoundaries;
+};
+
+struct PocketCaptureCorridor {
+    BilliardConfig::PocketId pocketId;
+    Point entranceCenter;
+    Point virtualPocketTarget;
+    Vector2D outwardUnitNormal;
+    double halfWidthMm;
+};
+
+struct ResolvedPocketModel {
+    BilliardConfig::PocketId id;
+    BilliardConfig::PocketType type;
+    Point wirePocketCenter;
+    Vector2D outwardUnitNormal;
+    Point virtualPocketTarget;
+    Segment2D pocketExitSegment;
+    PocketCaptureCorridor captureCorridor;
+    double exitCrossingEpsilon;
+    double maxEntryAngleDeg;
+    double pocketBoundaryProbeEpsilonMm;
+};
+
+struct PhysicalRailSegment {
+    BilliardConfig::RailId id;
+    Segment2D segment;
+    Vector2D inwardUnitNormal;
+    double startExclusionMm;
+    double endExclusionMm;
+};
+
+struct EffectiveCueBallRailSegment {
+    BilliardConfig::RailId physicalRailId;
+    Segment2D segment;
+    Vector2D inwardUnitNormal;
+};
+
+struct RailReflectionRegion {
+    std::array<EffectiveCueBallRailSegment, 6> rails;
+};
+
+struct ResolvedTableGeometry {
+    std::string calibrationRevision;
+    PlayableBallCenterRegion playableBallCenterRegion;
+    std::array<ResolvedPocketModel, 6> pockets;
+    std::array<PhysicalRailSegment, 6> physicalRails;
+    RailReflectionRegion railReflectionRegion;
+    double ballRadiusMm;
+    double ballDiameterMm;
+    double collisionMarginMm;
+};
+
+struct GhostBallPoint {
+    Point center;
+};
+
+struct GhostBallDiagnostic {
+    GeometryStatus status;
+    std::optional<Point> ballSurfaceContactPoint;
+};
+
+class GhostBallResult {
+public:
+    static GhostBallResult success(GhostBallPoint value, Point surfaceContactPoint);
+    static GhostBallResult failure(GeometryStatus status);
+
+    [[nodiscard]] GeometryStatus status() const noexcept;
+    [[nodiscard]] const std::optional<GhostBallPoint>& value() const noexcept;
+    [[nodiscard]] const GhostBallDiagnostic& diagnostic() const noexcept;
+    [[nodiscard]] bool isValid() const noexcept;
+
+private:
+    GhostBallResult(
+        GeometryStatus status,
+        std::optional<GhostBallPoint> value,
+        GhostBallDiagnostic diagnostic);
+
+    GeometryStatus status_;
+    std::optional<GhostBallPoint> value_;
+    GhostBallDiagnostic diagnostic_;
+};
+
+struct PocketEntryAngle {
+    double degrees;
+};
+
+struct MinimumClearance {
+    // nullopt means no non-excluded stationary obstacle exists.
+    std::optional<double> millimeters;
+};
 
 class BilliardPhysics {
 public:
-    // 檢查從起點到終點的路徑是否被列表中任何一個障礙物阻擋
-    static bool isRouteBlocked(Point start, Point end, const std::vector<Point>& obs_list, double ball_d);
+    static GeometryValueResult<PlayableBallCenterRegion> derivePlayableBallCenterRegion(
+        AxisAlignedBounds2D physicalPlayingSurface,
+        double ballRadiusMm);
 
-    // 檢查從起點到終點的路徑是否被障礙物阻擋
-    static bool isPathBlocked(Point start, Point end, Point obs, double ball_d);
+    static GeometryValueResult<ResolvedTableGeometry> resolveTableGeometry(
+        const std::array<Point, 6>& currentCyclePocketCenters,
+        const std::optional<BilliardConfig::TableGeometryConfig>& config);
 
-    // 計算垂直於牆面的預備點位（用於微調或撞擊準備）
-    static Point getPerpendicularTarget(Point base, Point edgeA, Point edgeB, double backward_dist);
+    static GeometryValueResult<ResolvedPocketModel> resolvePocketModel(
+        Point wirePocketCenter,
+        const BilliardConfig::PocketModelConfig& config,
+        const PlayableBallCenterRegion& playableRegion);
 
-    // 依據目標袋口與子球位置，計算母球碰撞子球所需的「虛擬碰撞點」（Ghost Ball）
-    static Point getGhostBall(Point destination, Point target_ball, double ball_d);
+    static GeometryValueResult<EffectiveCueBallRailSegment> deriveEffectiveRail(
+        const BilliardConfig::PhysicalRailConfig& physicalRail,
+        const PlayableBallCenterRegion& playableRegion,
+        double ballRadiusMm);
 
-    // 計算相對於兩袋口連線牆面的鏡射點（用於顆星路徑規劃）
-    static Point getSlantedBankTarget(Point I, Point p1, Point p2);
+    static GhostBallResult computeGhostBallPoint(
+        Point cueBallCenter,
+        Point targetBallCenter,
+        Point virtualPocketTarget,
+        double ballRadiusMm);
 
-    // 計算兩線段之交點
-    static bool getIntersection(Point ray_start, Point ray_target, Point segA, Point segB, Point &out_intersect);
+    static GeometryValueResult<PocketEntryAngle> computePocketEntryAngle(
+        Point targetBallCenter,
+        const ResolvedPocketModel& pocket);
+
+    static GeometryCheckResult checkPocketExitDirection(
+        Vector2D unitMovementDirection,
+        const ResolvedPocketModel& pocket);
+
+    static GeometryCheckResult checkSegmentWithinPlayableRegion(
+        Segment2D path,
+        const PlayableBallCenterRegion& playableRegion);
+
+    static GeometryCheckResult checkTargetPathToPocket(
+        Segment2D targetPath,
+        BilliardConfig::PocketId selectedPocket,
+        const std::array<ResolvedPocketModel, 6>& pockets,
+        const PlayableBallCenterRegion& playableRegion);
+
+    static GeometryCheckResult checkSegmentCollision(
+        Segment2D path,
+        const std::vector<Point>& obstacles,
+        const std::vector<std::size_t>& excludedObstacleIndices,
+        double ballDiameterMm,
+        double collisionMarginMm);
+
+    static GeometryValueResult<MinimumClearance> computeMinimumSegmentClearance(
+        Segment2D path,
+        const std::vector<Point>& obstacles,
+        const std::vector<std::size_t>& excludedObstacleIndices);
+
+    static GeometryValueResult<Point> mirrorPointAcrossEffectiveRail(
+        Point point,
+        const EffectiveCueBallRailSegment& rail);
+
+    static GeometryValueResult<Point> intersectRayWithEffectiveRail(
+        Point rayStart,
+        Point rayThrough,
+        const EffectiveCueBallRailSegment& rail);
+
+    static GeometryCheckResult checkEffectiveRailForReflection(
+        const EffectiveCueBallRailSegment& rail,
+        const PlayableBallCenterRegion& playableRegion);
 };

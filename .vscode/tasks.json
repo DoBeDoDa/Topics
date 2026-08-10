@@ -160,7 +160,7 @@
         },
         {
             "type": "cppbuild",
-            "label": "Build Phase 1 Algorithm Regression Tests",
+            "label": "Build P1-03 Input Tests",
             "command": "cl.exe",
             "args": [
                 "/EHsc",
@@ -168,9 +168,14 @@
                 "/nologo",
                 "/utf-8",
                 "/I", "${workspaceFolder}\\tests",
-                "/Fo${workspaceFolder}\\build\\phase1_algorithm_regression_tests.obj",
-                "/Fe:${workspaceFolder}\\bin\\phase1_algorithm_regression_tests.exe",
-                "${workspaceFolder}\\tests\\phase1_algorithm_regression_tests.cpp"
+                "/I", "${workspaceFolder}\\src",
+                "/Fo${workspaceFolder}\\build\\",
+                "/Fe:${workspaceFolder}\\bin\\p1_03_input_tests.exe",
+                "${workspaceFolder}\\tests\\p1_03_input_tests.cpp",
+                "${workspaceFolder}\\src\\VisionDataParser.cpp",
+                "${workspaceFolder}\\src\\SocketClient.cpp",
+                "${workspaceFolder}\\src\\BilliardConfig.cpp",
+                "Ws2_32.lib"
             ],
             "options": {
                 "cwd": "${workspaceFolder}"
@@ -180,6 +185,143 @@
             "group": {
                 "kind": "build",
                 "isDefault": false
+            }
+        },
+        {
+            "type": "process",
+            "label": "Run P1-03 Input Tests",
+            "command": "${workspaceFolder}\\bin\\p1_03_input_tests.exe",
+            "args": [],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": "Build P1-03 Input Tests",
+            "dependsOrder": "sequence",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "clear": true,
+                "close": true
+            }
+        },
+        {
+            "type": "cppbuild",
+            "label": "Build Phase 1 Algorithm Regression Tests",
+            "command": "cl.exe",
+            "args": [
+                "/EHsc",
+                "/std:c++17",
+                "/nologo",
+                "/utf-8",
+                "/DBILLIARDS_P1_08_TEST_SEAM",
+                "/I", "${workspaceFolder}\\tests",
+                "/Fo${workspaceFolder}\\build\\",
+                "/Fe:${workspaceFolder}\\bin\\phase1_algorithm_regression_tests.exe",
+                "${workspaceFolder}\\tests\\phase1_algorithm_regression_tests.cpp",
+                "${workspaceFolder}\\src\\TargetSelector.cpp",
+                "${workspaceFolder}\\src\\Algorithm.cpp",
+                "${workspaceFolder}\\src\\BilliardPhysics.cpp",
+                "${workspaceFolder}\\src\\MathUtils.cpp",
+                "${workspaceFolder}\\src\\BilliardConfig.cpp"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": "Prepare build directories",
+            "problemMatcher": ["$msCompile"],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            }
+        },
+        {
+            "type": "cppbuild",
+            "label": "Build P1-04 Stability Tests",
+            "command": "cl.exe",
+            "args": [
+                "/EHsc",
+                "/std:c++17",
+                "/nologo",
+                "/utf-8",
+                "/I", "${workspaceFolder}\\tests",
+                "/I", "${workspaceFolder}\\src",
+                "/Fo${workspaceFolder}\\build\\p1_04_stability_tests.obj",
+                "/Fe:${workspaceFolder}\\bin\\p1_04_stability_tests.exe",
+                "${workspaceFolder}\\tests\\p1_04_stability_tests.cpp"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": "Prepare build directories",
+            "problemMatcher": ["$msCompile"],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            }
+        },
+        {
+            "type": "process",
+            "label": "Run P1-04 Stability Tests",
+            "command": "${workspaceFolder}\\bin\\p1_04_stability_tests.exe",
+            "args": [],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": "Build P1-04 Stability Tests",
+            "dependsOrder": "sequence",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "clear": true,
+                "close": true
+            }
+        },
+        {
+            "type": "cppbuild",
+            "label": "Build P1-05 Geometry Tests",
+            "command": "cl.exe",
+            "args": [
+                "/EHsc",
+                "/std:c++17",
+                "/nologo",
+                "/utf-8",
+                "/I", "${workspaceFolder}\\tests",
+                "/I", "${workspaceFolder}\\src",
+                "/Fo${workspaceFolder}\\build\\",
+                "/Fe:${workspaceFolder}\\bin\\p1_05_geometry_tests.exe",
+                "${workspaceFolder}\\tests\\p1_05_geometry_tests.cpp",
+                "${workspaceFolder}\\src\\BilliardPhysics.cpp",
+                "${workspaceFolder}\\src\\MathUtils.cpp",
+                "${workspaceFolder}\\src\\BilliardConfig.cpp"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": "Prepare build directories",
+            "problemMatcher": ["$msCompile"],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            }
+        },
+        {
+            "type": "process",
+            "label": "Run P1-05 Geometry Tests",
+            "command": "${workspaceFolder}\\bin\\p1_05_geometry_tests.exe",
+            "args": [],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": "Build P1-05 Geometry Tests",
+            "dependsOrder": "sequence",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "clear": true,
+                "close": true
             }
         },
         {
