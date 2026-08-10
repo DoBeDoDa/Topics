@@ -247,6 +247,13 @@ int main(const int argc, char** argv) {
                      + std::to_string(calibration.intrinsic.cy) + "],[0,0,1]]");
         logger->line("[DISTORTION] model=" + calibration.distortionFamily + " variant="
                      + calibration.distortionVariant + " method=" + calibration.distortionHandling);
+        logger->line("  assumption=" + calibration.distortionModelAssumption);
+        logger->line("  mapping=" + calibration.distortionCoefficientMapping);
+        logger->line("  inverse_version=" + calibration.inverseProjectionVersion
+                     + " max_iterations=" + std::to_string(calibration.inverseMaxIterations)
+                     + " convergence_tolerance=" + std::to_string(calibration.inverseConvergenceTolerance)
+                     + " reprojection_tolerance_px="
+                     + std::to_string(calibration.inverseReprojectionTolerancePx));
         logger->line("  D[k1,k2,k3,k4,k5,k6,p1,p2]=[" + std::to_string(calibration.distortion.k1) + ","
                      + std::to_string(calibration.distortion.k2) + "," + std::to_string(calibration.distortion.k3) + ","
                      + std::to_string(calibration.distortion.k4) + "," + std::to_string(calibration.distortion.k5) + ","

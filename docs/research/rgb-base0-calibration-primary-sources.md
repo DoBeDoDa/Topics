@@ -42,11 +42,13 @@
 - 明確標示來源為暫定使用者規則。
 - 在實機多點 ground truth 通過前，禁止主程式或運動控制使用。
 
-## 實裝決策
+## 實裝決策更新
+
+本研究最初建議使用需要完整 `OBCalibrationParam` 的 SDK inverse projection；Gemini 2 XL 實機的 Color/Depth profile 無法取得 matched camera param 後，使用者核准改為 RGB-only。現行決策與驗收邊界以 `docs/specs/rgb-only-calibration-spec.md` 為準：只讀取選定 Color profile 的 K/D，使用明確版本化且標為工程假設的 Brown rational inverse solver，並要求實機 ground truth。下列原則中「Python 只做 YOLO」與其他座標／安全邊界仍有效，但舊的 SDK helper／XY-table 交叉檢查已被取代。
 
 - C++：Orbbec v1.10.18 camera/profile/calibration/ray、HRSDK 靜止姿態讀取、座標矩陣與 Base0 平面交點。
 - Python：只執行既有 Ultralytics YOLO model，不控制相機、不做座標轉換。
 - RGB frame：只接受原始 1280×720 MJPG，不允許 resize、crop、mirror、flip、rotation 或 letterbox 後的座標。
-- Ray：depth=1 只是比例；以 SDK inverse projection + 1000 mm scale check + reprojection + XY-table check fail closed。
+- Ray：完全不使用 Depth；以 `rgb_brown_rational_v1` 反解、有限迭代、奇異／發散拒絕與 ≤0.25 px forward round-trip fail closed。此映射是待 ground truth 驗證的工程假設，不是官方方程已證實。
 - 平面：依使用者 2026-08-10 更新的球徑 44.5 mm，球中心使用 `Z_table + 22.25 mm`；lambda 只由 Base0 plane intersection 計算。
 - 驗收：至少 6 點、RMS XY ≤3 mm、每點 ≤5 mm；影像位置系統性趨勢以可記錄、可調整的 Pearson correlation gate 操作化，預設絕對值 0.7，並明確聲明不是官方規格。

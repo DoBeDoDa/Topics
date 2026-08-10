@@ -253,6 +253,7 @@ CalibrationData parseCalibration(RawGetter raw) {
     value.schemaVersion = unescapeQuoted(raw("schema_version"));
     value.createdUtc = unescapeQuoted(raw("timestamp"));
     value.experimental = parseBool(raw("experimental"));
+    value.authorizedForRobotMotion = parseBool(raw("authorized_for_robot_motion"));
     value.sdkVersion = unescapeQuoted(raw("sdk_version"));
     value.cameraModel = unescapeQuoted(raw("camera_model"));
     value.deviceName = unescapeQuoted(raw("device_name"));
@@ -288,6 +289,12 @@ CalibrationData parseCalibration(RawGetter raw) {
     value.distortionFamily = unescapeQuoted(raw("distortion_family"));
     value.distortionVariant = unescapeQuoted(raw("distortion_variant"));
     value.distortionHandling = unescapeQuoted(raw("distortion_handling"));
+    value.distortionModelAssumption = unescapeQuoted(raw("distortion_model_assumption"));
+    value.distortionCoefficientMapping = unescapeQuoted(raw("distortion_coefficient_mapping"));
+    value.inverseProjectionVersion = unescapeQuoted(raw("inverse_projection_version"));
+    value.inverseMaxIterations = parseInt(raw("inverse_max_iterations"));
+    value.inverseConvergenceTolerance = parseDouble(raw("inverse_convergence_tolerance"));
+    value.inverseReprojectionTolerancePx = parseDouble(raw("inverse_reprojection_tolerance_px"));
     value.opticalAxes = unescapeQuoted(raw("optical_axes"));
     if(unescapeQuoted(raw("camera_frame_definition")) != value.opticalAxes) {
         throw std::runtime_error("camera_frame_definition is inconsistent with optical_axes");
@@ -367,6 +374,8 @@ void writeCalibrationJson(const CalibrationData& value, const std::filesystem::p
            << "  \"schema_version\": \"" << escapeJson(value.schemaVersion) << "\",\n"
            << "  \"timestamp\": \"" << escapeJson(value.createdUtc) << "\",\n"
            << "  \"experimental\": " << (value.experimental ? "true" : "false") << ",\n"
+           << "  \"authorized_for_robot_motion\": "
+           << (value.authorizedForRobotMotion ? "true" : "false") << ",\n"
            << "  \"camera\": {\n"
            << "    \"sdk_version\": \"" << escapeJson(value.sdkVersion) << "\",\n"
            << "    \"camera_model\": \"" << escapeJson(value.cameraModel) << "\",\n"
@@ -393,6 +402,17 @@ void writeCalibrationJson(const CalibrationData& value, const std::filesystem::p
            << "    \"distortion_family\": \"" << escapeJson(value.distortionFamily) << "\",\n"
            << "    \"distortion_variant\": \"" << escapeJson(value.distortionVariant) << "\",\n"
            << "    \"distortion_handling\": \"" << escapeJson(value.distortionHandling) << "\",\n"
+           << "    \"distortion_model_assumption\": \""
+           << escapeJson(value.distortionModelAssumption) << "\",\n"
+           << "    \"distortion_coefficient_mapping\": \""
+           << escapeJson(value.distortionCoefficientMapping) << "\",\n"
+           << "    \"inverse_projection_version\": \""
+           << escapeJson(value.inverseProjectionVersion) << "\",\n"
+           << "    \"inverse_max_iterations\": " << value.inverseMaxIterations << ",\n"
+           << "    \"inverse_convergence_tolerance\": "
+           << value.inverseConvergenceTolerance << ",\n"
+           << "    \"inverse_reprojection_tolerance_px\": "
+           << value.inverseReprojectionTolerancePx << ",\n"
            << "    \"camera_frame_name\": \"" << escapeJson(value.cameraFrameName) << "\",\n"
            << "    \"camera_frame_definition\": \"" << escapeJson(value.opticalAxes) << "\",\n"
            << "    \"optical_axes\": \"" << escapeJson(value.opticalAxes) << "\"\n"
@@ -457,6 +477,8 @@ void writeCalibrationYaml(const CalibrationData& value, const std::filesystem::p
            << "schema_version: " << quoteYaml(value.schemaVersion) << "\n"
            << "timestamp: " << quoteYaml(value.createdUtc) << "\n"
            << "experimental: " << (value.experimental ? "true" : "false") << "\n"
+           << "authorized_for_robot_motion: "
+           << (value.authorizedForRobotMotion ? "true" : "false") << "\n"
            << "camera:\n"
            << "  sdk_version: " << quoteYaml(value.sdkVersion) << "\n"
            << "  camera_model: " << quoteYaml(value.cameraModel) << "\n"
@@ -484,6 +506,12 @@ void writeCalibrationYaml(const CalibrationData& value, const std::filesystem::p
            << "  distortion_family: " << quoteYaml(value.distortionFamily) << "\n"
            << "  distortion_variant: " << quoteYaml(value.distortionVariant) << "\n"
            << "  distortion_handling: " << quoteYaml(value.distortionHandling) << "\n"
+           << "  distortion_model_assumption: " << quoteYaml(value.distortionModelAssumption) << "\n"
+           << "  distortion_coefficient_mapping: " << quoteYaml(value.distortionCoefficientMapping) << "\n"
+           << "  inverse_projection_version: " << quoteYaml(value.inverseProjectionVersion) << "\n"
+           << "  inverse_max_iterations: " << value.inverseMaxIterations << "\n"
+           << "  inverse_convergence_tolerance: " << value.inverseConvergenceTolerance << "\n"
+           << "  inverse_reprojection_tolerance_px: " << value.inverseReprojectionTolerancePx << "\n"
            << "  camera_frame_name: " << quoteYaml(value.cameraFrameName) << "\n"
            << "  camera_frame_definition: " << quoteYaml(value.opticalAxes) << "\n"
            << "  optical_axes: " << quoteYaml(value.opticalAxes) << "\n"
@@ -550,13 +578,19 @@ CalibrationData readCalibration(const std::filesystem::path& path) {
 
 bool equivalentCalibration(const CalibrationData& left, const CalibrationData& right, const double tolerance) {
     if(left.schemaVersion != right.schemaVersion || left.createdUtc != right.createdUtc
-       || left.experimental != right.experimental || left.sdkVersion != right.sdkVersion
+       || left.experimental != right.experimental
+       || left.authorizedForRobotMotion != right.authorizedForRobotMotion
+       || left.sdkVersion != right.sdkVersion
        || left.cameraModel != right.cameraModel
        || left.deviceName != right.deviceName || left.serialNumber != right.serialNumber
        || left.firmwareVersion != right.firmwareVersion || left.profile.width != right.profile.width
        || left.profile.height != right.profile.height || left.profile.fps != right.profile.fps
        || left.profile.format != right.profile.format || left.distortionFamily != right.distortionFamily
        || left.distortionVariant != right.distortionVariant || left.distortionHandling != right.distortionHandling
+       || left.distortionModelAssumption != right.distortionModelAssumption
+       || left.distortionCoefficientMapping != right.distortionCoefficientMapping
+       || left.inverseProjectionVersion != right.inverseProjectionVersion
+       || left.inverseMaxIterations != right.inverseMaxIterations
        || left.opticalAxes != right.opticalAxes || left.robotModel != right.robotModel
        || left.robotIp != right.robotIp || left.toolNumber != right.toolNumber
        || left.baseNumber != right.baseNumber || left.robotPoseSampleCount != right.robotPoseSampleCount
@@ -571,6 +605,7 @@ bool equivalentCalibration(const CalibrationData& left, const CalibrationData& r
         left.intrinsic.fx, left.intrinsic.fy, left.intrinsic.cx, left.intrinsic.cy,
         left.distortion.k1, left.distortion.k2, left.distortion.k3, left.distortion.k4,
         left.distortion.k5, left.distortion.k6, left.distortion.p1, left.distortion.p2,
+        left.inverseConvergenceTolerance, left.inverseReprojectionTolerancePx,
         left.robotPose.x, left.robotPose.y, left.robotPose.z, left.robotPose.a, left.robotPose.b, left.robotPose.c,
         left.xyzSpreadToleranceMm, left.abcSpreadToleranceDeg,
         left.tTool2ToRgb.x, left.tTool2ToRgb.y, left.tTool2ToRgb.z,
@@ -581,6 +616,7 @@ bool equivalentCalibration(const CalibrationData& left, const CalibrationData& r
         right.intrinsic.fx, right.intrinsic.fy, right.intrinsic.cx, right.intrinsic.cy,
         right.distortion.k1, right.distortion.k2, right.distortion.k3, right.distortion.k4,
         right.distortion.k5, right.distortion.k6, right.distortion.p1, right.distortion.p2,
+        right.inverseConvergenceTolerance, right.inverseReprojectionTolerancePx,
         right.robotPose.x, right.robotPose.y, right.robotPose.z, right.robotPose.a, right.robotPose.b, right.robotPose.c,
         right.xyzSpreadToleranceMm, right.abcSpreadToleranceDeg,
         right.tTool2ToRgb.x, right.tTool2ToRgb.y, right.tTool2ToRgb.z,

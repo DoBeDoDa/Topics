@@ -2,14 +2,14 @@
 
 ## 文件資訊
 
-- 狀態：Approved for implementation
+- 狀態：Software implemented; hardware acceptance pending
 - 核准日期：2026-08-10
 - 適用範圍：`tools/rgb_base0_calibration`
 - SDK：Orbbec SDK v1.10.18（必須精確匹配）
 - 安全等級：獨立實驗、唯讀手臂姿態、不得控制機械手臂移動或 DO
-- 現況：本規格尚未實作；現有工具仍會查詢／啟用 Depth，並可能在 `getCalibrationParam(config)` 回報 `Can not find matched camera param!`
+- 現況：RGB-only 軟體修改、離線測試與建置已完成；尚未執行 live camera/robot pose capture，也尚未通過至少六點 ground truth
 
-本文件是 RGB-only 修改的實作規格，不代表目前程式已達成。完成後仍須通過本文件的軟體檢查與實機 ground truth，才可討論整合主程式。
+本文件是 RGB-only 修改的實作與驗收規格。軟體完成不等於實機驗收完成；仍須通過 live profile/K/D 擷取與本文件的 ground truth gate，才可討論整合主程式。
 
 ## 1. 目標
 
@@ -197,5 +197,7 @@ P_Base0 = C_Base0 + lambda * d_Base0
 4. 校正與自動／手動驗證流程可建置執行。
 5. 至少六點實機 ground truth 通過全部門檻。
 6. 輸出仍禁止機械手臂動作。
+
+目前第 1、3、4、6 項已完成；第 2 項仍待 live Gemini 2 XL 確認，第 5 項仍待使用者提供並量測實機 ground truth，因此整體完成定義尚未達成。
 
 主程式整合與袋口 Base0 計算都不屬於本修改。球點通過後，下一步必須先提醒使用者核准袋口規格；主程式整合必須再次取得明確同意。

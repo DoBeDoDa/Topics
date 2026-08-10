@@ -128,8 +128,8 @@ flowchart LR
 | P2-01 | ticket 仍為 Ready for Implementation | 工作區可見相關程式／測試不等於 ticket 已驗收完成 |
 | P2-02、P2-03 | Planned | 真實硬體執行不得因已有 adapter 程式碼就視為已授權 |
 | Production runtime | `PlanningTest` | `MOTION_PLANNING_CONFIG` 與 `REAL_HARDWARE_EXECUTION_CONFIG` 目前為 `nullopt`，應 fail closed |
-| Gemini RGB→Base0 tool | Experimental, not integrated | 現版仍依賴 matched Depth calibration，實機卡在 `Can not find matched camera param!` |
-| RGB-only 修改 | Approved spec, not implemented | 依 [RGB-only 規格](specs/rgb-only-calibration-spec.md) 後續實作與驗證 |
+| Gemini RGB→Base0 tool | Experimental, not integrated | RGB-only 軟體已建置並通過離線測試；live camera/K/D 與 ground truth 尚未驗收 |
+| RGB-only 修改 | Software implemented; hardware acceptance pending | 已移除 Depth/D2C/full calibration helper；依 [RGB-only 規格](specs/rgb-only-calibration-spec.md) 完成實機驗證 |
 | 袋口 RGB→Base0 | Deferred | 必須先確認球點正確，再提醒使用者核准並補做 |
 
 ## 8. 主程式建置與使用
@@ -183,7 +183,7 @@ ctest --test-dir build/rgb_base0_calibration --output-on-failure
 
 ### 9.2 校正與驗證順序
 
-目前工具尚未完成 RGB-only 修改，因此下列是預定介面，不代表現版可以繞過 `Can not find matched camera param!`：
+RGB-only 軟體已移除造成 `Can not find matched camera param!` 的 matched Depth calibration 路徑；下列介面仍須在手臂完全靜止時做第一次實機確認：
 
 1. 操作者先在控制器設定好 Tool2，把手臂放到拍照姿態並完全靜止。
 2. 建立校正檔：
@@ -216,7 +216,7 @@ Ball_1,100.0,200.0,-211.26
 
 通過條件是至少六點、XY RMS ≤3 mm、每點 ≤5 mm，且像素位置對誤差的四個趨勢相關絕對值皆 <0.7。
 
-完整工具說明見 [獨立工具 README](../tools/rgb_base0_calibration/README.md)。目前 README 描述的是既有 Depth-assisted 實作；RGB-only 完成時必須同步更新，不能讓操作文件保留舊流程。
+完整工具說明見 [獨立工具 README](../tools/rgb_base0_calibration/README.md)。
 
 ## 10. 參數放置位置與缺口
 
@@ -266,8 +266,7 @@ Ball_1,100.0,200.0,-211.26
 
 ## 13. 下一步
 
-1. 依 RGB-only 規格修改獨立工具，移除 Depth/D2C/full calibration 依賴。
-2. 完成軟體測試後在完全靜止的 Tool2/Base0 拍照姿態建立校正檔。
-3. 以至少六個 Base0 ground-truth 球心點驗證。
-4. 球點全部通過後，提醒使用者核准袋口計算規格並補做袋口 Base0 點位。
-5. 袋口與整體點位確認後，再取得明確同意整合主程式；在此之前保持獨立、不可控制 Robot motion。
+1. 在完全靜止的 Tool2/Base0 拍照姿態執行第一次 RGB-only 校正，確認 live Color profile/K/D 與影像擷取。
+2. 以至少六個 Base0 ground-truth 球心點驗證。
+3. 球點全部通過後，提醒使用者核准袋口計算規格並補做袋口 Base0 點位。
+4. 袋口與整體點位確認後，再取得明確同意整合主程式；在此之前保持獨立、不可控制 Robot motion。

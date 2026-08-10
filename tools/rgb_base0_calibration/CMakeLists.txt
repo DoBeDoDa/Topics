@@ -36,6 +36,8 @@ foreach(required_path IN ITEMS
 endforeach()
 
 add_library(rgb_base0_core STATIC
+  src/brown_projection.cpp
+  src/camera_profile.cpp
   src/calibration_io.cpp
   src/geometry.cpp
   src/runtime_utils.cpp
@@ -75,7 +77,6 @@ set(ORBBEC_RUNTIME_DLLS
   OrbbecSDK.dll
   ob_usb.dll
   live555.dll
-  depthengine_2_0.dll
 )
 foreach(target IN ITEMS rgb_base0_calibrate rgb_base0_validate)
   add_custom_command(TARGET ${target} POST_BUILD
