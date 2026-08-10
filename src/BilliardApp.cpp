@@ -120,9 +120,19 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
                     : ExecutionCycleFailureReason::CycleAlreadyActive,
                 runtime.state}};
     }
+    bool rankedSelectionAvailable =
+        services.currentPlanningResult && services.buildExecutionPlanForTool;
+#ifdef BILLIARDS_P2_03_TEST_SEAM
+    const bool testOnlyLegacySelection =
+        services.testOnlyAllowSinglePlanCompatibility &&
+        services.buildExecutionPlan;
+#else
+    const bool testOnlyLegacySelection = false;
+#endif
     if (!services.settleCamera || !services.flushStaleVisionBuffer ||
         !services.resetCycleAccumulation || !services.openCaptureWindow ||
-        !services.runPhase1 || !services.buildExecutionPlan ||
+        !services.runPhase1 ||
+        (!rankedSelectionAvailable && !testOnlyLegacySelection) ||
         !RobotController::validateRealHardwareConfiguration(config).succeeded()) {
         return {ExecutionCycleStatus::SafeFailure, std::nullopt,
             ExecutionCycleDiagnostic{
@@ -165,6 +175,9 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
     }
     std::optional<ExecutionPlan> activePlan;
     std::optional<RobotPoseABC> postStrikeActual;
+    bool oppositeToolPrepared = false;
+    bool oppositeToolRetracted = false;
+    bool oppositePreparationUnknownUnsafe = false;
     const auto step = [](const RobotAdapterResult& result) {
         return OfflineStepResult{result.succeeded()
             ? OfflineStepStatus::Success
@@ -185,6 +198,88 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
     seam.openCaptureWindow = services.openCaptureWindow;
     seam.runPhase1 = services.runPhase1;
     seam.buildExecutionPlan = [&] {
+        if (services.currentPlanningResult &&
+            services.buildExecutionPlanForTool) {
+            const PlanningResult* phase1 = services.currentPlanningResult();
+            if (!phase1 || !phase1->isValid()) {
+                activePlan.reset();
+                return ExecutionPlanResult::rejected(
+                    ExecutionPlanStatus::InvalidExecutionPlan,
+                    ExecutionPlanFailureReason::InvalidExecutionPlanValue);
+            }
+            const Phase1ExecutionCandidates& candidates =
+                phase1->executionCandidates();
+            const auto tryCandidates = [&](const std::vector<ShotPlan>& plans,
+                                           bool potsExhausted)
+                -> std::optional<ExecutionPlanResult> {
+                const std::array<ExecutionToolSelection, 2> tools{{
+                    {config->primaryToolNumber, ExecutionToolMode::Primary,
+                     *config->requiredPrimaryToolCalibrationRevision,
+                     potsExhausted},
+                    {config->oppositeToolNumber, ExecutionToolMode::Opposite,
+                     *config->requiredOppositeToolCalibrationRevision,
+                     potsExhausted}}};
+                for (const ShotPlan& shot : plans) {
+                    bool candidateRejected = false;
+                    for (const ExecutionToolSelection& tool : tools) {
+                        const ExecutionPlanResult planned =
+                            services.buildExecutionPlanForTool(shot, tool);
+                        if (!planned.isValid()) return planned;
+                        if (planned.status() != ExecutionPlanStatus::Success ||
+                            !planned.value()) {
+                            const auto reason = planned.diagnostic()
+                                ? planned.diagnostic()->reason
+                                : ExecutionPlanFailureReason::
+                                      InvalidExecutionPlanValue;
+                            if (reason == ExecutionPlanFailureReason::
+                                    FixedForceEnvelopeRejected ||
+                                reason == ExecutionPlanFailureReason::
+                                    NoAcceptedPoseCandidate) {
+                                candidateRejected = true;
+                                break;
+                            }
+                            return planned;
+                        }
+                        const RobotAdapterResult preflight =
+                            robotController.preflightExecution(
+                                *planned.value(), config);
+                        if (preflight.status ==
+                            RobotAdapterStatus::NotReachable) {
+                            continue;
+                        }
+                        if (!preflight.succeeded()) {
+                            return ExecutionPlanResult::rejected(
+                                ExecutionPlanStatus::InvalidExecutionPlan,
+                                ExecutionPlanFailureReason::
+                                    InvalidExecutionPlanValue);
+                        }
+                        activePlan = *planned.value();
+                        return planned;
+                    }
+                    if (candidateRejected) continue;
+                }
+                return std::nullopt;
+            };
+            if (const auto selected =
+                    tryCandidates(candidates.rankedPotPlans, false)) {
+                return *selected;
+            }
+            if (const auto selected =
+                    tryCandidates(candidates.legalContactPlans, true)) {
+                return *selected;
+            }
+            activePlan.reset();
+            return ExecutionPlanResult::rejected(
+                ExecutionPlanStatus::NoExecutablePlan,
+                ExecutionPlanFailureReason::NoAcceptedPoseCandidate);
+        }
+#ifdef BILLIARDS_P2_03_TEST_SEAM
+        if (!services.testOnlyAllowSinglePlanCompatibility) {
+            activePlan.reset();
+            return ExecutionPlanResult::rejected(
+                ExecutionPlanStatus::InvalidExecutionPlan,
+                ExecutionPlanFailureReason::InvalidExecutionPlanValue);
+        }
         const ExecutionPlanResult planned = services.buildExecutionPlan();
         if (!planned.isValid() ||
             planned.status() != ExecutionPlanStatus::Success ||
@@ -198,9 +293,33 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
         }
         activePlan = *planned.value();
         return planned;
+#else
+        activePlan.reset();
+        return ExecutionPlanResult::rejected(
+            ExecutionPlanStatus::InvalidExecutionPlan,
+            ExecutionPlanFailureReason::InvalidExecutionPlanValue);
+#endif
     };
     seam.validateStrikeReady = [&](const ExecutionPlan& plan) {
-        return step(robotController.activateConfiguredToolAndBase(plan, config));
+        const RobotAdapterResult activated =
+            robotController.activateConfiguredToolAndBase(plan, config);
+        if (!activated.succeeded()) return step(activated);
+        if (plan.selectedToolMode != ExecutionToolMode::Opposite) {
+            return OfflineStepResult{OfflineStepStatus::Success};
+        }
+        const RobotAdapterResult stopped = robotController.confirmStopped();
+        if (!stopped.succeeded()) return step(stopped);
+        const RealPneumaticResult prepared =
+            robotController.pulseExtend(plan, config);
+        if (prepared.status == RealPneumaticStatus::UnknownUnsafe) {
+            oppositePreparationUnknownUnsafe = true;
+            return OfflineStepResult{OfflineStepStatus::Failure};
+        }
+        if (prepared.status != RealPneumaticStatus::Completed) {
+            return OfflineStepResult{OfflineStepStatus::Failure};
+        }
+        oppositeToolPrepared = true;
+        return step(robotController.waitDirectionChangeDelay(plan, config));
     };
     seam.moveToStrikeReady = [&](const ExecutionPlan& plan) {
         if (!robotController.checkedJointPtp(
@@ -222,8 +341,43 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
         return step(robotController.confirmStopped());
     };
     seam.runPneumatic = [&](const ExecutionPlan& plan) {
-        return mapRealPneumaticResult(
-            robotController.executePneumaticSequence(plan, config));
+        if (plan.selectedToolMode == ExecutionToolMode::Opposite) {
+            const RealPneumaticResult retracted =
+                robotController.pulseRetract(plan, config);
+            oppositeToolRetracted =
+                retracted.status == RealPneumaticStatus::Completed;
+            if (!oppositeToolRetracted) {
+                return mapRealPneumaticResult(retracted);
+            }
+            const RobotAdapterResult wait =
+                robotController.waitMechanismCompletion(plan, config);
+            return wait.succeeded()
+                ? mapRealPneumaticResult(retracted)
+                : PneumaticCompletionResult{
+                    PneumaticCompletionStatus::Failure, std::nullopt};
+        }
+        const RealPneumaticResult extended =
+            robotController.pulseExtend(plan, config);
+        if (extended.status != RealPneumaticStatus::Completed) {
+            return mapRealPneumaticResult(extended);
+        }
+        const RobotAdapterResult directionWait =
+            robotController.waitDirectionChangeDelay(plan, config);
+        if (!directionWait.succeeded()) {
+            return PneumaticCompletionResult{
+                PneumaticCompletionStatus::Failure, std::nullopt};
+        }
+        const RealPneumaticResult retracted =
+            robotController.pulseRetract(plan, config);
+        if (retracted.status != RealPneumaticStatus::Completed) {
+            return mapRealPneumaticResult(retracted);
+        }
+        const RobotAdapterResult completionWait =
+            robotController.waitMechanismCompletion(plan, config);
+        return completionWait.succeeded()
+            ? mapRealPneumaticResult(retracted)
+            : PneumaticCompletionResult{
+                PneumaticCompletionStatus::Failure, std::nullopt};
     };
     seam.readActualPose = [&]() -> std::optional<RobotPoseABC> {
         if (!activePlan) return std::nullopt;
@@ -264,7 +418,23 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
     seam.confirmReturnCameraStopped = [&] {
         return step(robotController.confirmStopped());
     };
-    return runOfflineSingleCycle(runtime, seam);
+    ExecutionCycleResult result = runOfflineSingleCycle(runtime, seam);
+    if (oppositePreparationUnknownUnsafe) {
+        runtime.state = ExecutionCycleState::UnknownUnsafe;
+        return {ExecutionCycleStatus::UnknownUnsafe, std::nullopt,
+            ExecutionCycleDiagnostic{
+                ExecutionCycleFailureReason::PneumaticStateUnknown,
+                ExecutionCycleState::UnknownUnsafe}};
+    }
+    if (oppositeToolPrepared && !oppositeToolRetracted &&
+        result.status != ExecutionCycleStatus::UnknownUnsafe) {
+        runtime.state = ExecutionCycleState::ManualRecoveryRequired;
+        result = {ExecutionCycleStatus::SafeFailure, std::nullopt,
+            ExecutionCycleDiagnostic{
+                ExecutionCycleFailureReason::PneumaticFailed,
+                ExecutionCycleState::ManualRecoveryRequired}};
+    }
+    return result;
 }
 
 bool BilliardApp::initialize() {
@@ -354,6 +524,7 @@ void BilliardApp::run()
     OfflineExecutionRuntime executionRuntime;
     const auto productionServices = [&] {
         RealExecutionCycleServices services;
+        const bool injectedServices = realServices.has_value();
         if (realServices) {
             services = *realServices;
         } else {
@@ -415,9 +586,13 @@ void BilliardApp::run()
                                 return OfflinePhase1Result{
                                     OfflinePhase1Status::PipelineFailure};
                             }
+                            const auto& candidates =
+                                pendingPlanningResult->executionCandidates();
                             return OfflinePhase1Result{
                                 std::holds_alternative<ShotPlan>(
-                                    pendingPlanningResult->value())
+                                    pendingPlanningResult->value()) ||
+                                    !candidates.rankedPotPlans.empty() ||
+                                    !candidates.legalContactPlans.empty()
                                     ? OfflinePhase1Status::ShotPlanReady
                                     : OfflinePhase1Status::NoPlan};
                         }
@@ -474,9 +649,13 @@ void BilliardApp::run()
                             return OfflinePhase1Result{
                                 OfflinePhase1Status::PipelineFailure};
                         }
+                        const auto& candidates =
+                            pendingPlanningResult->executionCandidates();
                         return OfflinePhase1Result{
                             std::holds_alternative<ShotPlan>(
-                                pendingPlanningResult->value())
+                                pendingPlanningResult->value()) ||
+                                !candidates.rankedPotPlans.empty() ||
+                                !candidates.legalContactPlans.empty()
                                 ? OfflinePhase1Status::ShotPlanReady
                                 : OfflinePhase1Status::NoPlan};
                     }
@@ -486,6 +665,23 @@ void BilliardApp::run()
             };
         }
 #endif
+        if (!services.currentPlanningResult && !injectedServices) {
+            services.currentPlanningResult = [&]() -> const PlanningResult* {
+                return pendingPlanningResult ? &*pendingPlanningResult : nullptr;
+            };
+        }
+        if (!services.buildExecutionPlanForTool && !injectedServices) {
+            services.buildExecutionPlanForTool =
+                [&](const ShotPlan& shot,
+                    const ExecutionToolSelection& tool) {
+                return motionPlanner.createExecutionPlan(
+                    PlanningResult::shotPlan(shot),
+                    motionPlanningConfig,
+                    offlineMotionPlanningChecks.value_or(
+                        MotionPlanningChecks{}),
+                    tool);
+            };
+        }
         if (!services.buildExecutionPlan) {
             services.buildExecutionPlan = [&] {
                 if (!pendingPlanningResult) {
@@ -493,11 +689,38 @@ void BilliardApp::run()
                         ExecutionPlanStatus::InvalidExecutionPlan,
                         ExecutionPlanFailureReason::InvalidExecutionPlanValue);
                 }
+                const Phase1ExecutionCandidates& candidates =
+                    pendingPlanningResult->executionCandidates();
+                const ShotPlan* selected = !candidates.rankedPotPlans.empty()
+                    ? &candidates.rankedPotPlans.front()
+                    : (!candidates.legalContactPlans.empty()
+                        ? &candidates.legalContactPlans.front()
+                        : std::get_if<ShotPlan>(
+                              &pendingPlanningResult->value()));
+                if (!selected) {
+                    return ExecutionPlanResult::rejected(
+                        ExecutionPlanStatus::NoExecutablePlan,
+                        ExecutionPlanFailureReason::NoAcceptedPoseCandidate);
+                }
+                const bool potCandidatesExhausted =
+                    candidates.rankedPotPlans.empty() &&
+                    !candidates.legalContactPlans.empty();
+                const ExecutionToolSelection primaryTool{
+                    BilliardConfig::TOOL_NUMBER,
+                    ExecutionToolMode::Primary,
+                    motionPlanningConfig &&
+                            motionPlanningConfig
+                                ->primaryToolControllerCalibrationRevision
+                        ? *motionPlanningConfig
+                              ->primaryToolControllerCalibrationRevision
+                        : std::string{},
+                    potCandidatesExhausted};
                 return motionPlanner.createExecutionPlan(
-                    *pendingPlanningResult,
+                    PlanningResult::shotPlan(*selected),
                     motionPlanningConfig,
                     offlineMotionPlanningChecks.value_or(
-                        MotionPlanningChecks{}));
+                        MotionPlanningChecks{}),
+                    primaryTool);
             };
         }
         return services;
@@ -735,13 +958,19 @@ bool BilliardApp::processReceiveEvent(const ReceiveEvent& event)
             return false;
         }
         pendingPlanningResult = std::move(planning);
+#ifdef BILLIARDS_P2_03_TEST_SEAM
+        if (runTestSeam && runTestSeam->planningResultObserved) {
+            runTestSeam->planningResultObserved(*pendingPlanningResult);
+        }
+#endif
         if (std::holds_alternative<ShotPlan>(pendingPlanningResult->value())) {
             cout << "[P1-09] Phase 1 ShotPlan ready for P2-01." << endl;
         } else {
             const NoPlan& noPlan = std::get<NoPlan>(pendingPlanningResult->value());
             cout << "[P1-09] Phase 1 stopped with NoPlan reason="
                  << static_cast<int>(noPlan.reason)
-                 << "; returning to WaitingForStart without a fallback shot."
+                 << "; PotOnly result is unchanged. Precomputed execution "
+                    "candidates, if any, remain separate from this result."
                  << endl;
             return false;
         }

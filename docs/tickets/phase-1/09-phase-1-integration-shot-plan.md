@@ -112,6 +112,11 @@ Completed
 - Refactor／Split自舊P1-10 BilliardApp integration。
 - Merge舊P1-11的Phase 1 acceptance與dependency audit；硬體驗收移至P2-03。
 
+## Approved execution-candidate integration extension
+
+- 一個top-level Phase 1 run輸出完整ranked Pot ShotPlans及同一最低號球的既有LegalContact ShotPlans；不得因Robot不可達重跑Phase 1。
+- Phase 1不執行Robot reachability、不宣稱production Pot耗盡；BilliardApp是該證據owner。
+
 ## 21. New File Justification
 
 None expected；概念責任由既有BilliardApp、Algorithm與TableState承接。

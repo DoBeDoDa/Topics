@@ -104,6 +104,11 @@ Planned
 - Merge舊P1-11的fail-closed／dependency／acceptance要求。
 - 不建立新的Start ticket；完整cycle由本能力承接。
 
+## Approved dual-Tool sequencing extension
+
+- fake seam須能證明Tool1 `motion → DO1 extend pulse → delay → DO2 retract pulse`與Tool2 `DO1 extend preparation → delay → motion → DO2 retract strike`的command順序及負向不呼叫證據。
+- Tool2 preparation後若cycle未完成retract，runtime停在`ManualRecoveryRequired`，不得自動開始下一cycle。
+
 ## 21. New File Justification
 
 None expected for production；新Markdown是舊App ticket split。fake檔案只可在tests中，須說明其interface seam。

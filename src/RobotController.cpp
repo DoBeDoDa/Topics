@@ -333,12 +333,15 @@ RobotAdapterResult RobotController::validateRealHardwareConfiguration(
 {
     if (!config || !config->authorizationRevision ||
         !config->base0CalibrationRevision ||
-        !config->tool1ControllerCalibrationRevision || !config->angleMapping ||
+        !config->primaryToolControllerCalibrationRevision ||
+        !config->oppositeToolControllerCalibrationRevision ||
+        !config->angleMapping ||
         !config->safeUpCalibrationRevision ||
-        !config->requiredTool1CalibrationRevision ||
+        !config->requiredPrimaryToolCalibrationRevision ||
+        !config->requiredOppositeToolCalibrationRevision ||
         !config->requiredAbcMappingRevision ||
         !config->requiredSafeUpCalibrationRevision ||
-        !config->base0PositiveZSafeConfirmed || !config->strikeDoIndex ||
+        !config->base0PositiveZSafeConfirmed || !config->extendDoIndex ||
         !config->retractDoIndex || !config->approvedTimingProfile) {
         return {RobotAdapterStatus::ConfigurationMissing, -1};
     }
@@ -366,21 +369,27 @@ RobotAdapterResult RobotController::validateRealHardwareConfiguration(
             [](double value) { return std::isfinite(value); });
     if (config->authorizationRevision->empty() ||
         config->base0CalibrationRevision->empty() ||
-        config->tool1ControllerCalibrationRevision->empty() ||
+        config->primaryToolControllerCalibrationRevision->empty() ||
+        config->oppositeToolControllerCalibrationRevision->empty() ||
         config->safeUpCalibrationRevision->empty() ||
-        config->requiredTool1CalibrationRevision->empty() ||
+        config->requiredPrimaryToolCalibrationRevision->empty() ||
+        config->requiredOppositeToolCalibrationRevision->empty() ||
         config->requiredAbcMappingRevision->empty() ||
         config->requiredSafeUpCalibrationRevision->empty() ||
         mapping.calibrationRevision.empty() ||
-        *config->requiredTool1CalibrationRevision !=
-            *config->tool1ControllerCalibrationRevision ||
+        *config->requiredPrimaryToolCalibrationRevision !=
+            *config->primaryToolControllerCalibrationRevision ||
+        *config->requiredOppositeToolCalibrationRevision !=
+            *config->oppositeToolControllerCalibrationRevision ||
         *config->requiredAbcMappingRevision != mapping.calibrationRevision ||
         *config->requiredSafeUpCalibrationRevision !=
             *config->safeUpCalibrationRevision ||
         config->baseNumber != BilliardConfig::BASE_NUMBER ||
-        config->toolNumber != BilliardConfig::TOOL_NUMBER ||
-        *config->strikeDoIndex < 0 || *config->retractDoIndex < 0 ||
-        *config->strikeDoIndex == *config->retractDoIndex ||
+        config->primaryToolNumber != BilliardConfig::TOOL_NUMBER ||
+        config->oppositeToolNumber < 0 ||
+        config->oppositeToolNumber == config->primaryToolNumber ||
+        *config->extendDoIndex < 0 || *config->retractDoIndex < 0 ||
+        *config->extendDoIndex == *config->retractDoIndex ||
         !mappingSourcesKnown || !mappingSourcesArePermutation ||
         !mappingValuesValid ||
         timing.calibrationRevision.empty() || timing.pneumaticPulseMs == 0 ||
@@ -405,12 +414,12 @@ RobotAdapterResult RobotController::establishSafeOutputsOff(
         return {RobotAdapterStatus::UnknownUnsafe, -1};
     }
     const int strikeOff =
-        api.setDigitalOutput(id, *config->strikeDoIndex, false);
+        api.setDigitalOutput(id, *config->extendDoIndex, false);
     if (strikeOff != 0) {
         unknownUnsafeLatched = true;
         return {RobotAdapterStatus::UnknownUnsafe, strikeOff};
     }
-    const int strikeState = api.getDigitalOutput(id, *config->strikeDoIndex);
+    const int strikeState = api.getDigitalOutput(id, *config->extendDoIndex);
     if (strikeState != 0) {
         unknownUnsafeLatched = true;
         return {RobotAdapterStatus::UnknownUnsafe, strikeState};
@@ -436,10 +445,22 @@ RobotAdapterResult RobotController::validateRealExecutionConfiguration(
     const RobotAdapterResult configuration =
         validateRealHardwareConfiguration(config);
     if (!configuration.succeeded()) return configuration;
+    const bool acceptedPolicy =
+        plan.policyDecision == ExecutionPolicyDecision::PotAccepted ||
+        plan.policyDecision == ExecutionPolicyDecision::
+            LegalContactProductionFallbackAccepted;
     if (plan.policyMode != BilliardConfig::ExecutionPolicyMode::RealHardware ||
-        plan.policyDecision != ExecutionPolicyDecision::PotAccepted) {
+        !acceptedPolicy) {
         return {RobotAdapterStatus::Unauthorized, -1};
     }
+    const int expectedTool =
+        plan.selectedToolMode == ExecutionToolMode::Primary
+        ? config->primaryToolNumber
+        : config->oppositeToolNumber;
+    const std::string& expectedToolRevision =
+        plan.selectedToolMode == ExecutionToolMode::Primary
+        ? *config->requiredPrimaryToolCalibrationRevision
+        : *config->requiredOppositeToolCalibrationRevision;
     const auto& timing = *config->approvedTimingProfile;
     const bool timingMatches =
         timing.calibrationRevision == plan.pneumaticTimingProfile.calibrationRevision &&
@@ -451,6 +472,8 @@ RobotAdapterResult RobotController::validateRealExecutionConfiguration(
     if (!plan.isValid() ||
         *config->authorizationRevision != plan.executionPolicyRevision ||
         *config->base0CalibrationRevision != plan.base0PlanarCalibrationRevision ||
+        plan.selectedToolNumber != expectedTool ||
+        plan.selectedToolCalibrationRevision != expectedToolRevision ||
         !timingMatches) {
         return {RobotAdapterStatus::InvalidConfiguration, -1};
     }
@@ -542,7 +565,7 @@ RobotAdapterResult RobotController::activateConfiguredToolAndBase(
         !api.getBaseNumber) {
         return {RobotAdapterStatus::SdkFailure, -1};
     }
-    int sdkCode = api.setToolNumber(id, config->toolNumber);
+    int sdkCode = api.setToolNumber(id, config->primaryToolNumber);
     if (sdkCode != 0) return {RobotAdapterStatus::SdkFailure, sdkCode};
     sdkCode = api.setBaseNumber(id, config->baseNumber);
     if (sdkCode != 0) return {RobotAdapterStatus::SdkFailure, sdkCode};
@@ -552,10 +575,50 @@ RobotAdapterResult RobotController::activateConfiguredToolAndBase(
         return {RobotAdapterStatus::SdkFailure,
             actualTool < 0 ? actualTool : actualBase};
     }
-    if (actualTool != config->toolNumber || actualBase != config->baseNumber) {
+    if (actualTool != config->primaryToolNumber ||
+        actualBase != config->baseNumber) {
         return {RobotAdapterStatus::InvalidConfiguration, -1};
     }
     return {RobotAdapterStatus::Success, 0};
+}
+
+RobotAdapterResult RobotController::preflightExecution(
+    const ExecutionPlan& plan,
+    const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config)
+{
+    if (unknownUnsafeLatched) {
+        return {RobotAdapterStatus::UnknownUnsafe, -1};
+    }
+    const RobotAdapterResult validation = validateRealExecution(plan, config);
+    if (!validation.succeeded()) return validation;
+    const RobotAdapterResult frame = activateConfiguredToolAndBase(plan, config);
+    if (!frame.succeeded()) return frame;
+
+    const HrSdkPoseResult approach =
+        mapPoseToHrSdk(plan.safeApproachPose, *config->angleMapping);
+    const HrSdkPoseResult ready =
+        mapPoseToHrSdk(plan.strikeReadyPose, *config->angleMapping);
+    if (!approach.isValid() || !ready.isValid() || !approach.value ||
+        !ready.value) {
+        return {RobotAdapterStatus::InvalidConfiguration, -1};
+    }
+
+    bool reachable = false;
+    int sdkCode = -1;
+    if (!checkReachable(*approach.value, reachable, sdkCode)) {
+        return {RobotAdapterStatus::SdkFailure, sdkCode};
+    }
+    if (!reachable) return {RobotAdapterStatus::NotReachable, sdkCode};
+    if (!checkReachable(*ready.value, reachable, sdkCode)) {
+        return {RobotAdapterStatus::SdkFailure, sdkCode};
+    }
+    if (!reachable) return {RobotAdapterStatus::NotReachable, sdkCode};
+    if (!checkLinearPath(*approach.value, *ready.value, reachable, sdkCode)) {
+        return {RobotAdapterStatus::SdkFailure, sdkCode};
+    }
+    return reachable
+        ? RobotAdapterResult{RobotAdapterStatus::Success, sdkCode}
+        : RobotAdapterResult{RobotAdapterStatus::NotReachable, sdkCode};
 }
 
 RobotAdapterResult RobotController::activateConfiguredToolAndBase(
@@ -564,7 +627,24 @@ RobotAdapterResult RobotController::activateConfiguredToolAndBase(
 {
     const RobotAdapterResult validation = validateRealExecution(plan, config);
     if (!validation.succeeded()) return validation;
-    return activateConfiguredToolAndBase(config);
+    if (!api.setToolNumber || !api.setBaseNumber || !api.getToolNumber ||
+        !api.getBaseNumber) {
+        return {RobotAdapterStatus::SdkFailure, -1};
+    }
+    int sdkCode = api.setToolNumber(id, plan.selectedToolNumber);
+    if (sdkCode != 0) return {RobotAdapterStatus::SdkFailure, sdkCode};
+    sdkCode = api.setBaseNumber(id, config->baseNumber);
+    if (sdkCode != 0) return {RobotAdapterStatus::SdkFailure, sdkCode};
+    const int actualTool = api.getToolNumber(id);
+    const int actualBase = api.getBaseNumber(id);
+    if (actualTool < 0 || actualBase < 0) {
+        return {RobotAdapterStatus::SdkFailure,
+            actualTool < 0 ? actualTool : actualBase};
+    }
+    return actualTool == plan.selectedToolNumber &&
+            actualBase == config->baseNumber
+        ? RobotAdapterResult{RobotAdapterStatus::Success, 0}
+        : RobotAdapterResult{RobotAdapterStatus::InvalidConfiguration, -1};
 }
 
 RobotAdapterResult RobotController::checkedPtp(
@@ -763,16 +843,16 @@ RobotAdapterResult RobotController::confirmStopped() const
         : RobotAdapterResult{RobotAdapterStatus::NotStopped, 0};
 }
 
-bool RobotController::outputsPhysicallyOff(
+bool RobotController::outputsElectricallyOff(
     const BilliardConfig::RealHardwareExecutionConfig& config,
     int& sdkCode) const
 {
-    if (!connected || !api.getDigitalOutput || !config.strikeDoIndex ||
+    if (!connected || !api.getDigitalOutput || !config.extendDoIndex ||
         !config.retractDoIndex) {
         sdkCode = -1;
         return false;
     }
-    const int strikeState = api.getDigitalOutput(id, *config.strikeDoIndex);
+    const int strikeState = api.getDigitalOutput(id, *config.extendDoIndex);
     if (strikeState < 0) {
         sdkCode = strikeState;
         return false;
@@ -790,18 +870,18 @@ bool RobotController::bestEffortOutputsOff(
     const BilliardConfig::RealHardwareExecutionConfig& config,
     int& sdkCode)
 {
-    if (!connected || !api.setDigitalOutput || !config.strikeDoIndex ||
+    if (!connected || !api.setDigitalOutput || !config.extendDoIndex ||
         !config.retractDoIndex) {
         sdkCode = -1;
         return false;
     }
-    const int strikeOff = api.setDigitalOutput(id, *config.strikeDoIndex, false);
+    const int strikeOff = api.setDigitalOutput(id, *config.extendDoIndex, false);
     const int retractOff = api.setDigitalOutput(id, *config.retractDoIndex, false);
     if (strikeOff != 0 || retractOff != 0) {
         sdkCode = strikeOff != 0 ? strikeOff : retractOff;
         return false;
     }
-    return outputsPhysicallyOff(config, sdkCode);
+    return outputsElectricallyOff(config, sdkCode);
 }
 
 RealPneumaticResult RobotController::latchUnknownUnsafe(int sdkCode) noexcept
@@ -810,6 +890,112 @@ RealPneumaticResult RobotController::latchUnknownUnsafe(int sdkCode) noexcept
     return {RealPneumaticStatus::UnknownUnsafe, std::nullopt, sdkCode};
 }
 
+RealPneumaticResult RobotController::pulseOutput(
+    const ExecutionPlan& plan,
+    const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config,
+    int activeOutput,
+    int mutuallyExclusiveOutput)
+{
+    if (unknownUnsafeLatched) {
+        return {RealPneumaticStatus::UnknownUnsafe, std::nullopt, -1};
+    }
+    const RobotAdapterResult validation = validateRealExecution(plan, config);
+    if (!validation.succeeded()) {
+        return validation.status == RobotAdapterStatus::SdkFailure ||
+                validation.status == RobotAdapterStatus::NotConnected
+            ? latchUnknownUnsafe(validation.sdkCode)
+            : RealPneumaticResult{RealPneumaticStatus::KnownSafeFailure,
+                std::nullopt, validation.sdkCode};
+    }
+    if (!api.setDigitalOutput || !api.getDigitalOutput || !api.sleepMs) {
+        return latchUnknownUnsafe(-1);
+    }
+    const RobotAdapterResult stopped = confirmStopped();
+    if (!stopped.succeeded()) {
+        return {RealPneumaticStatus::KnownSafeFailure, std::nullopt,
+            stopped.sdkCode};
+    }
+
+    int sdkCode = api.setDigitalOutput(id, mutuallyExclusiveOutput, false);
+    if (sdkCode != 0 || api.getDigitalOutput(id, mutuallyExclusiveOutput) != 0) {
+        return latchUnknownUnsafe(sdkCode);
+    }
+    sdkCode = api.setDigitalOutput(id, activeOutput, true);
+    if (sdkCode != 0) {
+        int offCode = -1;
+        return bestEffortOutputsOff(*config, offCode)
+            ? RealPneumaticResult{RealPneumaticStatus::KnownSafeFailure,
+                std::nullopt, sdkCode}
+            : latchUnknownUnsafe(offCode);
+    }
+    const int activeState = api.getDigitalOutput(id, activeOutput);
+    const int otherState = api.getDigitalOutput(id, mutuallyExclusiveOutput);
+    if (activeState != 1 || otherState != 0) {
+        int offCode = -1;
+        (void)bestEffortOutputsOff(*config, offCode);
+        return latchUnknownUnsafe(activeState < 0 ? activeState : otherState);
+    }
+    api.sleepMs(config->approvedTimingProfile->pneumaticPulseMs);
+    sdkCode = api.setDigitalOutput(id, activeOutput, false);
+    if (sdkCode != 0) {
+        int ignored = -1;
+        (void)bestEffortOutputsOff(*config, ignored);
+        return latchUnknownUnsafe(sdkCode);
+    }
+    if (!outputsElectricallyOff(*config, sdkCode)) {
+        int ignored = -1;
+        (void)bestEffortOutputsOff(*config, ignored);
+        return latchUnknownUnsafe(sdkCode);
+    }
+    return {RealPneumaticStatus::Completed,
+        RealPneumaticEvidence::OutputOffConfirmed, 0};
+}
+
+RealPneumaticResult RobotController::pulseExtend(
+    const ExecutionPlan& plan,
+    const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config)
+{
+    if (!config || !config->extendDoIndex || !config->retractDoIndex) {
+        return {RealPneumaticStatus::KnownSafeFailure, std::nullopt, -1};
+    }
+    return pulseOutput(plan, config, *config->extendDoIndex,
+        *config->retractDoIndex);
+}
+
+RealPneumaticResult RobotController::pulseRetract(
+    const ExecutionPlan& plan,
+    const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config)
+{
+    if (!config || !config->extendDoIndex || !config->retractDoIndex) {
+        return {RealPneumaticStatus::KnownSafeFailure, std::nullopt, -1};
+    }
+    return pulseOutput(plan, config, *config->retractDoIndex,
+        *config->extendDoIndex);
+}
+
+RobotAdapterResult RobotController::waitDirectionChangeDelay(
+    const ExecutionPlan& plan,
+    const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config)
+{
+    const RobotAdapterResult validation = validateRealExecution(plan, config);
+    if (!validation.succeeded()) return validation;
+    if (!api.sleepMs) return {RobotAdapterStatus::SdkFailure, -1};
+    api.sleepMs(config->approvedTimingProfile->directionChangeDelayMs);
+    return {RobotAdapterStatus::Success, 0};
+}
+
+RobotAdapterResult RobotController::waitMechanismCompletion(
+    const ExecutionPlan& plan,
+    const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config)
+{
+    const RobotAdapterResult validation = validateRealExecution(plan, config);
+    if (!validation.succeeded()) return validation;
+    if (!api.sleepMs) return {RobotAdapterStatus::SdkFailure, -1};
+    api.sleepMs(config->approvedTimingProfile->mechanismCompletionWaitMs);
+    return {RobotAdapterStatus::Success, 0};
+}
+
+#ifdef BILLIARDS_P2_03_TEST_SEAM
 RealPneumaticResult RobotController::executePneumaticSequence(
     const ExecutionPlan& plan,
     const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config)
@@ -838,7 +1024,7 @@ RealPneumaticResult RobotController::executePneumaticSequence(
         return {RealPneumaticStatus::KnownSafeFailure, std::nullopt,
             stopped.sdkCode};
     }
-    const int strikeDo = *config->strikeDoIndex;
+    const int strikeDo = *config->extendDoIndex;
     const int retractDo = *config->retractDoIndex;
     const auto knownSafeOrUnknown = [&]() {
         int offCode = -1;
@@ -869,7 +1055,7 @@ RealPneumaticResult RobotController::executePneumaticSequence(
         (void)offAttempted;
         return latchUnknownUnsafe(originalCode);
     }
-    if (!outputsPhysicallyOff(*config, sdkCode)) {
+    if (!outputsElectricallyOff(*config, sdkCode)) {
         int ignoredOffCode = -1;
         const bool offAttempted = bestEffortOutputsOff(*config, ignoredOffCode);
         (void)offAttempted;
@@ -897,16 +1083,17 @@ RealPneumaticResult RobotController::executePneumaticSequence(
         (void)offAttempted;
         return latchUnknownUnsafe(originalCode);
     }
-    if (!outputsPhysicallyOff(*config, sdkCode)) {
+    if (!outputsElectricallyOff(*config, sdkCode)) {
         int ignoredOffCode = -1;
         const bool offAttempted = bestEffortOutputsOff(*config, ignoredOffCode);
         (void)offAttempted;
         return latchUnknownUnsafe(sdkCode);
     }
     api.sleepMs(config->approvedTimingProfile->mechanismCompletionWaitMs);
-    if (!outputsPhysicallyOff(*config, sdkCode)) {
+    if (!outputsElectricallyOff(*config, sdkCode)) {
         return latchUnknownUnsafe(sdkCode);
     }
     return {RealPneumaticStatus::Completed,
-        RealPneumaticEvidence::PhysicalOffConfirmed, 0};
+        RealPneumaticEvidence::OutputOffConfirmed, 0};
 }
+#endif

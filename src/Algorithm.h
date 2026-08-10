@@ -30,6 +30,15 @@ public:
         const std::optional<BilliardConfig::ScoringConfig>& scoringConfig,
         const std::optional<BilliardConfig::KickGeometryConfig>& kickConfig);
 
+    [[nodiscard]] static RankedPotSelectionResult rankPotCandidates(
+        const StableTableState& table,
+        const EligibleTarget& selectedTarget,
+        const ResolvedTableGeometry& geometry,
+        const DirectPotEvaluation& directCandidates,
+        const KickPotEvaluation& kickCandidates,
+        const std::optional<BilliardConfig::ScoringConfig>& scoringConfig,
+        const std::optional<BilliardConfig::KickGeometryConfig>& kickConfig);
+
 #ifdef BILLIARDS_P1_08_TEST_SEAM
     struct LegalContactTestEvaluation {
         std::optional<DirectLegalContactCandidate> direct;

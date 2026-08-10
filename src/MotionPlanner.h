@@ -49,7 +49,26 @@ enum class PlannedMotionIntent {
 
 enum class ExecutionPolicyDecision {
     PotAccepted,
-    LegalContactExplicitlyAuthorized
+    LegalContactExplicitlyAuthorized,
+    LegalContactPlanningTestSelected,
+    LegalContactProductionFallbackAccepted
+};
+
+enum class ExecutionToolMode {
+    Primary,
+    Opposite
+};
+
+struct ExecutionToolSelection {
+    int toolNumber;
+    ExecutionToolMode mode;
+    std::string controllerCalibrationRevision;
+    bool rankedPotCandidatesExhausted = false;
+
+    [[nodiscard]] bool isValid() const noexcept
+    {
+        return toolNumber >= 0 && !controllerCalibrationRevision.empty();
+    }
 };
 
 struct FixedForceEnvelopeEvaluation {
@@ -149,6 +168,10 @@ struct ExecutionPlan {
     std::string executionPolicyRevision;
     BilliardConfig::ExecutionPolicyMode policyMode;
     ExecutionPolicyDecision policyDecision;
+    int selectedToolNumber = BilliardConfig::TOOL_NUMBER;
+    ExecutionToolMode selectedToolMode = ExecutionToolMode::Primary;
+    std::string selectedToolCalibrationRevision;
+    bool rankedPotCandidatesExhausted = false;
 
     [[nodiscard]] bool isValid() const noexcept;
 };
@@ -222,7 +245,9 @@ public:
     [[nodiscard]] ExecutionPlanResult createExecutionPlan(
         const PlanningResult& planningResult,
         const std::optional<BilliardConfig::MotionPlanningConfig>& config,
-        const MotionPlanningChecks& checks) const;
+        const MotionPlanningChecks& checks,
+        const std::optional<ExecutionToolSelection>& toolSelection =
+            std::nullopt) const;
 
 #ifdef BILLIARDS_P2_01_TEST_SEAM
     [[nodiscard]] static std::optional<double> directionToCDegForTest(

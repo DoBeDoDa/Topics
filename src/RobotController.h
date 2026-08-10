@@ -92,7 +92,7 @@ enum class RealPneumaticStatus {
 };
 
 enum class RealPneumaticEvidence {
-    PhysicalOffConfirmed
+    OutputOffConfirmed
 };
 
 struct RealPneumaticResult {
@@ -106,7 +106,7 @@ struct RealPneumaticResult {
             status == RealPneumaticStatus::KnownSafeFailure ||
             status == RealPneumaticStatus::UnknownUnsafe;
         const bool knownEvidence = !evidence ||
-            *evidence == RealPneumaticEvidence::PhysicalOffConfirmed;
+            *evidence == RealPneumaticEvidence::OutputOffConfirmed;
         return knownStatus && knownEvidence &&
             ((status == RealPneumaticStatus::Completed) == evidence.has_value());
     }
@@ -143,13 +143,18 @@ private:
     [[nodiscard]] RobotPoseAdapterResult mapPoseFromHrSdk(
         const std::array<double, 6>& pose,
         const BilliardConfig::HrSdkAngleMappingConfig& mapping) const;
-    [[nodiscard]] bool outputsPhysicallyOff(
+    [[nodiscard]] bool outputsElectricallyOff(
         const BilliardConfig::RealHardwareExecutionConfig& config,
         int& sdkCode) const;
     [[nodiscard]] bool bestEffortOutputsOff(
         const BilliardConfig::RealHardwareExecutionConfig& config,
         int& sdkCode);
     [[nodiscard]] RealPneumaticResult latchUnknownUnsafe(int sdkCode) noexcept;
+    [[nodiscard]] RealPneumaticResult pulseOutput(
+        const ExecutionPlan& plan,
+        const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config,
+        int activeOutput,
+        int mutuallyExclusiveOutput);
 
 public:
     RobotController();
@@ -198,6 +203,9 @@ public:
     [[nodiscard]] RobotAdapterResult activateConfiguredToolAndBase(
         const ExecutionPlan& plan,
         const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config);
+    [[nodiscard]] RobotAdapterResult preflightExecution(
+        const ExecutionPlan& plan,
+        const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config);
     [[nodiscard]] RobotAdapterResult checkedConfiguredJointPtp(
         const std::array<double, 6>& joints,
         const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config);
@@ -228,7 +236,21 @@ public:
         const ExecutionPlan& plan,
         const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config);
     [[nodiscard]] RobotAdapterResult confirmStopped() const;
+#ifdef BILLIARDS_P2_03_TEST_SEAM
     [[nodiscard]] RealPneumaticResult executePneumaticSequence(
+        const ExecutionPlan& plan,
+        const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config);
+#endif
+    [[nodiscard]] RealPneumaticResult pulseExtend(
+        const ExecutionPlan& plan,
+        const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config);
+    [[nodiscard]] RealPneumaticResult pulseRetract(
+        const ExecutionPlan& plan,
+        const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config);
+    [[nodiscard]] RobotAdapterResult waitDirectionChangeDelay(
+        const ExecutionPlan& plan,
+        const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config);
+    [[nodiscard]] RobotAdapterResult waitMechanismCompletion(
         const ExecutionPlan& plan,
         const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config);
 };

@@ -74,6 +74,7 @@ BilliardConfig::MotionPlanningConfig planningMotionConfig()
     config.calibrationRevision = "p2-03-motion-v1";
     config.base0PlanarCalibrationRevision = "p2-01-base0-v1";
     config.cueForwardAxisCalibrationRevision = "tool-axis-test-v1";
+    config.primaryToolControllerCalibrationRevision = "tool1-test-v1";
     config.strikeZMm = -216.0; config.safeApproachZMm = -160.0;
     config.readyGapMm = 15.0; config.safeLiftHeightMm = 50.0;
     config.a0Deg = 0.0; config.b0Deg = 0.0;
@@ -88,6 +89,7 @@ BilliardConfig::MotionPlanningConfig planningMotionConfig()
     config.executionPolicyRevision = "policy-test-v1";
     config.policyMode = BilliardConfig::ExecutionPolicyMode::PlanningTest;
     config.legalContactExecutionAuthorized = false;
+    config.productionLegalContactFallbackAuthorized = false;
     const BilliardConfig::FixedForceEnvelopeLimits direct{
         true, 0.0, 5000.0, 90.0, 180.0, std::nullopt};
     const BilliardConfig::FixedForceEnvelopeLimits kick{
@@ -150,7 +152,9 @@ ExecutionPlan validPlan()
          0.0, 200.0, 90.0, 90.0, std::nullopt},
         {"pneumatic-test-v1", 100, 50, 100}, "policy-test-v1",
         BilliardConfig::ExecutionPolicyMode::RealHardware,
-        ExecutionPolicyDecision::PotAccepted};
+        ExecutionPolicyDecision::PotAccepted,
+        BilliardConfig::TOOL_NUMBER, ExecutionToolMode::Primary,
+        "tool1-test-v1"};
 }
 
 BilliardConfig::RealHardwareExecutionConfig validConfig()
@@ -168,7 +172,8 @@ BilliardConfig::RealHardwareExecutionConfig validConfig()
         std::string{"tool1-test-v1"}, std::string{"abc-map-test-v1"},
         std::string{"safe-up-test-v1"}, true, 1, 2,
         BilliardConfig::PneumaticTimingProfileReference{
-            "pneumatic-test-v1", 100, 50, 100}};
+            "pneumatic-test-v1", 100, 50, 100},
+        2, std::string{"tool2-test-v1"}, std::string{"tool2-test-v1"}};
 }
 
 enum class DoFailurePoint { None, StrikeOn, StrikeOff, RetractOn, RetractOff };
@@ -185,11 +190,17 @@ struct FakeSdk {
     int motorCode = 0;
     int reachableCode = 0;
     bool reachable = true;
+    std::vector<bool> reachableResponses;
+    std::size_t reachableResponseIndex = 0;
     int linearCheckCode = 0;
     bool linearReachable = true;
+    std::vector<bool> linearReachableResponses;
+    std::size_t linearReachableResponseIndex = 0;
     int ptpCode = 0;
     int linCode = 0;
     int jointPtpCode = 0;
+    std::size_t jointPtpCallCount = 0;
+    std::optional<std::size_t> jointPtpFailAtCall;
     int motionState = 1;
     bool abortCalled = false;
     int poseReadCode = 0;
@@ -237,12 +248,20 @@ struct FakeSdk {
             },
             [&](int, double*) { return 0; },
             [&](int, double*, bool& value) {
-                calls.push_back("reachable"); value = reachable; return reachableCode;
+                calls.push_back("reachable");
+                value = reachableResponseIndex < reachableResponses.size()
+                    ? reachableResponses[reachableResponseIndex++]
+                    : reachable;
+                return reachableCode;
             },
             [&](int, double* start, double*, bool& value) {
                 calls.push_back("checkLin");
                 std::copy(start, start + 6, lastLinStart.begin());
-                value = linearReachable;
+                value = linearReachableResponseIndex <
+                        linearReachableResponses.size()
+                    ? linearReachableResponses[
+                          linearReachableResponseIndex++]
+                    : linearReachable;
                 return linearCheckCode;
             },
             [&](int, int, double* pose) {
@@ -255,7 +274,14 @@ struct FakeSdk {
                 std::copy(pose, pose + 6, lastLin.begin());
                 return linCode;
             },
-            [&](int, int, double*) { calls.push_back("ptpAxis"); return jointPtpCode; },
+            [&](int, int, double*) {
+                calls.push_back("ptpAxis");
+                ++jointPtpCallCount;
+                return jointPtpFailAtCall &&
+                        jointPtpCallCount == *jointPtpFailAtCall
+                    ? jointPtpCode
+                    : 0;
+            },
             [&](int) { return motionState; },
             [&](int) { abortCalled = true; return 0; },
             [&](int, int index, bool state) {
@@ -330,7 +356,7 @@ RealExecutionCycleServices successfulServices(
         if (calls) calls->push_back(name);
         return OfflineStepResult{OfflineStepStatus::Success};
     };
-    return {
+    RealExecutionCycleServices services{
         [=] { return ok("settle"); },
         [=] { return ok("flush"); },
         [=] { return ok("reset"); },
@@ -343,18 +369,22 @@ RealExecutionCycleServices successfulServices(
             if (calls) calls->push_back("buildPlan");
             return ExecutionPlanResult::success(plan);
         }};
+    services.testOnlyAllowSinglePlanCompatibility = true;
+    return services;
 }
 
 RealExecutionCycleServices successfulNoPlanServices()
 {
     const auto ok = [] { return OfflineStepResult{OfflineStepStatus::Success}; };
-    return {ok, ok, ok, ok,
+    RealExecutionCycleServices services{ok, ok, ok, ok,
         [] { return OfflinePhase1Result{OfflinePhase1Status::NoPlan}; },
         [] {
             return ExecutionPlanResult::rejected(
                 ExecutionPlanStatus::NoExecutablePlan,
                 ExecutionPlanFailureReason::InvalidExecutionPlanValue);
         }};
+    services.testOnlyAllowSinglePlanCompatibility = true;
+    return services;
 }
 
 std::function<bool()> oneStartRequest()
@@ -426,19 +456,28 @@ int main()
             RobotAdapterStatus::ConfigurationMissing,
         "missing Base0 revision fails closed");
     auto missingToolRevision = config;
-    missingToolRevision.tool1ControllerCalibrationRevision.reset();
+    missingToolRevision.primaryToolControllerCalibrationRevision.reset();
     tests.expectTrue(
         disabled->checkedPtp(plan, plan.strikeReadyPose, missingToolRevision).status ==
             RobotAdapterStatus::ConfigurationMissing,
         "missing Tool1 revision fails closed");
     auto toolRevisionMismatch = config;
-    toolRevisionMismatch.requiredTool1CalibrationRevision = "wrong-tool";
+    toolRevisionMismatch.requiredPrimaryToolCalibrationRevision = "wrong-tool";
     tests.expectTrue(
         disabled->checkedPtp(plan, plan.strikeReadyPose,
             toolRevisionMismatch).status == RobotAdapterStatus::InvalidConfiguration,
         "Tool1 deployment/policy revision mismatch fails closed");
     tests.expectTrue(disabledSdk.calls.empty(),
         "Tool1 revision mismatch sends no hardware command");
+    auto oppositeToolRevisionMismatch = config;
+    oppositeToolRevisionMismatch.requiredOppositeToolCalibrationRevision =
+        "wrong-tool2";
+    tests.expectTrue(
+        disabled->checkedPtp(plan, plan.strikeReadyPose,
+            oppositeToolRevisionMismatch).status ==
+            RobotAdapterStatus::InvalidConfiguration &&
+        disabledSdk.calls.empty(),
+        "Tool2 controller calibration revision is validated independently");
     auto mappingRevisionMismatch = config;
     mappingRevisionMismatch.requiredAbcMappingRevision = "wrong-map";
     tests.expectTrue(
@@ -459,10 +498,10 @@ int main()
     std::vector<BilliardConfig::RealHardwareExecutionConfig>
         missingOrEmptyRevisionConfigs;
     auto missingRequiredTool = config;
-    missingRequiredTool.requiredTool1CalibrationRevision.reset();
+    missingRequiredTool.requiredPrimaryToolCalibrationRevision.reset();
     missingOrEmptyRevisionConfigs.push_back(missingRequiredTool);
     auto emptyRequiredTool = config;
-    emptyRequiredTool.requiredTool1CalibrationRevision = "";
+    emptyRequiredTool.requiredPrimaryToolCalibrationRevision = "";
     missingOrEmptyRevisionConfigs.push_back(emptyRequiredTool);
     auto missingRequiredMapping = config;
     missingRequiredMapping.requiredAbcMappingRevision.reset();
@@ -477,12 +516,12 @@ int main()
     emptyRequiredSafeUp.requiredSafeUpCalibrationRevision = "";
     missingOrEmptyRevisionConfigs.push_back(emptyRequiredSafeUp);
     auto allRequiredMissing = config;
-    allRequiredMissing.requiredTool1CalibrationRevision.reset();
+    allRequiredMissing.requiredPrimaryToolCalibrationRevision.reset();
     allRequiredMissing.requiredAbcMappingRevision.reset();
     allRequiredMissing.requiredSafeUpCalibrationRevision.reset();
     missingOrEmptyRevisionConfigs.push_back(allRequiredMissing);
     auto emptyDeploymentTool = config;
-    emptyDeploymentTool.tool1ControllerCalibrationRevision = "";
+    emptyDeploymentTool.primaryToolControllerCalibrationRevision = "";
     missingOrEmptyRevisionConfigs.push_back(emptyDeploymentTool);
     auto emptyDeploymentMapping = config;
     emptyDeploymentMapping.angleMapping->calibrationRevision = "";
@@ -630,11 +669,15 @@ int main()
     const auto pneumaticSuccess = pneumatic->executePneumaticSequence(plan, config);
     tests.expectTrue(pneumaticSuccess.isValid() &&
         pneumaticSuccess.status == RealPneumaticStatus::Completed &&
+        pneumaticSuccess.evidence ==
+            RealPneumaticEvidence::OutputOffConfirmed &&
+        BilliardApp::mapRealPneumaticResult(pneumaticSuccess).evidence ==
+            PneumaticCompletionEvidence::OffCommandAccepted &&
         !pneumaticSdk.simultaneousOn && !pneumaticSdk.outputs[1] &&
         !pneumaticSdk.outputs[2] &&
         pneumaticSdk.sleepDurations ==
             std::vector<unsigned long>{100, 50, 100, 100},
-        "dual DO sequence is mutually exclusive and ends physically OFF");
+        "dual DO sequence is mutually exclusive and reports electrical output OFF without actuator-position evidence");
     FakeSdk movingSdk;
     movingSdk.motionState = 0;
     auto moving = connected(movingSdk);
@@ -708,6 +751,8 @@ int main()
     tests.expectTrue(
         cycle.isValid() && cycle.status == ExecutionCycleStatus::Completed &&
         cycle.value && cycle.value->shotExecuted &&
+        cycle.value->pneumaticEvidence ==
+            PneumaticCompletionEvidence::OffCommandAccepted &&
         callCount(cycleSdk, "ptpAxis") == 3 &&
         callCount(cycleSdk, "ptp") == 1 &&
         callCount(cycleSdk, "lin") == 2 &&
@@ -741,6 +786,10 @@ int main()
     planningRun.currentCycleFrames = {
         currentCycleFrame(), currentCycleFrame(), currentCycleFrame()};
     std::optional<ExecutionPlan> observedPlanningPlan;
+    std::optional<PlanningResult> observedPlanningResult;
+    planningRun.planningResultObserved = [&](const PlanningResult& result) {
+        observedPlanningResult = result;
+    };
     planningRun.executionPlanObserved = [&](const ExecutionPlanResult& result) {
         if (result.isValid() &&
             result.status() == ExecutionPlanStatus::Success &&
@@ -763,6 +812,8 @@ int main()
     }
     tests.expectTrue(
         observedPlanningPlan.has_value() &&
+        observedPlanningPlan->selectedToolCalibrationRevision ==
+            *planningConfig.primaryToolControllerCalibrationRevision &&
         planningText.find("=== Planning Result ===") != std::string::npos &&
         planningText.find("ReceiveEvent id=1 accepted") != std::string::npos &&
         planningText.find("ReceiveEvent id=2 accepted") != std::string::npos &&
@@ -773,6 +824,349 @@ int main()
         planningText.find("MissingValidationSeam") == std::string::npos &&
         planningSdk.calls.empty(),
         "PlanningTest parses three current-cycle frames, reaches Phase1 and the production P2-01 builder, and prints its exact StrikeReadyPose without hardware");
+
+    tests.expectTrue(
+        observedPlanningResult.has_value() &&
+        !observedPlanningResult->executionCandidates().rankedPotPlans.empty() &&
+        !observedPlanningResult->executionCandidates().legalContactPlans.empty() &&
+        std::all_of(
+            observedPlanningResult->executionCandidates().legalContactPlans.begin(),
+            observedPlanningResult->executionCandidates().legalContactPlans.end(),
+            [](const ShotPlan& legal) {
+                const LegalContactAuditFields* audit = nullptr;
+                if (const auto* direct =
+                        std::get_if<DirectLegalContactShotPlanPayload>(
+                            &legal.payload)) {
+                    audit = &direct->audit;
+                } else if (const auto* kick =
+                               std::get_if<KickLegalContactShotPlanPayload>(
+                                   &legal.payload)) {
+                    audit = &kick->audit;
+                }
+                return audit && !audit->potSearchExhausted &&
+                    audit->activationAuthority ==
+                        LegalContactAuditFields::ActivationAuthority::
+                            ProductionFallbackEligible;
+            }),
+        "Phase1 precomputes LegalContact without claiming Robot Pot-execution exhaustion");
+    if (observedPlanningResult) {
+        MotionPlanner fallbackPlanner;
+        auto fallbackMotionConfig = planningConfig;
+        fallbackMotionConfig.policyMode =
+            BilliardConfig::ExecutionPolicyMode::RealHardware;
+        fallbackMotionConfig.productionLegalContactFallbackAuthorized = true;
+        auto fallbackHardwareConfig = validConfig();
+        fallbackHardwareConfig.base0CalibrationRevision =
+            "p2-01-base0-v1";
+        const MotionPlanningChecks fallbackChecks{
+            [](const RobotPoseABC& pose) {
+                return std::optional<bool>{pose.isFinite()};
+            },
+            [](const RobotPoseABC& pose,
+               const std::array<double, 3>& axis)
+                -> std::optional<Vector2D> {
+                if (axis != std::array<double, 3>{0.0, 1.0, 0.0}) {
+                    return std::nullopt;
+                }
+                const double radians = (pose.c - 7.0) *
+                    BilliardMath::PI / 180.0;
+                return Vector2D{std::cos(radians), std::sin(radians)};
+            }};
+        const ShotPlan& firstRankedPot =
+            observedPlanningResult->executionCandidates()
+                .rankedPotPlans.front();
+        const auto primaryAuditPlan = fallbackPlanner.createExecutionPlan(
+            PlanningResult::shotPlan(firstRankedPot), fallbackMotionConfig,
+            fallbackChecks,
+            ExecutionToolSelection{
+                fallbackHardwareConfig.primaryToolNumber,
+                ExecutionToolMode::Primary,
+                *fallbackHardwareConfig
+                     .requiredPrimaryToolCalibrationRevision});
+        const auto oppositeAuditPlan = fallbackPlanner.createExecutionPlan(
+            PlanningResult::shotPlan(firstRankedPot), fallbackMotionConfig,
+            fallbackChecks,
+            ExecutionToolSelection{
+                fallbackHardwareConfig.oppositeToolNumber,
+                ExecutionToolMode::Opposite,
+                *fallbackHardwareConfig
+                     .requiredOppositeToolCalibrationRevision});
+        tests.expectTrue(
+            primaryAuditPlan.value() && oppositeAuditPlan.value() &&
+            primaryAuditPlan.value()->selectedToolMode ==
+                ExecutionToolMode::Primary &&
+            oppositeAuditPlan.value()->selectedToolMode ==
+                ExecutionToolMode::Opposite &&
+            oppositeAuditPlan.value()->selectedToolNumber ==
+                fallbackHardwareConfig.oppositeToolNumber &&
+            oppositeAuditPlan.value()->selectedToolCalibrationRevision ==
+                *fallbackHardwareConfig
+                     .requiredOppositeToolCalibrationRevision &&
+            primaryAuditPlan.value()->strikeReadyPose.x ==
+                oppositeAuditPlan.value()->strikeReadyPose.x &&
+            primaryAuditPlan.value()->strikeReadyPose.y ==
+                oppositeAuditPlan.value()->strikeReadyPose.y &&
+            primaryAuditPlan.value()->strikeReadyPose.c ==
+                oppositeAuditPlan.value()->strikeReadyPose.c,
+            "Tool selection audit changes only controller Tool identity, not MotionPlanner geometry");
+        const auto candidateServices = [&](std::size_t& phase1Runs,
+                                           std::vector<const ShotPlan*>& built) {
+            RealExecutionCycleServices services =
+                successfulServices(validPlan());
+            services.runPhase1 = [&] {
+                ++phase1Runs;
+                return OfflinePhase1Result{
+                    OfflinePhase1Status::ShotPlanReady};
+            };
+            services.currentPlanningResult = [&]() {
+                return &*observedPlanningResult;
+            };
+            services.buildExecutionPlanForTool =
+                [&](const ShotPlan& shot,
+                    const ExecutionToolSelection& tool) {
+                built.push_back(&shot);
+                return fallbackPlanner.createExecutionPlan(
+                    PlanningResult::shotPlan(shot),
+                    fallbackMotionConfig,
+                    fallbackChecks,
+                    tool);
+            };
+            return services;
+        };
+
+        FakeSdk oppositeFallbackSdk;
+        oppositeFallbackSdk.reachableResponses = {false, true, true};
+        auto oppositeFallbackRobot = connected(oppositeFallbackSdk);
+        OfflineExecutionRuntime oppositeFallbackRuntime;
+        std::size_t oppositePhase1Runs = 0;
+        std::vector<const ShotPlan*> oppositeBuilt;
+        const ExecutionCycleResult oppositeFallback =
+            BilliardApp::runRealSingleCycle(
+                oppositeFallbackRuntime,
+                *oppositeFallbackRobot,
+                fallbackHardwareConfig,
+                candidateServices(oppositePhase1Runs, oppositeBuilt));
+        tests.expectTrue(
+            oppositeFallback.status == ExecutionCycleStatus::Completed &&
+            oppositePhase1Runs == 1 && oppositeBuilt.size() >= 2 &&
+            oppositeBuilt[0] == oppositeBuilt[1] &&
+            oppositeFallbackSdk.tool ==
+                fallbackHardwareConfig.oppositeToolNumber &&
+            orderedSubsequence(oppositeFallbackSdk.calls,
+                {"do1On", "do1Off", "sleep", "setTool", "ptpAxis",
+                 "do2On", "do2Off"}),
+            "explicit Tool1 NotReachable retries the same Pot with Tool2 without rerunning Phase1");
+
+        FakeSdk pathFallbackSdk;
+        pathFallbackSdk.linearReachableResponses = {false, true};
+        auto pathFallbackRobot = connected(pathFallbackSdk);
+        OfflineExecutionRuntime pathFallbackRuntime;
+        std::size_t pathFallbackPhase1Runs = 0;
+        std::vector<const ShotPlan*> pathFallbackBuilt;
+        const ExecutionCycleResult pathFallback =
+            BilliardApp::runRealSingleCycle(
+                pathFallbackRuntime,
+                *pathFallbackRobot,
+                fallbackHardwareConfig,
+                candidateServices(
+                    pathFallbackPhase1Runs, pathFallbackBuilt));
+        tests.expectTrue(
+            pathFallback.status == ExecutionCycleStatus::Completed &&
+            pathFallbackPhase1Runs == 1 &&
+            pathFallbackBuilt.size() >= 2 &&
+            pathFallbackBuilt[0] == pathFallbackBuilt[1],
+            "explicit LIN PathUnreachable permits Tool2 fallback");
+
+        FakeSdk preparedAbortSdk;
+        preparedAbortSdk.reachableResponses = {false, true, true};
+        preparedAbortSdk.jointPtpCode = -91;
+        preparedAbortSdk.jointPtpFailAtCall = 2;
+        auto preparedAbortRobot = connected(preparedAbortSdk);
+        OfflineExecutionRuntime preparedAbortRuntime;
+        std::size_t preparedAbortPhase1Runs = 0;
+        std::vector<const ShotPlan*> preparedAbortBuilt;
+        const ExecutionCycleResult preparedAbort =
+            BilliardApp::runRealSingleCycle(
+                preparedAbortRuntime,
+                *preparedAbortRobot,
+                fallbackHardwareConfig,
+                candidateServices(
+                    preparedAbortPhase1Runs, preparedAbortBuilt));
+        const std::size_t commandsBeforeRetry = preparedAbortSdk.calls.size();
+        const ExecutionCycleResult preparedAbortRetry =
+            BilliardApp::runRealSingleCycle(
+                preparedAbortRuntime,
+                *preparedAbortRobot,
+                fallbackHardwareConfig,
+                candidateServices(
+                    preparedAbortPhase1Runs, preparedAbortBuilt));
+        tests.expectTrue(
+            preparedAbort.status == ExecutionCycleStatus::SafeFailure &&
+            preparedAbortRuntime.state ==
+                ExecutionCycleState::ManualRecoveryRequired &&
+            preparedAbortRetry.status == ExecutionCycleStatus::StartRejected &&
+            preparedAbortSdk.calls.size() == commandsBeforeRetry &&
+            called(preparedAbortSdk, "do1On") &&
+            !called(preparedAbortSdk, "do2On"),
+            "abort after Tool2 extend preparation requires manual recovery before another cycle");
+
+        FakeSdk nextPotSdk;
+        nextPotSdk.reachableResponses = {false, false, true, true};
+        auto nextPotRobot = connected(nextPotSdk);
+        OfflineExecutionRuntime nextPotRuntime;
+        std::size_t nextPotPhase1Runs = 0;
+        std::vector<const ShotPlan*> nextPotBuilt;
+        const ExecutionCycleResult nextPot = BilliardApp::runRealSingleCycle(
+            nextPotRuntime,
+            *nextPotRobot,
+            fallbackHardwareConfig,
+            candidateServices(nextPotPhase1Runs, nextPotBuilt));
+        tests.expectTrue(
+            nextPot.status == ExecutionCycleStatus::Completed &&
+            nextPotPhase1Runs == 1 && nextPotBuilt.size() >= 3 &&
+            nextPotBuilt[0] == nextPotBuilt[1] &&
+            nextPotBuilt[2] != nextPotBuilt[0],
+            "both Tools unavailable advances to the next ranked Pot without a Phase1 rerun");
+
+        const std::size_t potAttempts =
+            observedPlanningResult->executionCandidates().rankedPotPlans.size() * 2;
+        FakeSdk legalFallbackSdk;
+        legalFallbackSdk.reachableResponses.assign(potAttempts, false);
+        legalFallbackSdk.reachableResponses.push_back(true);
+        legalFallbackSdk.reachableResponses.push_back(true);
+        auto legalFallbackRobot = connected(legalFallbackSdk);
+        OfflineExecutionRuntime legalFallbackRuntime;
+        std::size_t legalPhase1Runs = 0;
+        std::vector<const ShotPlan*> legalBuilt;
+        auto legalFallbackServices =
+            candidateServices(legalPhase1Runs, legalBuilt);
+        std::vector<ExecutionPolicyDecision> legalPolicyDecisions;
+        const auto legalBuilder = legalFallbackServices.buildExecutionPlanForTool;
+        legalFallbackServices.buildExecutionPlanForTool =
+            [legalBuilder, &legalPolicyDecisions](
+                const ShotPlan& shot,
+                const ExecutionToolSelection& tool) {
+                ExecutionPlanResult result = legalBuilder(shot, tool);
+                if (result.value()) {
+                    legalPolicyDecisions.push_back(
+                        result.value()->policyDecision);
+                }
+                return result;
+            };
+        const ExecutionCycleResult legalFallback =
+            BilliardApp::runRealSingleCycle(
+                legalFallbackRuntime,
+                *legalFallbackRobot,
+                fallbackHardwareConfig,
+                legalFallbackServices);
+        const bool builtLegal = std::any_of(
+            legalBuilt.begin(), legalBuilt.end(), [](const ShotPlan* plan) {
+                return plan &&
+                    (plan->type == ShotPlanType::DirectLegalContact ||
+                     plan->type == ShotPlanType::KickLegalContact);
+            });
+        tests.expectTrue(
+            legalFallback.status == ExecutionCycleStatus::Completed &&
+            legalPhase1Runs == 1 && builtLegal &&
+            std::find(
+                legalPolicyDecisions.begin(), legalPolicyDecisions.end(),
+                ExecutionPolicyDecision::
+                    LegalContactProductionFallbackAccepted) !=
+                legalPolicyDecisions.end(),
+            "production uses an already-computed LegalContact only after every ranked Pot is unreachable");
+
+        FakeSdk legalOppositeSdk;
+        legalOppositeSdk.reachableResponses.assign(potAttempts + 1, false);
+        legalOppositeSdk.reachableResponses.push_back(true);
+        legalOppositeSdk.reachableResponses.push_back(true);
+        auto legalOppositeRobot = connected(legalOppositeSdk);
+        OfflineExecutionRuntime legalOppositeRuntime;
+        std::size_t legalOppositePhase1Runs = 0;
+        std::vector<const ShotPlan*> legalOppositeBuilt;
+        const ExecutionCycleResult legalOpposite =
+            BilliardApp::runRealSingleCycle(
+                legalOppositeRuntime,
+                *legalOppositeRobot,
+                fallbackHardwareConfig,
+                candidateServices(
+                    legalOppositePhase1Runs, legalOppositeBuilt));
+        tests.expectTrue(
+            legalOpposite.status == ExecutionCycleStatus::Completed &&
+            legalOppositePhase1Runs == 1 &&
+            legalOppositeBuilt.size() >= potAttempts + 2 &&
+            legalOppositeBuilt[potAttempts] ==
+                legalOppositeBuilt[potAttempts + 1] &&
+            (legalOppositeBuilt.back()->type ==
+                 ShotPlanType::DirectLegalContact ||
+             legalOppositeBuilt.back()->type ==
+                 ShotPlanType::KickLegalContact) &&
+            legalOppositeSdk.tool ==
+                fallbackHardwareConfig.oppositeToolNumber,
+            "LegalContact uses the same Tool1-to-Tool2 fallback after Pot exhaustion");
+
+        const std::size_t allCandidateAttempts = 2 * (
+            observedPlanningResult->executionCandidates().rankedPotPlans.size() +
+            observedPlanningResult->executionCandidates().legalContactPlans.size());
+        FakeSdk noExecutableSdk;
+        noExecutableSdk.reachableResponses.assign(
+            allCandidateAttempts, false);
+        auto noExecutableRobot = connected(noExecutableSdk);
+        OfflineExecutionRuntime noExecutableRuntime;
+        std::size_t noExecutablePhase1Runs = 0;
+        std::vector<const ShotPlan*> noExecutableBuilt;
+        const ExecutionCycleResult noExecutable =
+            BilliardApp::runRealSingleCycle(
+                noExecutableRuntime,
+                *noExecutableRobot,
+                fallbackHardwareConfig,
+                candidateServices(
+                    noExecutablePhase1Runs, noExecutableBuilt));
+        tests.expectTrue(
+            noExecutable.status == ExecutionCycleStatus::SafeFailure &&
+            noExecutable.diagnostic &&
+            noExecutable.diagnostic->reason ==
+                ExecutionCycleFailureReason::NoExecutablePlan &&
+            noExecutablePhase1Runs == 1 &&
+            noExecutableBuilt.size() == allCandidateAttempts &&
+            !called(noExecutableSdk, "do1On") &&
+            !called(noExecutableSdk, "do2On"),
+            "all Pot and LegalContact Tool attempts unavailable returns NoExecutablePlan without a strike");
+
+        FakeSdk fatalSdk;
+        fatalSdk.reachableCode = -77;
+        auto fatalRobot = connected(fatalSdk);
+        OfflineExecutionRuntime fatalRuntime;
+        std::size_t fatalPhase1Runs = 0;
+        std::vector<const ShotPlan*> fatalBuilt;
+        const ExecutionCycleResult fatal = BilliardApp::runRealSingleCycle(
+            fatalRuntime,
+            *fatalRobot,
+            fallbackHardwareConfig,
+            candidateServices(fatalPhase1Runs, fatalBuilt));
+        tests.expectTrue(
+            fatal.status == ExecutionCycleStatus::SafeFailure &&
+            fatalPhase1Runs == 1 && fatalBuilt.size() == 1 &&
+            !called(fatalSdk, "lin") && !called(fatalSdk, "ptp"),
+            "reachability API failure is fatal and never enters Tool or candidate fallback");
+
+        FakeSdk legacyBypassSdk;
+        auto legacyBypassRobot = connected(legacyBypassSdk);
+        OfflineExecutionRuntime legacyBypassRuntime;
+        RealExecutionCycleServices legacyBypassServices =
+            successfulServices(validPlan());
+        legacyBypassServices.testOnlyAllowSinglePlanCompatibility = false;
+        const ExecutionCycleResult legacyBypass =
+            BilliardApp::runRealSingleCycle(
+                legacyBypassRuntime, *legacyBypassRobot,
+                fallbackHardwareConfig, legacyBypassServices);
+        tests.expectTrue(
+            legacyBypass.status == ExecutionCycleStatus::SafeFailure &&
+            !called(legacyBypassSdk, "ptp") &&
+            !called(legacyBypassSdk, "lin") &&
+            !called(legacyBypassSdk, "do1On") &&
+            !called(legacyBypassSdk, "do2On"),
+            "RealHardware selection cannot enter the legacy single-plan compatibility path without the test-only gate");
+    }
 
     FakeSdk missingChecksSdk;
     RobotController missingChecksRobot(missingChecksSdk.api());

@@ -100,6 +100,11 @@ Ready for Implementation
 - Move／Rename／Refactor自舊P1-09 MotionProfile與MotionPlanner相容遷移。
 - 舊A/B prototype責任從`test_cueball`移入既有MotionPlanner；不複製。
 
+## Approved dual-Tool execution-plan extension
+
+- 相同ShotPlan pose geometry可用於Tool1或Tool2；ExecutionPlan保存selected Tool number、Primary／Opposite mode及該Tool calibration revision。
+- MotionPlanner不得加入Tool offset、C／RZ 180度或任何第二次座標轉換；production LegalContact另需Pot耗盡audit與專用policy authorization。
+
 ## 21. New File Justification
 
 None expected；只原地演進既有MotionPlanner與config／math owners。

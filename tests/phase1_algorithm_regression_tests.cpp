@@ -1244,6 +1244,25 @@ int main()
     tests.expectTrue(
         baselineUnifiedWinner && baselineUnifiedWinner->kind == PotCandidateKind::Direct,
         "Direct receives a strong but non-exclusive soft preference");
+    const auto rankedUnified = BilliardAlgorithm::rankPotCandidates(
+        kickFixture,
+        *kickFixtureTarget.value(),
+        geometry,
+        fullDirect,
+        fullKick,
+        std::optional<BilliardConfig::ScoringConfig>{scoreConfig},
+        std::optional<BilliardConfig::KickGeometryConfig>{kickGeometryConfig});
+    const bool rankOnePreserved = rankedUnified.value() &&
+        !rankedUnified.value()->empty() && baselineUnifiedWinner &&
+        rankedUnified.value()->front().kind == baselineUnifiedWinner->kind &&
+        rankedUnified.value()->front().pocketId == baselineUnifiedWinner->pocketId &&
+        rankedUnified.value()->front().railId == baselineUnifiedWinner->railId &&
+        rankedUnified.value()->front().audit.totalCost ==
+            baselineUnifiedWinner->audit.totalCost;
+    tests.expectTrue(
+        rankedUnified.isValid() && rankedUnified.value() &&
+        rankedUnified.value()->size() > 1 && rankOnePreserved,
+        "one-pass ranked Pot output preserves the old selectBestPot rank-one identity");
 
     bool validKickWon = false;
     auto qualityScoringConfig = scoreConfig;
@@ -1735,8 +1754,9 @@ int main()
     tests.expectTrue(
         potOnlyBlocked.isValid() && blockedPotOnlyNoPlan &&
         blockedPotOnlyNoPlan->reason == NoPlanReason::NoPotCandidate &&
-        !blockedPotOnlyNoPlan->proceededToLegalContact,
-        "PotOnly remains NoPotCandidate and never enters LegalContact");
+        !blockedPotOnlyNoPlan->proceededToLegalContact &&
+        !potOnlyBlocked.executionCandidates().legalContactPlans.empty(),
+        "PotOnly keeps its NoPlan outcome while precomputing production LegalContact candidates");
 
     auto manualResearchConfig = p109Config;
     manualResearchConfig.scoring->planningMode =

@@ -18,7 +18,7 @@
 Phase 1建立兩個完全離線的責任層：Phase1Pipeline負責嚴格輸入與同一shot cycle三個receive
 events的球及六袋穩定；ShotBrain只接受StableTableState、TableGeometryConfig與
 BrainConfig，負責DirectPot、一次母球KickPot、實驗性正規化評分及完整
-`ShotPlan | NoPlan`。V1預設`PlanningMode = PotOnly`；LegalContact只保留為顯式manual／research能力。
+`ShotPlan | NoPlan`。V1預設`PlanningMode = PotOnly`；其策略結果仍是無Pot時`NoPlan(NoPotCandidate)`。同一次Phase 1 run另保留完整ranked Pot與既有LegalContact候選，僅供RealHardware在BilliardApp證明所有Pot均不可執行後使用。
 
 這兩層是概念責任而非同名cpp要求。Phase1Pipeline由既有BilliardApp協調、
 VisionDataParser及唯一三幀穩定狀態物件共同承接；ShotBrain由既有Algorithm、
@@ -32,7 +32,7 @@ BilliardPhysics及TargetSelector原地重構承接。
 4. 作為策略開發者，我要比較全部可行DirectPot與一次KickPot，而不是預選單一袋口。
 5. 作為安全審查者，我要讓每段路徑及退化幾何具有具名結果。
 6. 作為研究者，我要看到每個候選的原始量、正規化成本、權重與總成本。
-7. 作為操作者，我要在PotOnly沒有進球方案時得到`NoPlan(NoPotCandidate)`，而不是自動fallback或假安全球。
+7. 作為操作者，我要在PotOnly沒有進球方案時得到`NoPlan(NoPotCandidate)`；Phase 1不得把LegalContact宣稱為Pot或SafetyShot，production執行fallback須由BilliardApp證明Pot執行候選已耗盡。
 8. 作為Phase 2開發者，我要收到不含Robot Pose的完整ShotPlan。
 
 ## 4. Capability Boundaries
@@ -86,7 +86,7 @@ EffectiveCueBallRailSegment、GhostBallPoint、球體碰撞、鏡射及交點。
 
 ### P1-08
 
-驗證DirectPot與KickPot、共同正規化評分及確定性決勝；預設PotOnly無候選時產生`NoPlan(NoPotCandidate)`。LegalContact只作顯式manual／research選配能力，不得成為V1 production fallback。
+驗證DirectPot與KickPot、共同正規化評分及確定性決勝；預設PotOnly無候選時產生`NoPlan(NoPotCandidate)`。同一次run必須保存不重算的完整Pot排名與同一最低號目標的LegalContact候選；是否啟用production LegalContact fallback不屬於Phase 1決策。
 
 ### P1-09
 
@@ -447,7 +447,7 @@ preference，不是硬優先；總成本較低的Kick可以勝過Direct，候選
 
 ## 13. LegalContact
 
-LegalContact不是V1 PotOnly正常流程，也不是automatic fallback或SafetyShot。只有
+LegalContact不是Pot、SafetyShot或Phase 1 automatic fallback。Phase 1一次性預算候選；manual／research可直接檢視，而production只有BilliardApp證明所有ranked Pot都確定不可執行且ExecutionPolicy明確授權時才可使用。候選種類只有
 `PlanningMode`明確設為manual／research mode時，才可在沒有任何可行Pot候選後生成：
 
 - `DirectLegalContact`
@@ -477,7 +477,7 @@ actual cue-ball center path = C → R → GkickContact
 多個候選依序選：Direct優先、最小淨空較大、總路徑較短、rail ID較小。LegalContact不使用Pot評分權重。
 
 ShotPlan必須標示它需要Phase 2 ExecutionPolicy顯式授權；real hardware預設OFF。
-PotOnly不得呼叫本節生成器，不得因LegalContact存在而改變`NoPlan(NoPotCandidate)`。
+PotOnly策略結果不得因LegalContact存在而改變`NoPlan(NoPotCandidate)`；但同一次top-level Phase 1 run必須預算本節候選，供後續執行耗盡證明使用，不得重跑Phase 1。
 
 ## 14. ShotPlan and NoPlan
 
@@ -522,6 +522,10 @@ mode可記錄`proceededToLegalContact = true`並進入§13；若該模式仍無�
 Parser錯誤、receive錯誤、`NeedMoreEvents`、不穩定資料或timeout屬於`SingleFrameResult`、`StabilityResult`或`Phase1PipelineResult`，不得包裝成NoPlan。NoPlan不得攜帶fallback ShotPlan；拒絕摘要只能是Diagnostic metadata，不能被型別化為Candidate或Plan。
 
 ## 15. Fixed Force Semantics
+
+### 15.1 Ranked execution-candidate output
+
+Phase 1對全部可行DirectPot／KickPot只評分一次，並保存完整確定性排名。每一rank先找剩餘候選的最小`totalCost`，建立`cost <= min + tieEpsilon`的tie band，再用既有`tieBreakBetter()`選winner並移除後重複；rank #1必須與既有`selectBestPot()`完全相同。不得naive sort、重評分或為每個rank重生幾何。LegalContact另以Direct優先、再依既有`legalKickBetter`順序保存，不含Robot可達性或Phase 1執行耗盡宣稱。
 
 Phase 1不最佳化力度，只表示`FixedForceMode`。這不代表所有候選有足夠能量，也不授權真實擊發。Phase 1只套用自身幾何可行門檻，包括`maxKickRailAngleDeg`；路徑類型、距離與角度是否位於已校正的硬體`FixedForceEnvelope`由Phase 2判斷。Phase 1的任何config、候選或測試不得依賴`pneumaticPulseMs`或硬體力度校正資料。
 

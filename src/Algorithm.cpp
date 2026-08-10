@@ -811,6 +811,143 @@ LegalContactSearchResult generateLegalContact(
     }
     return result;
 }
+
+std::optional<ShotPlan> makePotShotPlan(
+    const StableTableState& table,
+    const PlanningSourceAudit& source,
+    const EligibleTarget& selectedTarget,
+    const ScoredPotCandidate& scored,
+    const BilliardConfig::KickGeometryConfig& kickConfig,
+    const std::vector<DirectPotCandidateDiagnostic>& directDiagnostics,
+    const std::vector<KickPotCandidateDiagnostic>& kickDiagnostics)
+{
+    ShotPlan plan{
+        scored.kind == PotCandidateKind::Direct
+            ? ShotPlanType::DirectPot
+            : ShotPlanType::KickPot,
+        source,
+        selectedTarget,
+        {},
+        {},
+        {},
+        scored.audit.rawCosts.minimumClearanceMm,
+        FixedForceMode::Fixed,
+        {true, true, true},
+        directDiagnostics,
+        kickDiagnostics,
+        DirectPotShotPlanPayload{}};
+    Point firstPathEnd{};
+    if (scored.kind == PotCandidateKind::Direct) {
+        const auto* candidate =
+            std::get_if<DirectPotCandidate>(&scored.candidate);
+        if (!candidate) return std::nullopt;
+        firstPathEnd = candidate->cuePath.end;
+        plan.ghostBallPoint = candidate->ghostBallPoint;
+        plan.cuePathSegments = {candidate->cuePath};
+        plan.payload = DirectPotShotPlanPayload{*candidate, scored.audit};
+    } else {
+        const auto* candidate =
+            std::get_if<KickPotCandidate>(&scored.candidate);
+        if (!candidate) return std::nullopt;
+        firstPathEnd = candidate->cuePathFirst.end;
+        plan.ghostBallPoint = candidate->ghostBallPoint;
+        plan.cuePathSegments = {
+            candidate->cuePathFirst, candidate->cuePathSecond};
+        plan.payload = KickPotShotPlanPayload{
+            *candidate, scored.audit, kickConfig};
+    }
+    const auto raw = BilliardMath::getVector(table.cueBall, firstPathEnd);
+    const auto direction = raw ? BilliardMath::normalize(*raw) : std::nullopt;
+    if (!direction) return std::nullopt;
+    plan.shotDirectionXY = *direction;
+    return plan.isValid() ? std::optional<ShotPlan>{std::move(plan)}
+                          : std::nullopt;
+}
+
+std::optional<ShotPlan> makeLegalContactShotPlan(
+    const StableTableState& table,
+    const PlanningSourceAudit& source,
+    const EligibleTarget& selectedTarget,
+    const LegalContactCandidate& legal,
+    const BilliardConfig::KickGeometryConfig& kickConfig,
+    LegalContactAuditFields::ActivationAuthority authority,
+    bool potSearchExhausted,
+    PotSelectionStatus potSearchStatus,
+    const std::vector<DirectPotCandidateDiagnostic>& directDiagnostics,
+    const std::vector<KickPotCandidateDiagnostic>& kickDiagnostics,
+    const std::vector<LegalContactCandidateDiagnostic>& legalDiagnostics)
+{
+    const bool direct =
+        std::holds_alternative<DirectLegalContactCandidate>(legal);
+    ShotPlan plan{
+        direct ? ShotPlanType::DirectLegalContact
+               : ShotPlanType::KickLegalContact,
+        source,
+        selectedTarget,
+        {},
+        {},
+        {},
+        direct
+            ? std::get<DirectLegalContactCandidate>(legal).minimumClearanceMm
+            : std::get<KickLegalContactCandidate>(legal).minimumClearanceMm,
+        FixedForceMode::Fixed,
+        {true, true, true},
+        directDiagnostics,
+        kickDiagnostics,
+        DirectLegalContactShotPlanPayload{}};
+    Point firstPathEnd{};
+    if (direct) {
+        const DirectLegalContactCandidate candidate =
+            std::get<DirectLegalContactCandidate>(legal);
+        firstPathEnd = candidate.cuePath.end;
+        plan.ghostBallPoint = candidate.ghostBallPoint;
+        plan.cuePathSegments = {candidate.cuePath};
+        plan.payload = DirectLegalContactShotPlanPayload{
+            candidate,
+            LegalContactAuditFields{
+                true,
+                candidate.ghostBallPoint,
+                true,
+                candidate.minimumClearanceMm,
+                candidate.totalPathLengthMm,
+                std::nullopt,
+                potSearchExhausted,
+                potSearchStatus,
+                true,
+                false,
+                authority,
+                legalDiagnostics}};
+    } else {
+        const KickLegalContactCandidate candidate =
+            std::get<KickLegalContactCandidate>(legal);
+        firstPathEnd = candidate.cuePathFirst.end;
+        plan.ghostBallPoint = candidate.ghostBallPoint;
+        plan.cuePathSegments = {
+            candidate.cuePathFirst, candidate.cuePathSecond};
+        plan.payload = KickLegalContactShotPlanPayload{
+            candidate,
+            kickConfig,
+            LegalContactAuditFields{
+                true,
+                candidate.ghostBallPoint,
+                true,
+                candidate.minimumClearanceMm,
+                candidate.totalPathLengthMm,
+                candidate.railId,
+                potSearchExhausted,
+                potSearchStatus,
+                true,
+                false,
+                authority,
+                legalDiagnostics}};
+    }
+    const auto raw = BilliardMath::getVector(table.cueBall, firstPathEnd);
+    const auto direction = raw ? BilliardMath::normalize(*raw) : std::nullopt;
+    if (!direction) return std::nullopt;
+    plan.shotDirectionXY = *direction;
+    return plan.isValid() ? std::optional<ShotPlan>{std::move(plan)}
+                          : std::nullopt;
+}
 }
 
 DirectPotGenerationResult BilliardAlgorithm::generateDirectPotCandidates(
@@ -1249,7 +1386,7 @@ KickPotGenerationResult BilliardAlgorithm::generateKickPotCandidates(
     return KickPotGenerationResult::success(std::move(evaluation));
 }
 
-PotSelectionResult BilliardAlgorithm::selectBestPot(
+RankedPotSelectionResult BilliardAlgorithm::rankPotCandidates(
     const StableTableState& table,
     const EligibleTarget& selectedTarget,
     const ResolvedTableGeometry& geometry,
@@ -1259,14 +1396,14 @@ PotSelectionResult BilliardAlgorithm::selectBestPot(
     const std::optional<BilliardConfig::KickGeometryConfig>& kickConfig)
 {
     if (!scoringConfig) {
-        return PotSelectionResult::rejected(PotSelectionStatus::ConfigurationMissing);
+        return RankedPotSelectionResult::rejected(PotSelectionStatus::ConfigurationMissing);
     }
     const auto weights = normalizeWeights(*scoringConfig);
     if (!weights || !validScoringRanges(*scoringConfig, geometry)) {
-        return PotSelectionResult::rejected(PotSelectionStatus::InvalidConfiguration);
+        return RankedPotSelectionResult::rejected(PotSelectionStatus::InvalidConfiguration);
     }
     if (const auto failure = validateInputs(table, selectedTarget, geometry)) {
-        return PotSelectionResult::rejected(
+        return RankedPotSelectionResult::rejected(
             *failure == DirectPotGenerationStatus::InvalidGeometryConfiguration
                 ? PotSelectionStatus::InvalidConfiguration
                 : PotSelectionStatus::InvalidCandidateInput);
@@ -1274,14 +1411,14 @@ PotSelectionResult BilliardAlgorithm::selectBestPot(
     if (!directCandidates.isValid() || !kickCandidates.isValid() ||
         !sameEligibleTarget(directCandidates.target, selectedTarget) ||
         !sameEligibleTarget(kickCandidates.target, selectedTarget)) {
-        return PotSelectionResult::rejected(PotSelectionStatus::InvalidCandidateInput);
+        return RankedPotSelectionResult::rejected(PotSelectionStatus::InvalidCandidateInput);
     }
 
     if (!kickConfig) {
-        return PotSelectionResult::rejected(PotSelectionStatus::ConfigurationMissing);
+        return RankedPotSelectionResult::rejected(PotSelectionStatus::ConfigurationMissing);
     }
     if (!validKickConfig(*kickConfig)) {
-        return PotSelectionResult::rejected(PotSelectionStatus::InvalidConfiguration);
+        return RankedPotSelectionResult::rejected(PotSelectionStatus::InvalidConfiguration);
     }
 
     const auto authoritativeDirect = generateDirectPotCandidates(
@@ -1289,7 +1426,7 @@ PotSelectionResult BilliardAlgorithm::selectBestPot(
         selectedTarget,
         geometry);
     if (!authoritativeDirect.isValid() || !authoritativeDirect.value()) {
-        return PotSelectionResult::rejected(PotSelectionStatus::InvalidCandidateInput);
+        return RankedPotSelectionResult::rejected(PotSelectionStatus::InvalidCandidateInput);
     }
     const auto regeneratedKick = generateKickPotCandidates(
         table,
@@ -1297,7 +1434,7 @@ PotSelectionResult BilliardAlgorithm::selectBestPot(
         geometry,
         kickConfig);
     if (!regeneratedKick.isValid() || !regeneratedKick.value()) {
-        return PotSelectionResult::rejected(PotSelectionStatus::InvalidCandidateInput);
+        return RankedPotSelectionResult::rejected(PotSelectionStatus::InvalidCandidateInput);
     }
     const KickPotEvaluation& authoritativeKick = *regeneratedKick.value();
     bool authoritativeHasKick = false;
@@ -1307,11 +1444,11 @@ PotSelectionResult BilliardAlgorithm::selectBestPot(
         }
     }
     if (authoritativeHasKick && kickConfig->maxKickRailAngleDeg <= 0.0) {
-        return PotSelectionResult::rejected(PotSelectionStatus::InvalidConfiguration);
+        return RankedPotSelectionResult::rejected(PotSelectionStatus::InvalidConfiguration);
     }
     if (!sameDirectEvaluation(directCandidates, *authoritativeDirect.value()) ||
         !sameKickEvaluation(kickCandidates, authoritativeKick)) {
-        return PotSelectionResult::rejected(PotSelectionStatus::InvalidCandidateInput);
+        return RankedPotSelectionResult::rejected(PotSelectionStatus::InvalidCandidateInput);
     }
 
     std::vector<Point> obstacles;
@@ -1327,7 +1464,7 @@ PotSelectionResult BilliardAlgorithm::selectBestPot(
         obstacles.push_back(*table.objectBalls[index]);
     }
     if (!selectedObstacleIndex) {
-        return PotSelectionResult::rejected(PotSelectionStatus::InvalidCandidateInput);
+        return RankedPotSelectionResult::rejected(PotSelectionStatus::InvalidCandidateInput);
     }
     const std::vector<std::size_t> selectedTargetExclusion{*selectedObstacleIndex};
     const double blockedThreshold = geometry.ballDiameterMm + geometry.collisionMarginMm;
@@ -1400,12 +1537,12 @@ PotSelectionResult BilliardAlgorithm::selectBestPot(
             candidate.pocketId != pocket.id ||
             !samePoint(candidate.virtualPocketTarget, pocket.virtualPocketTarget) ||
             !expected || !sameDirectCandidate(candidate, *expected)) {
-            return PotSelectionResult::rejected(PotSelectionStatus::InvalidCandidateInput);
+            return RankedPotSelectionResult::rejected(PotSelectionStatus::InvalidCandidateInput);
         }
         double totalDistance = 0.0;
         if (!accumulateDistance(totalDistance, candidate.cuePath) ||
             !accumulateDistance(totalDistance, candidate.targetPath)) {
-            return PotSelectionResult::rejected(PotSelectionStatus::NumericalFailure);
+            return RankedPotSelectionResult::rejected(PotSelectionStatus::NumericalFailure);
         }
         std::optional<double> minimumClearance;
         if (!accumulateClearance(
@@ -1418,7 +1555,7 @@ PotSelectionResult BilliardAlgorithm::selectBestPot(
                 candidate.targetPath,
                 obstacles,
                 selectedTargetExclusion)) {
-            return PotSelectionResult::rejected(PotSelectionStatus::NumericalFailure);
+            return RankedPotSelectionResult::rejected(PotSelectionStatus::NumericalFailure);
         }
         const auto audit = makeAudit(
             ScoringRawCosts{
@@ -1431,7 +1568,7 @@ PotSelectionResult BilliardAlgorithm::selectBestPot(
             pocket.maxEntryAngleDeg,
             1.0);
         if (!audit) {
-            return PotSelectionResult::rejected(PotSelectionStatus::NumericalFailure);
+            return RankedPotSelectionResult::rejected(PotSelectionStatus::NumericalFailure);
         }
         scored.push_back({
             PotCandidateKind::Direct,
@@ -1459,13 +1596,13 @@ PotSelectionResult BilliardAlgorithm::selectBestPot(
                 static_cast<std::size_t>(candidate.railId) != railIndex ||
                 !samePoint(candidate.virtualPocketTarget, pocket.virtualPocketTarget) ||
                 !expected || !sameKickCandidate(candidate, *expected)) {
-                return PotSelectionResult::rejected(PotSelectionStatus::InvalidCandidateInput);
+                return RankedPotSelectionResult::rejected(PotSelectionStatus::InvalidCandidateInput);
             }
             double totalDistance = 0.0;
             if (!accumulateDistance(totalDistance, candidate.cuePathFirst) ||
                 !accumulateDistance(totalDistance, candidate.cuePathSecond) ||
                 !accumulateDistance(totalDistance, candidate.targetPath)) {
-                return PotSelectionResult::rejected(PotSelectionStatus::NumericalFailure);
+                return RankedPotSelectionResult::rejected(PotSelectionStatus::NumericalFailure);
             }
             std::optional<double> minimumClearance;
             if (!accumulateClearance(
@@ -1483,7 +1620,7 @@ PotSelectionResult BilliardAlgorithm::selectBestPot(
                     candidate.targetPath,
                     obstacles,
                     selectedTargetExclusion)) {
-                return PotSelectionResult::rejected(PotSelectionStatus::NumericalFailure);
+                return RankedPotSelectionResult::rejected(PotSelectionStatus::NumericalFailure);
             }
             const auto audit = makeAudit(
                 ScoringRawCosts{
@@ -1496,7 +1633,7 @@ PotSelectionResult BilliardAlgorithm::selectBestPot(
                 pocket.maxEntryAngleDeg,
                 kickConfig->maxKickRailAngleDeg);
             if (!audit) {
-                return PotSelectionResult::rejected(PotSelectionStatus::NumericalFailure);
+                return RankedPotSelectionResult::rejected(PotSelectionStatus::NumericalFailure);
             }
             scored.push_back({
                 PotCandidateKind::Kick,
@@ -1510,47 +1647,84 @@ PotSelectionResult BilliardAlgorithm::selectBestPot(
 
     if (scored.empty()) {
         if (scoringConfig->planningMode == BilliardConfig::PlanningMode::ManualResearch) {
-            return PotSelectionResult::rejected(
+            return RankedPotSelectionResult::rejected(
                 PotSelectionStatus::ManualResearchPotSearchExhausted);
         }
-        PotOnlyNoPlan noPlan{
-            PotNoPlanReason::NoPotCandidate,
-            0,
-            false,
-            {},
-            {}};
-        for (const auto& diagnostic : directCandidates.rejected) {
-            if (diagnostic) noPlan.directDiagnostics.push_back(*diagnostic);
-        }
-        for (const auto& pocket : kickCandidates.rejected) {
-            for (const auto& diagnostic : pocket) {
-                if (diagnostic) noPlan.kickDiagnostics.push_back(*diagnostic);
-            }
-        }
-        return PotSelectionResult::success(PotSelectionOutcome{std::move(noPlan)});
+        return RankedPotSelectionResult::success({});
     }
 
-    double minimumTotalCost = scored.front().audit.totalCost;
-    for (const ScoredPotCandidate& candidate : scored) {
-        minimumTotalCost = std::min(minimumTotalCost, candidate.audit.totalCost);
-    }
-    const double tieLimit = minimumTotalCost + scoringConfig->tieEpsilon;
-    if (!std::isfinite(tieLimit)) {
-        return PotSelectionResult::rejected(PotSelectionStatus::NumericalFailure);
-    }
-    const ScoredPotCandidate* winner = nullptr;
-    for (const ScoredPotCandidate& candidate : scored) {
-        if (candidate.audit.totalCost > tieLimit) {
-            continue;
+    std::vector<ScoredPotCandidate> ranked;
+    ranked.reserve(scored.size());
+    while (!scored.empty()) {
+        double minimumTotalCost = scored.front().audit.totalCost;
+        for (const ScoredPotCandidate& candidate : scored) {
+            minimumTotalCost = std::min(
+                minimumTotalCost, candidate.audit.totalCost);
         }
-        if (!winner || tieBreakBetter(candidate, *winner)) {
-            winner = &candidate;
+        const double tieLimit = minimumTotalCost + scoringConfig->tieEpsilon;
+        if (!std::isfinite(tieLimit)) {
+            return RankedPotSelectionResult::rejected(
+                PotSelectionStatus::NumericalFailure);
+        }
+        std::size_t winnerIndex = scored.size();
+        for (std::size_t index = 0; index < scored.size(); ++index) {
+            if (scored[index].audit.totalCost > tieLimit) {
+                continue;
+            }
+            if (winnerIndex == scored.size() ||
+                tieBreakBetter(scored[index], scored[winnerIndex])) {
+                winnerIndex = index;
+            }
+        }
+        if (winnerIndex == scored.size()) {
+            return RankedPotSelectionResult::rejected(
+                PotSelectionStatus::NumericalFailure);
+        }
+        ranked.push_back(std::move(scored[winnerIndex]));
+        scored.erase(scored.begin() + static_cast<std::ptrdiff_t>(winnerIndex));
+    }
+    return RankedPotSelectionResult::success(std::move(ranked));
+}
+
+PotSelectionResult BilliardAlgorithm::selectBestPot(
+    const StableTableState& table,
+    const EligibleTarget& selectedTarget,
+    const ResolvedTableGeometry& geometry,
+    const DirectPotEvaluation& directCandidates,
+    const KickPotEvaluation& kickCandidates,
+    const std::optional<BilliardConfig::ScoringConfig>& scoringConfig,
+    const std::optional<BilliardConfig::KickGeometryConfig>& kickConfig)
+{
+    const RankedPotSelectionResult ranked = rankPotCandidates(
+        table,
+        selectedTarget,
+        geometry,
+        directCandidates,
+        kickCandidates,
+        scoringConfig,
+        kickConfig);
+    if (!ranked.isValid() || !ranked.value()) {
+        return PotSelectionResult::rejected(
+            ranked.isValid()
+                ? ranked.status()
+                : PotSelectionStatus::InvalidCandidateInput);
+    }
+    if (!ranked.value()->empty()) {
+        return PotSelectionResult::success(
+            PotSelectionOutcome{ranked.value()->front()});
+    }
+    PotOnlyNoPlan noPlan{
+        PotNoPlanReason::NoPotCandidate, 0, false, {}, {}};
+    for (const auto& diagnostic : directCandidates.rejected) {
+        if (diagnostic) noPlan.directDiagnostics.push_back(*diagnostic);
+    }
+    for (const auto& pocket : kickCandidates.rejected) {
+        for (const auto& diagnostic : pocket) {
+            if (diagnostic) noPlan.kickDiagnostics.push_back(*diagnostic);
         }
     }
-    if (!winner) {
-        return PotSelectionResult::rejected(PotSelectionStatus::NumericalFailure);
-    }
-    return PotSelectionResult::success(PotSelectionOutcome{*winner});
+    return PotSelectionResult::success(
+        PotSelectionOutcome{std::move(noPlan)});
 }
 
 PlanningResult BilliardAlgorithm::planShot(
@@ -1695,7 +1869,7 @@ PlanningResult BilliardAlgorithm::planShot(
                 std::nullopt});
     }
 
-    const PotSelectionResult selection = selectBestPot(
+    const RankedPotSelectionResult rankedSelection = rankPotCandidates(
         table,
         selectedTarget,
         geometry,
@@ -1703,6 +1877,24 @@ PlanningResult BilliardAlgorithm::planShot(
         *kickResult.value(),
         brainConfig.scoring,
         brainConfig.kickGeometry);
+
+    PotSelectionResult selection =
+        rankedSelection.isValid() && rankedSelection.value() &&
+                !rankedSelection.value()->empty()
+            ? PotSelectionResult::success(
+                  PotSelectionOutcome{rankedSelection.value()->front()})
+            : (rankedSelection.isValid() && rankedSelection.value()
+                  ? PotSelectionResult::success(
+                        PotSelectionOutcome{PotOnlyNoPlan{
+                            PotNoPlanReason::NoPotCandidate,
+                            0,
+                            false,
+                            {},
+                            {}}})
+                  : PotSelectionResult::rejected(
+                        rankedSelection.isValid()
+                            ? rankedSelection.status()
+                            : PotSelectionStatus::InvalidCandidateInput));
 
     std::vector<DirectPotCandidateDiagnostic> directDiagnostics;
     for (const auto& diagnostic : directResult.value()->rejected) {
@@ -1715,14 +1907,101 @@ PlanningResult BilliardAlgorithm::planShot(
         }
     }
 
+    Phase1ExecutionCandidates executionCandidates;
+    if (rankedSelection.isValid() && rankedSelection.value()) {
+        for (const ScoredPotCandidate& scored : *rankedSelection.value()) {
+            const auto plan = makePotShotPlan(
+                table,
+                source,
+                selectedTarget,
+                scored,
+                *brainConfig.kickGeometry,
+                directDiagnostics,
+                kickDiagnostics);
+            if (!plan) {
+                return noPlan(
+                    NoPlanReason::NumericalPlanningFailure,
+                    source,
+                    selectedTarget,
+                    PlanningDiagnostic{
+                        std::nullopt,
+                        std::nullopt,
+                        std::nullopt,
+                        std::nullopt,
+                        PotSelectionStatus::NumericalFailure});
+            }
+            executionCandidates.rankedPotPlans.push_back(*plan);
+        }
+    }
+
+    LegalContactSearchResult precomputedLegal = generateLegalContact(
+        table,
+        selectedTarget,
+        geometry,
+        *brainConfig.kickGeometry);
+    std::vector<LegalContactCandidate> orderedLegal;
+    if (precomputedLegal.feasibleDirect) {
+        orderedLegal.emplace_back(*precomputedLegal.feasibleDirect);
+    }
+    std::vector<KickLegalContactCandidate> orderedKicks;
+    for (const auto& kick : precomputedLegal.feasibleKicks) {
+        if (kick) orderedKicks.push_back(*kick);
+    }
+    std::sort(
+        orderedKicks.begin(), orderedKicks.end(),
+        [](const KickLegalContactCandidate& first,
+           const KickLegalContactCandidate& second) {
+            return legalKickBetter(first, second);
+        });
+    for (const KickLegalContactCandidate& kick : orderedKicks) {
+        orderedLegal.emplace_back(kick);
+    }
+    const bool potSearchExhausted =
+        !rankedSelection.value() || rankedSelection.value()->empty();
+    const PotSelectionStatus legalPotStatus =
+        brainConfig.scoring->planningMode ==
+                BilliardConfig::PlanningMode::ManualResearch &&
+            potSearchExhausted
+        ? PotSelectionStatus::ManualResearchPotSearchExhausted
+        : PotSelectionStatus::Success;
+    const auto legalAuthority =
+        brainConfig.scoring->planningMode ==
+                BilliardConfig::PlanningMode::ManualResearch &&
+            potSearchExhausted
+        ? LegalContactAuditFields::ActivationAuthority::ManualResearch
+        : LegalContactAuditFields::ActivationAuthority::
+              ProductionFallbackEligible;
+    for (const LegalContactCandidate& legal : orderedLegal) {
+        const auto plan = makeLegalContactShotPlan(
+            table,
+            source,
+            selectedTarget,
+            legal,
+            *brainConfig.kickGeometry,
+            legalAuthority,
+            potSearchExhausted,
+            legalPotStatus,
+            directDiagnostics,
+            kickDiagnostics,
+            precomputedLegal.diagnostics);
+        if (!plan) {
+            return noPlan(
+                NoPlanReason::NumericalPlanningFailure,
+                source,
+                selectedTarget,
+                PlanningDiagnostic{
+                    std::nullopt,
+                    std::nullopt,
+                    std::nullopt,
+                    std::nullopt,
+                    PotSelectionStatus::NumericalFailure});
+        }
+        executionCandidates.legalContactPlans.push_back(*plan);
+    }
+
     if (selection.isValid() && !selection.value() &&
         selection.status() == PotSelectionStatus::ManualResearchPotSearchExhausted) {
-        LegalContactSearchResult legal = generateLegalContact(
-            table,
-            selectedTarget,
-            geometry,
-            *brainConfig.kickGeometry);
-        if (!legal.selected) {
+        if (executionCandidates.legalContactPlans.empty()) {
             return noPlan(
                 NoPlanReason::NoLegalContact,
                 source,
@@ -1736,107 +2015,12 @@ PlanningResult BilliardAlgorithm::planShot(
                 std::move(directDiagnostics),
                 std::move(kickDiagnostics),
                 true,
-                std::move(legal.diagnostics));
+                std::move(precomputedLegal.diagnostics));
         }
-
-        const bool direct =
-            std::holds_alternative<DirectLegalContactCandidate>(*legal.selected);
-        ShotPlan plan{
-            direct
-                ? ShotPlanType::DirectLegalContact
-                : ShotPlanType::KickLegalContact,
-            source,
-            selectedTarget,
-            {},
-            {},
-            {},
-            direct
-                ? std::get<DirectLegalContactCandidate>(*legal.selected)
-                      .minimumClearanceMm
-                : std::get<KickLegalContactCandidate>(*legal.selected)
-                      .minimumClearanceMm,
-            FixedForceMode::Fixed,
-            {true, true, true},
-            std::move(directDiagnostics),
-            std::move(kickDiagnostics),
-            DirectLegalContactShotPlanPayload{}};
-        Point initialPathEnd{};
-        if (direct) {
-            const DirectLegalContactCandidate candidate =
-                std::get<DirectLegalContactCandidate>(*legal.selected);
-            initialPathEnd = candidate.cuePath.end;
-            plan.ghostBallPoint = candidate.ghostBallPoint;
-            plan.cuePathSegments = {candidate.cuePath};
-            plan.payload = DirectLegalContactShotPlanPayload{
-                candidate,
-                LegalContactAuditFields{
-                    true,
-                    candidate.ghostBallPoint,
-                    true,
-                    candidate.minimumClearanceMm,
-                    candidate.totalPathLengthMm,
-                    std::nullopt,
-                    true,
-                    PotSelectionStatus::ManualResearchPotSearchExhausted,
-                    true,
-                    false,
-                    legal.diagnostics}};
-        } else {
-            const KickLegalContactCandidate candidate =
-                std::get<KickLegalContactCandidate>(*legal.selected);
-            initialPathEnd = candidate.cuePathFirst.end;
-            plan.ghostBallPoint = candidate.ghostBallPoint;
-            plan.cuePathSegments = {
-                candidate.cuePathFirst,
-                candidate.cuePathSecond};
-            plan.payload = KickLegalContactShotPlanPayload{
-                candidate,
-                *brainConfig.kickGeometry,
-                LegalContactAuditFields{
-                    true,
-                    candidate.ghostBallPoint,
-                    true,
-                    candidate.minimumClearanceMm,
-                    candidate.totalPathLengthMm,
-                    candidate.railId,
-                    true,
-                    PotSelectionStatus::ManualResearchPotSearchExhausted,
-                    true,
-                    false,
-                    legal.diagnostics}};
-        }
-        const auto vector = BilliardMath::getVector(
-            table.cueBall,
-            initialPathEnd);
-        const auto direction = vector
-            ? BilliardMath::normalize(*vector)
-            : std::nullopt;
-        if (!direction) {
-            return noPlan(
-                NoPlanReason::NumericalPlanningFailure,
-                source,
-                selectedTarget,
-                PlanningDiagnostic{
-                    std::nullopt,
-                    std::nullopt,
-                    std::nullopt,
-                    std::nullopt,
-                    PotSelectionStatus::NumericalFailure});
-        }
-        plan.shotDirectionXY = *direction;
-        if (!plan.isValid()) {
-            return noPlan(
-                NoPlanReason::NumericalPlanningFailure,
-                source,
-                selectedTarget,
-                PlanningDiagnostic{
-                    std::nullopt,
-                    std::nullopt,
-                    std::nullopt,
-                    std::nullopt,
-                    PotSelectionStatus::NumericalFailure});
-        }
-        return PlanningResult::shotPlan(std::move(plan));
+        ShotPlan selectedLegal =
+            executionCandidates.legalContactPlans.front();
+        return PlanningResult::shotPlan(
+            std::move(selectedLegal), std::move(executionCandidates));
     }
 
     if (!selection.isValid() || !selection.value()) {
@@ -1861,22 +2045,29 @@ PlanningResult BilliardAlgorithm::planShot(
     }
 
     if (const auto* empty = std::get_if<PotOnlyNoPlan>(&*selection.value())) {
-        return noPlan(
-            NoPlanReason::NoPotCandidate,
-            source,
-            selectedTarget,
-            PlanningDiagnostic{
-                std::nullopt,
-                std::nullopt,
-                std::nullopt,
-                std::nullopt,
-                PotSelectionStatus::Success},
-            empty->directDiagnostics,
-            empty->kickDiagnostics);
+        (void)empty;
+        return PlanningResult::noPlan(
+            NoPlan{
+                NoPlanReason::NoPotCandidate,
+                source,
+                selectedTarget,
+                0,
+                false,
+                directDiagnostics,
+                kickDiagnostics,
+                {},
+                PlanningDiagnostic{
+                    std::nullopt,
+                    std::nullopt,
+                    std::nullopt,
+                    std::nullopt,
+                    PotSelectionStatus::Success}},
+            std::move(executionCandidates));
     }
 
     const auto* winner = std::get_if<ScoredPotCandidate>(&*selection.value());
-    if (!winner || !winner->isValid()) {
+    if (!winner || !winner->isValid() ||
+        executionCandidates.rankedPotPlans.empty()) {
         return noPlan(
             NoPlanReason::NumericalPlanningFailure,
             source,
@@ -1888,94 +2079,9 @@ PlanningResult BilliardAlgorithm::planShot(
                 std::nullopt,
                 PotSelectionStatus::NumericalFailure});
     }
-
-    ShotPlan plan{
-        winner->kind == PotCandidateKind::Direct
-            ? ShotPlanType::DirectPot
-            : ShotPlanType::KickPot,
-        source,
-        selectedTarget,
-        {},
-        {},
-        {},
-        winner->audit.rawCosts.minimumClearanceMm,
-        FixedForceMode::Fixed,
-        {true, true, true},
-        std::move(directDiagnostics),
-        std::move(kickDiagnostics),
-        DirectPotShotPlanPayload{}};
-
-    Point initialPathEnd{};
-    if (winner->kind == PotCandidateKind::Direct) {
-        const auto* candidate = std::get_if<DirectPotCandidate>(&winner->candidate);
-        if (!candidate) {
-            return noPlan(
-                NoPlanReason::NumericalPlanningFailure,
-                source,
-                selectedTarget,
-                PlanningDiagnostic{
-                    std::nullopt,
-                    std::nullopt,
-                    std::nullopt,
-                    std::nullopt,
-                    PotSelectionStatus::NumericalFailure});
-        }
-        initialPathEnd = candidate->cuePath.end;
-        plan.ghostBallPoint = candidate->ghostBallPoint;
-        plan.cuePathSegments = {candidate->cuePath};
-        plan.payload = DirectPotShotPlanPayload{*candidate, winner->audit};
-    } else {
-        const auto* candidate = std::get_if<KickPotCandidate>(&winner->candidate);
-        if (!candidate) {
-            return noPlan(
-                NoPlanReason::NumericalPlanningFailure,
-                source,
-                selectedTarget,
-                PlanningDiagnostic{
-                    std::nullopt,
-                    std::nullopt,
-                    std::nullopt,
-                    std::nullopt,
-                    PotSelectionStatus::NumericalFailure});
-        }
-        initialPathEnd = candidate->cuePathFirst.end;
-        plan.ghostBallPoint = candidate->ghostBallPoint;
-        plan.cuePathSegments = {candidate->cuePathFirst, candidate->cuePathSecond};
-        plan.payload = KickPotShotPlanPayload{
-            *candidate,
-            winner->audit,
-            *brainConfig.kickGeometry};
-    }
-    const auto initialVector = BilliardMath::getVector(table.cueBall, initialPathEnd);
-    const auto direction = initialVector
-        ? BilliardMath::normalize(*initialVector)
-        : std::nullopt;
-    if (!direction) {
-        return noPlan(
-            NoPlanReason::NumericalPlanningFailure,
-            source,
-            selectedTarget,
-            PlanningDiagnostic{
-                std::nullopt,
-                std::nullopt,
-                std::nullopt,
-                std::nullopt,
-                PotSelectionStatus::NumericalFailure});
-    }
-    plan.shotDirectionXY = *direction;
-    if (!plan.isValid()) {
-        return noPlan(
-            NoPlanReason::NumericalPlanningFailure,
-            source,
-            selectedTarget,
-            PlanningDiagnostic{
-                std::nullopt,
-                std::nullopt,
-                std::nullopt,
-                std::nullopt,
-                PotSelectionStatus::NumericalFailure});
-    }
-    return PlanningResult::shotPlan(std::move(plan));
+    ShotPlan selectedPot = executionCandidates.rankedPotPlans.front();
+    return PlanningResult::shotPlan(
+        std::move(selectedPot), std::move(executionCandidates));
 }
 
 #ifdef BILLIARDS_P1_08_TEST_SEAM

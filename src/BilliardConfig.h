@@ -182,10 +182,12 @@ struct MotionPlanningConfig {
     std::optional<std::string> executionPolicyRevision;  // 獨立版本化的執行政策識別。
     std::optional<ExecutionPolicyMode> policyMode;
     std::optional<bool> legalContactExecutionAuthorized;  // 預設及real hardware必須false。
+    std::optional<bool> productionLegalContactFallbackAuthorized;
     // 固定力度只作可執行範圍gate；P2-01不執行氣動命令。
     std::optional<FixedForceEnvelopeConfig> fixedForceEnvelope;
     // 僅保存後續executor所需的版本化timing reference。
     std::optional<PneumaticTimingProfileReference> pneumaticTimingProfile;
+    std::optional<std::string> primaryToolControllerCalibrationRevision;
 };
 
 enum class RobotAngleComponent {
@@ -206,19 +208,22 @@ struct RealHardwareExecutionConfig {
     std::optional<std::string> authorizationRevision;
     bool realHardwareExecutionEnabled;
     int baseNumber;
-    int toolNumber;
+    int primaryToolNumber;  // Tool1：正常端，striker收回時標定的TCP。
     std::optional<std::string> base0CalibrationRevision;
-    std::optional<std::string> tool1ControllerCalibrationRevision;
+    std::optional<std::string> primaryToolControllerCalibrationRevision;
     std::optional<HrSdkAngleMappingConfig> angleMapping;
     std::optional<std::string> safeUpCalibrationRevision;
     // ExecutionPolicy獨立要求的三個revision，必須逐一符合deployment校正。
-    std::optional<std::string> requiredTool1CalibrationRevision;
+    std::optional<std::string> requiredPrimaryToolCalibrationRevision;
     std::optional<std::string> requiredAbcMappingRevision;
     std::optional<std::string> requiredSafeUpCalibrationRevision;
     std::optional<bool> base0PositiveZSafeConfirmed;
-    std::optional<int> strikeDoIndex;
-    std::optional<int> retractDoIndex;
+    std::optional<int> extendDoIndex;  // DO1：striker伸出pulse。
+    std::optional<int> retractDoIndex;  // DO2：striker收回pulse。
     std::optional<PneumaticTimingProfileReference> approvedTimingProfile;
+    int oppositeToolNumber;  // Tool2：相反端，striker伸出時標定的TCP。
+    std::optional<std::string> oppositeToolControllerCalibrationRevision;
+    std::optional<std::string> requiredOppositeToolCalibrationRevision;
 };
 
 // 連線：人工部署的控制器、視覺服務與連接埠。

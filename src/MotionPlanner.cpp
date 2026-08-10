@@ -54,6 +54,23 @@ bool isLegalContact(ShotPlanType type) noexcept
         type == ShotPlanType::KickLegalContact;
 }
 
+bool isProductionLegalContactFallback(const ShotPlan& plan) noexcept
+{
+    if (const auto* direct =
+            std::get_if<DirectLegalContactShotPlanPayload>(&plan.payload)) {
+        return direct->audit.activationAuthority ==
+            LegalContactAuditFields::ActivationAuthority::
+                ProductionFallbackEligible;
+    }
+    if (const auto* kick =
+            std::get_if<KickLegalContactShotPlanPayload>(&plan.payload)) {
+        return kick->audit.activationAuthority ==
+            LegalContactAuditFields::ActivationAuthority::
+                ProductionFallbackEligible;
+    }
+    return false;
+}
+
 bool isPot(ShotPlanType type) noexcept
 {
     return type == ShotPlanType::DirectPot || type == ShotPlanType::KickPot;
@@ -172,7 +189,8 @@ bool completeConfig(const BilliardConfig::MotionPlanningConfig& config) noexcept
         config.directionUnitTolerance && config.executionPolicyRevision &&
         config.policyMode &&
         config.legalContactExecutionAuthorized && config.fixedForceEnvelope &&
-        config.pneumaticTimingProfile;
+        config.pneumaticTimingProfile &&
+        config.primaryToolControllerCalibrationRevision;
 }
 
 bool validConfig(const BilliardConfig::MotionPlanningConfig& config) noexcept
@@ -181,6 +199,7 @@ bool validConfig(const BilliardConfig::MotionPlanningConfig& config) noexcept
     if (!completeConfig(config) || config.calibrationRevision->empty() ||
         config.base0PlanarCalibrationRevision->empty() ||
         config.cueForwardAxisCalibrationRevision->empty() ||
+        config.primaryToolControllerCalibrationRevision->empty() ||
         config.executionPolicyRevision->empty() ||
         !finite(*config.strikeZMm) || !finite(*config.safeApproachZMm) ||
         !finite(*config.readyGapMm) || *config.readyGapMm < 0.0 ||
@@ -494,10 +513,21 @@ bool ExecutionPlan::isValid() const noexcept
         validStages && fixedForceEnvelope.isValid() && validEnvelopeShape &&
         validTiming && !executionPolicyRevision.empty() &&
         validPolicyMode &&
+        selectedToolNumber >= 0 &&
+        (selectedToolMode == ExecutionToolMode::Primary ||
+         selectedToolMode == ExecutionToolMode::Opposite) &&
+        !selectedToolCalibrationRevision.empty() &&
         ((!legal && policyDecision == ExecutionPolicyDecision::PotAccepted) ||
          (legal && policyDecision ==
             ExecutionPolicyDecision::LegalContactExplicitlyAuthorized &&
-          policyMode != BilliardConfig::ExecutionPolicyMode::RealHardware));
+          policyMode != BilliardConfig::ExecutionPolicyMode::RealHardware) ||
+         (legal && policyDecision ==
+            ExecutionPolicyDecision::LegalContactPlanningTestSelected &&
+          policyMode == BilliardConfig::ExecutionPolicyMode::PlanningTest) ||
+         (legal && policyDecision ==
+            ExecutionPolicyDecision::LegalContactProductionFallbackAccepted &&
+          policyMode == BilliardConfig::ExecutionPolicyMode::RealHardware &&
+          rankedPotCandidatesExhausted));
 }
 
 ExecutionPlanResult ExecutionPlanResult::success(ExecutionPlan value)
@@ -557,7 +587,8 @@ bool ExecutionPlanResult::isValid() const noexcept
 ExecutionPlanResult MotionPlanner::createExecutionPlan(
     const PlanningResult& planningResult,
     const std::optional<BilliardConfig::MotionPlanningConfig>& config,
-    const MotionPlanningChecks& checks) const
+    const MotionPlanningChecks& checks,
+    const std::optional<ExecutionToolSelection>& toolSelection) const
 {
     if (!planningResult.isValid()) {
         return reject(
@@ -597,12 +628,33 @@ ExecutionPlanResult MotionPlanner::createExecutionPlan(
             ExecutionPlanFailureReason::CalibrationRevisionMismatch);
     }
     const bool legal = isLegalContact(shotPlan->type);
+    const bool planningTestLegal = legal && toolSelection &&
+        toolSelection->rankedPotCandidatesExhausted &&
+        *config->policyMode == BilliardConfig::ExecutionPolicyMode::PlanningTest;
+    const bool productionLegalFallback =
+        legal && isProductionLegalContactFallback(*shotPlan) &&
+        *config->policyMode == BilliardConfig::ExecutionPolicyMode::RealHardware;
     if (legal &&
-        (!*config->legalContactExecutionAuthorized ||
-         *config->policyMode == BilliardConfig::ExecutionPolicyMode::RealHardware)) {
+        ((!planningTestLegal && !productionLegalFallback &&
+          !*config->legalContactExecutionAuthorized) ||
+         (productionLegalFallback &&
+          (!config->productionLegalContactFallbackAuthorized ||
+           !*config->productionLegalContactFallbackAuthorized ||
+           !toolSelection ||
+           !toolSelection->rankedPotCandidatesExhausted)))) {
         return reject(
             ExecutionPlanStatus::NoExecutablePlan,
             ExecutionPlanFailureReason::LegalContactNotAuthorized);
+    }
+    const ExecutionToolSelection selectedTool = toolSelection.value_or(
+        ExecutionToolSelection{
+            BilliardConfig::TOOL_NUMBER,
+            ExecutionToolMode::Primary,
+            *config->primaryToolControllerCalibrationRevision});
+    if (!selectedTool.isValid()) {
+        return reject(
+            ExecutionPlanStatus::InvalidConfiguration,
+            ExecutionPlanFailureReason::InvalidMotionCalibration);
     }
 
     const std::optional<ShotExecutionMetrics> metrics = shotMetrics(*shotPlan);
@@ -824,8 +876,17 @@ ExecutionPlanResult MotionPlanner::createExecutionPlan(
         *config->executionPolicyRevision,
         *config->policyMode,
         legal
-            ? ExecutionPolicyDecision::LegalContactExplicitlyAuthorized
-            : ExecutionPolicyDecision::PotAccepted};
+            ? (planningTestLegal
+                  ? ExecutionPolicyDecision::LegalContactPlanningTestSelected
+                  : productionLegalFallback
+                  ? ExecutionPolicyDecision::
+                        LegalContactProductionFallbackAccepted
+                  : ExecutionPolicyDecision::LegalContactExplicitlyAuthorized)
+            : ExecutionPolicyDecision::PotAccepted,
+        selectedTool.toolNumber,
+        selectedTool.mode,
+        selectedTool.controllerCalibrationRevision,
+        selectedTool.rankedPotCandidatesExhausted};
     if (!plan.isValid()) {
         return reject(
             ExecutionPlanStatus::NoExecutablePlan,

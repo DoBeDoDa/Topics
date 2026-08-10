@@ -207,6 +207,7 @@ BilliardConfig::MotionPlanningConfig motionConfig()
     config.calibrationRevision = "p2-01-motion-v1";
     config.base0PlanarCalibrationRevision = "p2-01-base0-v1";
     config.cueForwardAxisCalibrationRevision = "tool1-axis-test-v1";
+    config.primaryToolControllerCalibrationRevision = "tool1-controller-test-v1";
     config.strikeZMm = -216.0;
     config.safeApproachZMm = -160.0;
     config.readyGapMm = 15.0;

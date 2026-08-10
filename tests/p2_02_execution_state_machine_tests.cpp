@@ -94,7 +94,9 @@ ExecutionPlan validExecutionPlan()
         {"pneumatic-test-v1", 100, 50, 100},
         "policy-test-v1",
         BilliardConfig::ExecutionPolicyMode::PlanningTest,
-        ExecutionPolicyDecision::PotAccepted};
+        ExecutionPolicyDecision::PotAccepted,
+        BilliardConfig::TOOL_NUMBER, ExecutionToolMode::Primary,
+        "tool1-test-v1"};
 }
 
 bool hasCommand(const std::vector<Command>& commands, Command command)

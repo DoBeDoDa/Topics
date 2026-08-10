@@ -93,9 +93,11 @@ RobotController或第二個application。
 ### 5.1 Required Calibrations
 
 - Base0 planar calibration及revision：必須與ShotPlan及受控部署設定一致；V1不依賴runtime attestation。
-- Tool1 TCP：以氣動推桿完全縮回時的實體尖端標定。
+- Tool1 TCP：正常端，以氣動推桿完全縮回時的實體尖端標定。
+- Tool2 TCP：相反端，以氣動推桿完全伸出時的實體尖端標定。
+- Tool1／Tool2 local `+X`各自是實體擊球forward axis；兩者使用相同ShotPlan／MotionPlanner幾何。controller TCP calibration負責差異，禁止Tool1→Tool2 offset、Base0補償或C／RZ加180度。
 - `cueForwardAxisTool`：版本化人工校正的Tool-local有限單位向量；不得在沒有實機證據時固定宣稱為`+X`。
-- Tool1相對法蘭的controller設定與revision。
+- Tool1／Tool2各自相對法蘭的controller設定與獨立revision。
 - 人工校正Strike Z、A／B基準與核准搜尋範圍、C Tool offset及safe lift高度的版本化設定。
 
 ShotPlan中的Base0平面XY Point及direction不得再旋轉、平移或補償。方向向量必須重新驗證finite與單位長度。
@@ -108,7 +110,7 @@ ShotPlan中的Base0平面XY Point及direction不得再旋轉、平移或補償�
 - `A0`、`B0`是人工校正且版本化的基準；A／B只可在人工核准的小區間內搜尋。
 - `C`唯一由Base0平面擊球單位方向`d=(dx,dy)`計算：`C = normalizeAngle(atan2(dy,dx) + CToolOffset)`。
 - HRSDK的RX／RY／RZ表示與A／B／C的確切映射只存在HRSDK adapter邊界，且必須經P2-03驗證。
-- HRSDK目標表示Base0中的Tool1 TCP Pose。adapter設定Tool1後，不得再手動重複套用同一Tool平移。
+- HRSDK目標表示Base0中的已選Tool TCP Pose。adapter設定已選Tool後，不得再手動重複套用Tool平移。
 - 任一revision、方向、姿態設定或adapter角度映射無效時拒絕ExecutionPlan。
 
 ### 5.3 Bounded A/B Search
@@ -163,6 +165,7 @@ ExecutionPlan至少包含：
 - DO1／DO2 timing profile reference。
 - 每個狀態的preconditions、success conditions與failure transition。
 - Production ExecutionPolicy mode只區分PlanningTest與RealHardware。
+- selected Tool number、`Primary | Opposite` mode、該Tool controller calibration revision，以及production LegalContact時由BilliardApp提供的ranked-Pot-exhausted audit。
 Fake adapter selection屬test dependency injection，不是ExecutionPlan runtime mode。
 
 ExecutionPlan不得修改目標球、袋口、反彈點、評分或策略類型。
@@ -202,8 +205,9 @@ Fake adapters不是ExecutionPolicy production runtime mode。
 
 - Pot方案只有位於對應FixedForceEnvelope且全部校正有效時可執行。
 - LegalContact在real hardware預設禁止。
+- production fallback只有在同一次Phase 1 run的全部ranked Pot依序經Tool1／Tool2均確定不可執行後，才可使用已預算的LegalContact；不得重跑Phase 1。
+- BilliardApp保存Pot耗盡證據，ExecutionPolicy另以顯式production fallback authorization核准；不得強制或借用manual `legalContactExecutionAuthorized=true`。
 - 未授權LegalContact轉成`NoExecutablePlan`並要求人工介入，不得自動擊發。
-- LegalContact完成專門路徑、力度及單球驗收後，才可由顯式設定啟用。
 - policy缺失、矛盾或未版本化時回`ConfigurationMissing／InvalidConfiguration`。
 - Manual diagnostic不是BilliardApp production runtime mode。
 Tool1、Base0、ABC mapping、DO、Base0 +Z等人工診斷，
@@ -289,6 +293,8 @@ WaitingForStart
 → CameraPose
 → WaitingForStart
 
+候選執行選擇只消費本次Phase 1的一份結果：依ranked Pot順序逐一嘗試`Tool1 → Tool2 → next Pot`。`FixedForceEnvelopeRejected`／`NoAcceptedPoseCandidate`等tool-independent確定拒絕直接換下一Pot；只有明確`NotReachable`／`PathUnreachable`可換Tool或候選。SDK/API、config/revision、policy、數值／ambiguous result或`UnknownUnsafe`立即fail closed。所有Pot確定不可執行後才以Direct LegalContact優先、再依既有Kick LegalContact順序做相同Tool嘗試；全部不可用回`NoExecutablePlan`。
+
 RealHardware不得在CameraPose到達、停止、settle及current-cycle capture完成前，
 建立或使用本次ShotPlan／ExecutionPlan。靜態authorization／deployment config
 可在connect前fail closed驗證，但當次plan policy與revision只能在current-cycle
@@ -331,7 +337,7 @@ Clift = Cs
 
 ## 11. Dual-DO Contract
 
-硬體語意：DO1擊出，DO2收回；電磁閥保持切換後狀態，兩者不得同時ON。
+硬體語意：DO1 pulse使striker伸出，DO2 pulse使striker收回；兩者每次pulse後都必須回OFF且不得同時ON。Tool1在Robot到位停止後依`DO1 extend → directionChangeDelay → DO2 retract`擊球／復位；Tool2在任何候選Robot motion前依`DO1 extend → directionChangeDelay`完成準備，到位停止後以`DO2 retract`擊球。Tool2準備成功但未成功retract時進`ManualRecoveryRequired`並阻止下一自動cycle；DO OFF不是actuator position sensor evidence。
 
 正常序列：
 
@@ -375,8 +381,8 @@ CameraPose
 
 `PolicyAcceptedPneumaticCompletion`只在ExecutionPolicy依目前硬體能力接受可觀測證據時成立：
 
-- 有經驗證實體回授時，證據可包含DO readback、valve feedback、cylinder retracted sensor或其他核准回授；只有回授確認安全才可形成`PhysicalOffConfirmed`。
-- 無實體回授時，必須同時具備所有DO OFF寫入成功、adapter回報`OffCommandAccepted`、通訊保持正常、P2-03已驗證該控制器／閥體案例，且ExecutionPolicy明確允許；此路徑只能形成`OffCommandAccepted → PolicyAcceptedPneumaticCompletion`，不得升級成`PhysicalOffConfirmed`。
+- 有經驗證的actuator實體回授時，證據可包含valve feedback、cylinder position sensor或其他核准回授；只有實體回授確認安全才可形成`PhysicalOffConfirmed`。controller DO readback只證明electrical output OFF，不是actuator位置證據。
+- 無actuator實體回授時，必須同時具備所有DO OFF寫入及readback成功、adapter回報`OutputOffConfirmed`／`OffCommandAccepted`、通訊保持正常、P2-03已驗證該控制器／閥體案例，且ExecutionPolicy明確允許；此路徑只能形成`OffCommandAccepted → PolicyAcceptedPneumaticCompletion`，不得升級成`PhysicalOffConfirmed`。
 - 沒有ExecutionPolicy授權時，`OffCommandAccepted`不足以允許任何後續Robot移動。
 
 ## 12. Failure and UnknownUnsafe

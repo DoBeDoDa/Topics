@@ -114,6 +114,13 @@ Controlled real hardware；只有本票最後階段允許HIWIN RA605-GC與真實
 - Classification：New，因完整Existing Ticket Inventory沒有任何舊票承接real HRSDK／dual-DO／controlled acceptance；舊P1-09明確排除HRSDK，舊P1-10／P1-11亦禁止硬體執行。
 - 接收舊P1-11仍有效的最終dependency audit與安全驗收要求。
 
+## Approved executable-candidate and dual-Tool extension
+
+- BilliardApp依`ranked Pot: Tool1 → Tool2 → next`選擇；只有明確NotReachable／PathUnreachable允許fallback，fatal error立即fail closed。
+- Pot全數確定不可執行後，才使用同一次Phase 1預算的Direct-first／既有Kick-order LegalContact；全部不可用回NoExecutablePlan。
+- Tool1為retracted TCP並以`DO1 extend → DO2 retract`擊球／復位；Tool2為extended opposite TCP並以`DO1 prepare → Robot motion → DO2 retract strike`。Tool2 prepare後未成功retract必須ManualRecoveryRequired。
+- RobotController只提供checked preflight及單次extend／retract pulse primitives；BilliardApp保有順序owner。
+
 ## 21. New File Justification
 
 New ticket justified by verified coverage gap；不代表新增production cpp。實作仍原地修改既有RobotController、BilliardApp、BilliardConfig及必要main.cpp。

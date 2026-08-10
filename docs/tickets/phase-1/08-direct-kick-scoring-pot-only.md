@@ -111,6 +111,11 @@ Completed
 - Split／Refactor自舊P1-08的策略選擇責任；取代「維持舊策略排序／強制開火」失效要求。
 - 舊P1-11的評分、禁用fallback與回歸驗收分散至本票AC／tests。
 
+## Approved ranked-output extension
+
+- 既有scoring只執行一次；用既有`tieEpsilon`／`tieBreakBetter()`反覆選出完整ranked Pot，rank #1必須等於既有`selectBestPot()`。
+- `PotOnly`策略結果仍保持無Pot時`NoPlan(NoPotCandidate)`；production執行fallback不屬於本票決策。
+
 ## 21. New File Justification
 
 None expected；新Markdown是舊Algorithm ticket split，production仍由既有Algorithm承接。

@@ -1496,6 +1496,59 @@ private:
     std::optional<PotSelectionDiagnostic> diagnostic_;
 };
 
+class RankedPotSelectionResult {
+public:
+    [[nodiscard]] static RankedPotSelectionResult success(
+        std::vector<ScoredPotCandidate> ranked)
+    {
+        return RankedPotSelectionResult{
+            PotSelectionStatus::Success,
+            std::optional<std::vector<ScoredPotCandidate>>{std::move(ranked)},
+            std::nullopt};
+    }
+
+    [[nodiscard]] static RankedPotSelectionResult rejected(
+        PotSelectionStatus status)
+    {
+        return RankedPotSelectionResult{
+            status, std::nullopt, PotSelectionDiagnostic{status}};
+    }
+
+    [[nodiscard]] PotSelectionStatus status() const noexcept { return status_; }
+    [[nodiscard]] const std::optional<std::vector<ScoredPotCandidate>>& value()
+        const noexcept
+    {
+        return value_;
+    }
+    [[nodiscard]] bool isValid() const noexcept
+    {
+        const bool success = status_ == PotSelectionStatus::Success;
+        return value_.has_value() == success &&
+            diagnostic_.has_value() != success &&
+            (!value_ || std::all_of(
+                value_->begin(), value_->end(),
+                [](const ScoredPotCandidate& candidate) {
+                    return candidate.isValid();
+                })) &&
+            (!diagnostic_ || diagnostic_->status == status_);
+    }
+
+private:
+    RankedPotSelectionResult(
+        PotSelectionStatus status,
+        std::optional<std::vector<ScoredPotCandidate>> value,
+        std::optional<PotSelectionDiagnostic> diagnostic)
+        : status_(status),
+          value_(std::move(value)),
+          diagnostic_(std::move(diagnostic))
+    {
+    }
+
+    PotSelectionStatus status_;
+    std::optional<std::vector<ScoredPotCandidate>> value_;
+    std::optional<PotSelectionDiagnostic> diagnostic_;
+};
+
 enum class ShotPlanType {
     DirectPot,
     KickPot,
@@ -1646,6 +1699,11 @@ struct KickLegalContactCandidate {
 };
 
 struct LegalContactAuditFields {
+    enum class ActivationAuthority {
+        ManualResearch,
+        ProductionFallbackEligible
+    };
+
     bool legalFirstContactGuaranteed;
     GhostBallPoint selectedContactGhostBallPoint;
     bool directPriorityApplied;
@@ -1656,6 +1714,7 @@ struct LegalContactAuditFields {
     PotSelectionStatus potSearchStatus;
     bool requiresExplicitExecutionAuthorization;
     bool realHardwareExecutionDefaultEnabled;
+    ActivationAuthority activationAuthority;
     std::vector<LegalContactCandidateDiagnostic> candidateDiagnostics;
 
     [[nodiscard]] bool isValid() const noexcept
@@ -1668,8 +1727,15 @@ struct LegalContactAuditFields {
              (std::isfinite(*minimumClearanceMm) && *minimumClearanceMm >= 0.0)) &&
             std::isfinite(totalPathLengthMm) && totalPathLengthMm > 0.0 &&
             (!railId || static_cast<std::size_t>(*railId) < 6) &&
-            potSearchExhausted &&
-            potSearchStatus == PotSelectionStatus::ManualResearchPotSearchExhausted &&
+            ((activationAuthority == ActivationAuthority::ManualResearch &&
+              potSearchExhausted &&
+              potSearchStatus ==
+                  PotSelectionStatus::ManualResearchPotSearchExhausted) ||
+             (activationAuthority ==
+                  ActivationAuthority::ProductionFallbackEligible &&
+              (potSearchStatus == PotSelectionStatus::Success ||
+               potSearchStatus ==
+                   PotSelectionStatus::ManualResearchPotSearchExhausted))) &&
             requiresExplicitExecutionAuthorization &&
             !realHardwareExecutionDefaultEnabled;
     }
@@ -1966,31 +2032,90 @@ struct NoPlan {
 
 using PlanningOutcome = std::variant<ShotPlan, NoPlan>;
 
+struct Phase1ExecutionCandidates {
+    std::vector<ShotPlan> rankedPotPlans;
+    std::vector<ShotPlan> legalContactPlans;
+
+    [[nodiscard]] bool isValid() const noexcept
+    {
+        const ShotPlan* anchor = !rankedPotPlans.empty()
+            ? &rankedPotPlans.front()
+            : (!legalContactPlans.empty() ? &legalContactPlans.front() : nullptr);
+        const auto samePhase1Target = [anchor](const ShotPlan& plan) {
+            return !anchor ||
+                (plan.source.planIdentity.connectionIdentity ==
+                     anchor->source.planIdentity.connectionIdentity &&
+                 plan.source.planIdentity.shotCycleIdentity ==
+                     anchor->source.planIdentity.shotCycleIdentity &&
+                 plan.selectedTarget.ballNumber ==
+                     anchor->selectedTarget.ballNumber &&
+                 plan.selectedTarget.center.x ==
+                     anchor->selectedTarget.center.x &&
+                 plan.selectedTarget.center.y ==
+                     anchor->selectedTarget.center.y);
+        };
+        return std::all_of(
+                   rankedPotPlans.begin(), rankedPotPlans.end(),
+                   [&](const ShotPlan& plan) {
+                       return plan.isValid() &&
+                           samePhase1Target(plan) &&
+                           (plan.type == ShotPlanType::DirectPot ||
+                            plan.type == ShotPlanType::KickPot);
+                   }) &&
+            std::all_of(
+                legalContactPlans.begin(), legalContactPlans.end(),
+                [&](const ShotPlan& plan) {
+                    return plan.isValid() &&
+                        samePhase1Target(plan) &&
+                        (plan.type == ShotPlanType::DirectLegalContact ||
+                         plan.type == ShotPlanType::KickLegalContact);
+                });
+    }
+};
+
 class PlanningResult {
 public:
-    static PlanningResult shotPlan(ShotPlan value)
+    static PlanningResult shotPlan(
+        ShotPlan value,
+        Phase1ExecutionCandidates candidates = {})
     {
-        return PlanningResult{PlanningOutcome{std::move(value)}};
+        return PlanningResult{
+            PlanningOutcome{std::move(value)}, std::move(candidates)};
     }
 
-    static PlanningResult noPlan(NoPlan value)
+    static PlanningResult noPlan(
+        NoPlan value,
+        Phase1ExecutionCandidates candidates = {})
     {
-        return PlanningResult{PlanningOutcome{std::move(value)}};
+        return PlanningResult{
+            PlanningOutcome{std::move(value)}, std::move(candidates)};
     }
 
     [[nodiscard]] const PlanningOutcome& value() const noexcept { return value_; }
+    [[nodiscard]] const Phase1ExecutionCandidates& executionCandidates()
+        const noexcept
+    {
+        return executionCandidates_;
+    }
 
     [[nodiscard]] bool isValid() const noexcept
     {
         return std::visit(
             [](const auto& value) noexcept { return value.isValid(); },
-            value_);
+            value_) && executionCandidates_.isValid();
     }
 
 private:
-    explicit PlanningResult(PlanningOutcome value) : value_(std::move(value)) {}
+    PlanningResult(
+        PlanningOutcome value,
+        Phase1ExecutionCandidates candidates)
+        : value_(std::move(value)),
+          executionCandidates_(std::move(candidates))
+    {
+    }
 
     PlanningOutcome value_;
+    Phase1ExecutionCandidates executionCandidates_;
 };
 
 inline Phase1PipelineResult Phase1PipelineResult::planningCompleted(

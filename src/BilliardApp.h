@@ -132,6 +132,7 @@ enum class ExecutionCycleFailureReason {
     Phase1PipelineFailed,
     InvalidPhase1Result,
     InvalidExecutionPlan,
+    NoExecutablePlan,
     ExecutionPlanCycleMismatch,
     StrikeReadyValidationFailed,
     StrikeReadyMotionFailed,
@@ -258,6 +259,14 @@ struct RealExecutionCycleServices {
     std::function<OfflineStepResult()> openCaptureWindow;
     std::function<OfflinePhase1Result()> runPhase1;
     std::function<ExecutionPlanResult()> buildExecutionPlan;
+    std::function<const PlanningResult*()> currentPlanningResult;
+    std::function<ExecutionPlanResult(
+        const ShotPlan&,
+        const ExecutionToolSelection&)> buildExecutionPlanForTool;
+#ifdef BILLIARDS_P2_03_TEST_SEAM
+    // 舊單計畫入口僅供既有離線adapter fixtures；production不可啟用。
+    bool testOnlyAllowSinglePlanCompatibility = false;
+#endif
 };
 
 #ifdef BILLIARDS_P2_03_TEST_SEAM
@@ -278,6 +287,7 @@ struct BilliardAppRunTestSeam {
     std::optional<BilliardConfig::BrainConfig> brainConfig;
     std::optional<ConnectionIdentity> connectionIdentity;
     std::vector<std::string> currentCycleFrames;
+    std::function<void(const PlanningResult&)> planningResultObserved;
     std::function<void(const ExecutionPlanResult&)> executionPlanObserved;
 };
 #endif
@@ -350,7 +360,7 @@ inline PneumaticCompletionResult BilliardApp::mapRealPneumaticResult(
     switch (result.status) {
     case RealPneumaticStatus::Completed:
         return {PneumaticCompletionStatus::PolicyAccepted,
-            PneumaticCompletionEvidence::PhysicalOffConfirmed};
+            PneumaticCompletionEvidence::OffCommandAccepted};
     case RealPneumaticStatus::KnownSafeFailure:
         return {PneumaticCompletionStatus::Failure, std::nullopt};
     case RealPneumaticStatus::UnknownUnsafe:
@@ -468,7 +478,11 @@ inline ExecutionCycleResult BilliardApp::runOfflineSingleCycle(
     const ExecutionPlanResult planned = seam.buildExecutionPlan();
     if (!planned.isValid() || planned.status() != ExecutionPlanStatus::Success ||
         !planned.value()) {
-        return safeFailure(ExecutionCycleFailureReason::InvalidExecutionPlan);
+        return safeFailure(
+            planned.isValid() &&
+                    planned.status() == ExecutionPlanStatus::NoExecutablePlan
+                ? ExecutionCycleFailureReason::NoExecutablePlan
+                : ExecutionCycleFailureReason::InvalidExecutionPlan);
     }
     const ExecutionPlan& plan = *planned.value();
     if (plan.sourcePlanIdentity.shotCycleIdentity != cycleIdentity) {
