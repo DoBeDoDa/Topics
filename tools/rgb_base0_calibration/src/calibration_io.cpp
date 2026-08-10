@@ -335,6 +335,7 @@ CalibrationData parseCalibration(RawGetter raw) {
     const std::vector<double> translation = parseNumberArray(raw("C_Base0_mm"), 3);
     value.tBase0FromRgb = {translation[0], translation[1], translation[2]};
     value.zTableMm = parseDouble(raw("z_table_mm"));
+    value.ballDiameterMm = parseDouble(raw("ball_diameter_mm"));
     value.ballRadiusMm = parseDouble(raw("ball_radius_mm"));
     value.tablePlaneModel = unescapeQuoted(raw("table_plane_model"));
     value.translationUnit = unescapeQuoted(raw("translation_unit"));
@@ -437,6 +438,7 @@ void writeCalibrationJson(const CalibrationData& value, const std::filesystem::p
            << "  },\n"
            << "  \"table\": {\n"
            << "    \"z_table_mm\": " << value.zTableMm << ",\n"
+           << "    \"ball_diameter_mm\": " << value.ballDiameterMm << ",\n"
            << "    \"ball_radius_mm\": " << value.ballRadiusMm << ",\n"
            << "    \"table_plane_model\": \"" << escapeJson(value.tablePlaneModel) << "\",\n"
            << "    \"translation_unit\": \"" << escapeJson(value.translationUnit) << "\"\n"
@@ -524,6 +526,7 @@ void writeCalibrationYaml(const CalibrationData& value, const std::filesystem::p
            << value.tBase0FromRgb.z << "]\n"
            << "table:\n"
            << "  z_table_mm: " << value.zTableMm << "\n"
+           << "  ball_diameter_mm: " << value.ballDiameterMm << "\n"
            << "  ball_radius_mm: " << value.ballRadiusMm << "\n"
            << "  table_plane_model: " << quoteYaml(value.tablePlaneModel) << "\n"
            << "  translation_unit: " << quoteYaml(value.translationUnit) << "\n";
@@ -572,7 +575,7 @@ bool equivalentCalibration(const CalibrationData& left, const CalibrationData& r
         left.xyzSpreadToleranceMm, left.abcSpreadToleranceDeg,
         left.tTool2ToRgb.x, left.tTool2ToRgb.y, left.tTool2ToRgb.z,
         left.tBase0FromRgb.x, left.tBase0FromRgb.y, left.tBase0FromRgb.z,
-        left.zTableMm, left.ballRadiusMm,
+        left.zTableMm, left.ballDiameterMm, left.ballRadiusMm,
     };
     std::vector<double> rightNumbers{
         right.intrinsic.fx, right.intrinsic.fy, right.intrinsic.cx, right.intrinsic.cy,
@@ -582,7 +585,7 @@ bool equivalentCalibration(const CalibrationData& left, const CalibrationData& r
         right.xyzSpreadToleranceMm, right.abcSpreadToleranceDeg,
         right.tTool2ToRgb.x, right.tTool2ToRgb.y, right.tTool2ToRgb.z,
         right.tBase0FromRgb.x, right.tBase0FromRgb.y, right.tBase0FromRgb.z,
-        right.zTableMm, right.ballRadiusMm,
+        right.zTableMm, right.ballDiameterMm, right.ballRadiusMm,
     };
     for(std::size_t index = 0; index < leftNumbers.size(); ++index) {
         if(!near(leftNumbers[index], rightNumbers[index], tolerance)) {

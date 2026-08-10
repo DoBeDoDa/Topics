@@ -62,14 +62,14 @@ int main() {
         require(!rgb_base0::robotPoseStable(unstable, 0.1, 0.05, &reason), "unstable pose accepted");
 
         const rgb_base0::PlaneIntersection hit = rgb_base0::intersectRayWithHorizontalPlane(
-            {100.0, 200.0, 500.0}, {0.0, 0.0, -2.0}, 24.76);
-        requireNear(hit.lambdaMm, 475.24, 1e-9, "plane lambda");
-        requireNear(hit.pointBase0.z, 24.76, 1e-9, "plane z");
+            {100.0, 200.0, 500.0}, {0.0, 0.0, -2.0}, rgb_base0::kBallRadiusMm);
+        requireNear(hit.lambdaMm, 477.75, 1e-9, "plane lambda");
+        requireNear(hit.pointBase0.z, 22.25, 1e-9, "plane z");
 
         bool behindRejected = false;
         try {
             static_cast<void>(rgb_base0::intersectRayWithHorizontalPlane(
-                {0.0, 0.0, 500.0}, {0.0, 0.0, 1.0}, 24.76));
+                {0.0, 0.0, 500.0}, {0.0, 0.0, 1.0}, rgb_base0::kBallRadiusMm));
         }
         catch(const std::runtime_error&) {
             behindRejected = true;
@@ -114,6 +114,28 @@ int main() {
             inconsistentRejected = true;
         }
         require(inconsistentRejected, "inconsistent pose/rotation calibration was not rejected");
+
+        rgb_base0::CalibrationData wrongDiameter = calibration;
+        wrongDiameter.ballDiameterMm = 49.52;
+        bool wrongDiameterRejected = false;
+        try {
+            rgb_base0::validateCalibration(wrongDiameter);
+        }
+        catch(const std::runtime_error&) {
+            wrongDiameterRejected = true;
+        }
+        require(wrongDiameterRejected, "obsolete ball diameter was not rejected");
+
+        rgb_base0::CalibrationData inconsistentRadius = calibration;
+        inconsistentRadius.ballRadiusMm = 24.76;
+        bool inconsistentRadiusRejected = false;
+        try {
+            rgb_base0::validateCalibration(inconsistentRadius);
+        }
+        catch(const std::runtime_error&) {
+            inconsistentRadiusRejected = true;
+        }
+        require(inconsistentRadiusRejected, "diameter/radius mismatch was not rejected");
 
         std::cout << "PASS: geometry, wrapped angles, stability, fail-closed plane intersection, and calibration IO\n";
         return 0;

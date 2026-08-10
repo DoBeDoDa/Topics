@@ -43,7 +43,7 @@
 2. 同時用 depth=1000 驗證方向相同與比例約 1000 倍；depth=1/1000 都不是量測深度。
 3. 再做 3D→2D 回投影與 RGB XY-table 方向交叉檢查；任何不一致、非有限值或 `RGB z<=0` 都停止。
 4. 正規化為單位向量，乘上 `R_Base0_from_RGB`。
-5. 球心平面為 `Z_target = Z_table + 24.76 mm`，交點比例：
+5. 撞球直徑為 `44.5 mm`、半徑為 `22.25 mm`；球心平面為 `Z_target = Z_table + 22.25 mm`，交點比例：
 
    `lambda = (Z_target - C_Base0.z) / ray_Base0.z`
 
@@ -148,8 +148,8 @@ CSV 欄位固定為：
 
 ```csv
 class_name,x_mm,y_mm,z_mm
-Ball_1,100.0,200.0,24.76
-Ball_2,150.0,250.0,24.76
+Ball_1,100.0,200.0,-211.26
+Ball_2,150.0,250.0,-211.26
 ```
 
 執行：
@@ -161,6 +161,8 @@ build/rgb_base0_calibration/rgb_base0_validate.exe `
 ```
 
 自動通過條件：至少 6 個名稱匹配的穩定點、XY RMS ≤3 mm、每點 XY error ≤5 mm，而且 `error_x/error_y` 對 `u/v` 的四個 Pearson 相關係數絕對值都小於 0.7。0.7 是明確、可調整的操作門檻，不是 HIWIN 或 Orbbec 官方標準；可用 `--trend-limit` 改變並會記錄在結果中。提供 ground truth 而未通過時，程式仍完整寫出診斷，但 exit code 為 2。
+
+目前已確認 `Z_table=-233.51 mm`，因此本配置的球心平面是 `-233.51+22.25=-211.26 mm`。若桌高改變，ground truth 的 Z 也必須跟著更新。
 
 ## 尚未完成
 
