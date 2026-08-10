@@ -114,7 +114,7 @@ struct FakeCycle {
     PneumaticCompletionStatus pneumaticStatus =
         PneumaticCompletionStatus::PolicyAccepted;
     std::optional<PneumaticCompletionEvidence> pneumaticEvidence =
-        PneumaticCompletionEvidence::PhysicalOffConfirmed;
+        PneumaticCompletionEvidence::OffCommandAccepted;
     std::optional<RobotPoseABC> actualPose =
         RobotPoseABC{70.0, 80.0, 55.0, 3.0, 4.0, 5.0};
     LinearPathCheckStatus linearCheckStatus = LinearPathCheckStatus::Success;

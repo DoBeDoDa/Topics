@@ -72,7 +72,6 @@ enum class PneumaticCompletionStatus {
 };
 
 enum class PneumaticCompletionEvidence {
-    PhysicalOffConfirmed,
     OffCommandAccepted
 };
 
@@ -87,7 +86,6 @@ struct PneumaticCompletionResult {
             status == PneumaticCompletionStatus::Failure ||
             status == PneumaticCompletionStatus::UnknownUnsafe;
         const bool knownEvidence = !evidence ||
-            *evidence == PneumaticCompletionEvidence::PhysicalOffConfirmed ||
             *evidence == PneumaticCompletionEvidence::OffCommandAccepted;
         return knownStatus && knownEvidence &&
             ((status == PneumaticCompletionStatus::PolicyAccepted) ==
@@ -192,10 +190,8 @@ struct ExecutionCycleAudit {
                   sourcePlanIdentity->isValid() &&
                   sourcePlanIdentity->shotCycleIdentity == cycleIdentity &&
                   pneumaticEvidence.has_value() &&
-                  (*pneumaticEvidence ==
-                       PneumaticCompletionEvidence::PhysicalOffConfirmed ||
-                   *pneumaticEvidence ==
-                       PneumaticCompletionEvidence::OffCommandAccepted)
+                  *pneumaticEvidence ==
+                      PneumaticCompletionEvidence::OffCommandAccepted
                 : !sourcePlanIdentity.has_value() && !pneumaticEvidence.has_value());
     }
 };
