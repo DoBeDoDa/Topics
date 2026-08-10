@@ -9,7 +9,9 @@
 
 - Windows、Orbbec SDK **恰為 v1.10.18**，預設安裝位置：`C:\Program Files\OrbbecSDK 1.10.18\SDK`。
 - 只連接一台 Orbbec Gemini 2 XL。
-- 相機必須提供 `1280x720 MJPG`；程式會選該格式實際可用的最高 FPS，並把 FPS 寫入校正檔。沒有符合 profile 時直接停止並列出 SDK 回報的 profiles。
+- Gemini 2 XL 原生資料連線是 USB 2.0；即使插入藍色 USB 3.x 連接埠，SDK 顯示 `USB2.0` 仍屬正常。
+- 相機必須提供 `1280x720 MJPG`；程式會選該格式實際可用的最高 FPS，並把 FPS 寫入校正檔。使用者實機目前回報最高為 10 FPS。沒有符合 profile 時直接停止並列出 SDK 回報的 profiles。
+- 程式依 Orbbec SDK v1.10.18 `Sample-Transformation` 的流程，同時啟用同 FPS 的輔助 Depth profile、啟動 pipeline 後取得完整校正參數。Depth frame 不參與球座標求解，球的光線尺度仍由平面交點決定。
 - HIWIN RA605-GC 控制器預設 IP `192.168.0.1`；操作者要先把手臂放在固定拍攝姿態並完全停止。
 - 控制器中的 Tool2 必須已由操作者設定好，而且 Tool2 原點就是 RGB optical center、Tool2 軸與 RGB optical 軸對齊。
 - 程式只暫時呼叫 `set_tool_number(2)`、`set_base_number(0)` 與讀取狀態／姿態函式。程式碼中沒有移動、馬達、清除警報或 DO 命令。

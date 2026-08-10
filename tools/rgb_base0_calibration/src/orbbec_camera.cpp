@@ -109,11 +109,36 @@ public:
             throw std::runtime_error(message.str());
         }
 
+        const std::shared_ptr<ob::StreamProfileList> depthProfiles =
+            pipeline->getStreamProfileList(OB_SENSOR_DEPTH);
+        if(!depthProfiles || depthProfiles->count() == 0) {
+            throw std::runtime_error(
+                "Gemini 2 XL returned no depth stream profile; a matched Color/Depth configuration is required "
+                "to retrieve SDK calibration parameters");
+        }
+        try {
+            selectedDepthProfile = depthProfiles->getVideoStreamProfile(
+                640, OB_HEIGHT_ANY, OB_FORMAT_ANY, selectedProfile->fps());
+        }
+        catch(...) {
+            selectedDepthProfile.reset();
+        }
+        if(!selectedDepthProfile) {
+            const std::shared_ptr<ob::StreamProfile> fallback = depthProfiles->getProfile(OB_PROFILE_DEFAULT);
+            if(fallback && fallback->is<ob::VideoStreamProfile>()) {
+                selectedDepthProfile = fallback->as<ob::VideoStreamProfile>();
+            }
+        }
+        if(!selectedDepthProfile) {
+            throw std::runtime_error(
+                "Gemini 2 XL has no usable depth profile for retrieving matched SDK calibration parameters");
+        }
+
         config = std::make_shared<ob::Config>();
         config->disableAllStream();
         config->enableStream(selectedProfile);
+        config->enableStream(selectedDepthProfile);
         config->setAlignMode(ALIGN_DISABLE);
-        calibrationParam = pipeline->getCalibrationParam(config);
         intrinsic = selectedProfile->getIntrinsic();
         distortion = selectedProfile->getDistortion();
         if(intrinsic.width != 1280 || intrinsic.height != 720 || intrinsic.fx <= 0.0f || intrinsic.fy <= 0.0f) {
@@ -121,6 +146,14 @@ public:
         }
         pipeline->start(config);
         started = true;
+        try {
+            calibrationParam = pipeline->getCalibrationParam(config);
+        }
+        catch(...) {
+            pipeline->stop();
+            started = false;
+            throw;
+        }
     }
 
     ~Impl() noexcept {
@@ -139,6 +172,7 @@ public:
     std::unique_ptr<ob::Pipeline> pipeline;
     std::shared_ptr<ob::Config> config;
     std::shared_ptr<ob::VideoStreamProfile> selectedProfile;
+    std::shared_ptr<ob::VideoStreamProfile> selectedDepthProfile;
     OBCalibrationParam calibrationParam{};
     OBCameraIntrinsic intrinsic{};
     OBCameraDistortion distortion{};
@@ -308,7 +342,10 @@ std::string OrbbecCamera::profileDescription() const {
     std::ostringstream description;
     description << impl_->deviceName << " serial=" << impl_->serialNumber << " firmware=" << impl_->firmwareVersion
                 << " SDK=" << sdkVersionString() << " profile=" << impl_->selectedProfile->width() << 'x'
-                << impl_->selectedProfile->height() << '@' << impl_->selectedProfile->fps() << " MJPG";
+                << impl_->selectedProfile->height() << '@' << impl_->selectedProfile->fps() << " MJPG"
+                << " calibration_depth=" << impl_->selectedDepthProfile->width() << 'x'
+                << impl_->selectedDepthProfile->height() << '@' << impl_->selectedDepthProfile->fps()
+                << " format=" << static_cast<int>(impl_->selectedDepthProfile->format());
     return description.str();
 }
 
