@@ -30,6 +30,48 @@ bool near(const double left, const double right, const double absoluteTolerance 
     return std::abs(left - right) <= absoluteTolerance * std::max({1.0, std::abs(left), std::abs(right)});
 }
 
+std::string boolText(const bool value) {
+    return value ? "true" : "false";
+}
+
+std::string formatName(const OBFormat format) {
+    return format == OB_FORMAT_MJPG ? "MJPG" : "OB_FORMAT_" + std::to_string(static_cast<int>(format));
+}
+
+bool distortionIsFinite(const OBCameraDistortion& distortion) {
+    return std::isfinite(distortion.k1) && std::isfinite(distortion.k2)
+           && std::isfinite(distortion.k3) && std::isfinite(distortion.k4)
+           && std::isfinite(distortion.k5) && std::isfinite(distortion.k6)
+           && std::isfinite(distortion.p1) && std::isfinite(distortion.p2);
+}
+
+void validateRgbCameraParameters(const OBCameraIntrinsic& intrinsic,
+                                 const OBCameraDistortion& distortion,
+                                 const CameraProfileData& liveProfile) {
+    const bool fxFinite = std::isfinite(intrinsic.fx);
+    const bool fyFinite = std::isfinite(intrinsic.fy);
+    const bool focalLengthsPositive = intrinsic.fx > 0.0f && intrinsic.fy > 0.0f;
+    const bool principalPointFinite = std::isfinite(intrinsic.cx) && std::isfinite(intrinsic.cy);
+    const bool principalPointValid = principalPointFinite
+                                     && intrinsic.cx >= 0.0f && intrinsic.cx < liveProfile.width
+                                     && intrinsic.cy >= 0.0f && intrinsic.cy < liveProfile.height;
+    const bool intrinsicSizeMatches = intrinsic.width == liveProfile.width
+                                      && intrinsic.height == liveProfile.height;
+    const bool distortionFinite = distortionIsFinite(distortion);
+    if(!fxFinite || !fyFinite || !focalLengthsPositive || !principalPointValid
+       || !intrinsicSizeMatches || !distortionFinite) {
+        std::ostringstream message;
+        message << "Invalid RGB camera parameters from Pipeline::getCameraParam():"
+                << " fx_finite=" << boolText(fxFinite)
+                << " fy_finite=" << boolText(fyFinite)
+                << " focal_lengths_positive=" << boolText(focalLengthsPositive)
+                << " principal_point_valid=" << boolText(principalPointValid)
+                << " intrinsic_size_matches_live_frame=" << boolText(intrinsicSizeMatches)
+                << " distortion_finite=" << boolText(distortionFinite);
+        throw std::runtime_error(message.str());
+    }
+}
+
 }  // namespace
 
 class OrbbecCamera::Impl {
@@ -80,22 +122,52 @@ public:
         config = std::make_shared<ob::Config>();
         config->disableAllStream();
         config->enableStream(selectedProfile);
-        intrinsic = selectedProfile->getIntrinsic();
-        distortion = selectedProfile->getDistortion();
-        if(intrinsic.width != 1280 || intrinsic.height != 720 || intrinsic.fx <= 0.0f || intrinsic.fy <= 0.0f) {
-            throw std::runtime_error("Selected live RGB intrinsic is inconsistent with 1280x720 profile");
-        }
         pipeline->start(config);
         started = true;
+        try {
+            const auto frames = pipeline->waitForFrames(3000);
+            const auto color = frames ? frames->colorFrame() : nullptr;
+            if(!color) {
+                throw std::runtime_error("Timed out waiting for the first Gemini 2 XL Color frame");
+            }
+            if(color->width() != 1280 || color->height() != 720
+               || color->format() != selectedProfile->format()
+               || color->width() != selectedProfile->width()
+               || color->height() != selectedProfile->height()) {
+                std::ostringstream message;
+                message << "Live Color frame does not match selected profile: selected="
+                        << selectedProfile->width() << 'x' << selectedProfile->height() << '@'
+                        << selectedProfile->fps() << ' ' << formatName(selectedProfile->format())
+                        << " actual=" << color->width() << 'x' << color->height() << ' '
+                        << formatName(color->format());
+                throw std::runtime_error(message.str());
+            }
+            actualProfile = {static_cast<int>(color->width()), static_cast<int>(color->height()),
+                             static_cast<int>(selectedProfile->fps()), formatName(color->format())};
+
+            const OBCameraParam cameraParameters = pipeline->getCameraParam();
+            intrinsic = cameraParameters.rgbIntrinsic;
+            distortion = cameraParameters.rgbDistortion;
+            validateRgbCameraParameters(intrinsic, distortion, actualProfile);
+        }
+        catch(...) {
+            stopNoThrow();
+            throw;
+        }
     }
 
     ~Impl() noexcept {
+        stopNoThrow();
+    }
+
+    void stopNoThrow() noexcept {
         if(started && pipeline) {
             try {
                 pipeline->stop();
             }
             catch(...) {
             }
+            started = false;
         }
     }
 
@@ -105,6 +177,7 @@ public:
     std::unique_ptr<ob::Pipeline> pipeline;
     std::shared_ptr<ob::Config> config;
     std::shared_ptr<ob::VideoStreamProfile> selectedProfile;
+    CameraProfileData actualProfile;
     OBCameraIntrinsic intrinsic{};
     OBCameraDistortion distortion{};
     std::string deviceName;
@@ -121,9 +194,7 @@ void OrbbecCamera::copyCameraFieldsTo(CalibrationData& value) const {
     value.deviceName = impl_->deviceName;
     value.serialNumber = impl_->serialNumber;
     value.firmwareVersion = impl_->firmwareVersion;
-    value.profile = {static_cast<int>(impl_->selectedProfile->width()),
-                     static_cast<int>(impl_->selectedProfile->height()),
-                     static_cast<int>(impl_->selectedProfile->fps()), "MJPG"};
+    value.profile = impl_->actualProfile;
     value.intrinsic = {impl_->intrinsic.fx, impl_->intrinsic.fy, impl_->intrinsic.cx, impl_->intrinsic.cy};
     value.distortion = {impl_->distortion.k1, impl_->distortion.k2, impl_->distortion.k3, impl_->distortion.k4,
                         impl_->distortion.k5, impl_->distortion.k6, impl_->distortion.p1, impl_->distortion.p2};
@@ -168,8 +239,14 @@ std::vector<CapturedFrame> OrbbecCamera::captureMjpgFrames(const std::filesystem
     std::filesystem::create_directories(directory);
     for(int index = 0; index < warmupFrames; ++index) {
         const auto frames = impl_->pipeline->waitForFrames(3000);
-        if(!frames || !frames->colorFrame()) {
+        const auto color = frames ? frames->colorFrame() : nullptr;
+        if(!color) {
             throw std::runtime_error("Timed out while warming up Gemini 2 XL RGB stream");
+        }
+        if(color->format() != impl_->selectedProfile->format()
+           || static_cast<int>(color->width()) != impl_->actualProfile.width
+           || static_cast<int>(color->height()) != impl_->actualProfile.height) {
+            throw std::runtime_error("Warm-up Color frame no longer matches the selected live profile");
         }
     }
     std::vector<CapturedFrame> result;
@@ -180,7 +257,9 @@ std::vector<CapturedFrame> OrbbecCamera::captureMjpgFrames(const std::filesystem
         if(!color) {
             throw std::runtime_error("Timed out waiting for Gemini 2 XL RGB frame " + std::to_string(index));
         }
-        if(color->format() != OB_FORMAT_MJPG || color->width() != 1280 || color->height() != 720) {
+        if(color->format() != impl_->selectedProfile->format()
+           || static_cast<int>(color->width()) != impl_->actualProfile.width
+           || static_cast<int>(color->height()) != impl_->actualProfile.height) {
             throw std::runtime_error("Received frame does not match selected 1280x720 MJPG profile");
         }
         if(color->data() == nullptr || color->dataSize() == 0) {
@@ -204,9 +283,7 @@ std::vector<CapturedFrame> OrbbecCamera::captureMjpgFrames(const std::filesystem
 }
 
 PixelRayDiagnostics OrbbecCamera::pixelToUnitRay(const double u, const double v) const {
-    const CameraProfileData profile{static_cast<int>(impl_->selectedProfile->width()),
-                                    static_cast<int>(impl_->selectedProfile->height()),
-                                    static_cast<int>(impl_->selectedProfile->fps()), "MJPG"};
+    const CameraProfileData& profile = impl_->actualProfile;
     const CameraIntrinsicData intrinsic{impl_->intrinsic.fx, impl_->intrinsic.fy,
                                         impl_->intrinsic.cx, impl_->intrinsic.cy};
     const CameraDistortionData distortion{
@@ -216,12 +293,52 @@ PixelRayDiagnostics OrbbecCamera::pixelToUnitRay(const double u, const double v)
     return inverseProjectBrownPixel(u, v, profile, intrinsic, distortion);
 }
 
+std::vector<std::string> OrbbecCamera::diagnosticLines() const {
+    std::vector<std::string> lines;
+    lines.push_back("[CAMERA] selected_color_profile="
+                    + std::to_string(impl_->selectedProfile->width()) + "x"
+                    + std::to_string(impl_->selectedProfile->height()) + " "
+                    + formatName(impl_->selectedProfile->format()) + " "
+                    + std::to_string(impl_->selectedProfile->fps()) + " FPS");
+    lines.push_back("[CAMERA] actual_color_frame=" + std::to_string(impl_->actualProfile.width) + "x"
+                    + std::to_string(impl_->actualProfile.height) + " format=" + impl_->actualProfile.format);
+    lines.push_back("[RGB_INTRINSIC]");
+    lines.push_back("fx=" + std::to_string(impl_->intrinsic.fx));
+    lines.push_back("fy=" + std::to_string(impl_->intrinsic.fy));
+    lines.push_back("cx=" + std::to_string(impl_->intrinsic.cx));
+    lines.push_back("cy=" + std::to_string(impl_->intrinsic.cy));
+    lines.push_back("[RGB_DISTORTION]");
+    lines.push_back("k1=" + std::to_string(impl_->distortion.k1));
+    lines.push_back("k2=" + std::to_string(impl_->distortion.k2));
+    lines.push_back("k3=" + std::to_string(impl_->distortion.k3));
+    lines.push_back("k4=" + std::to_string(impl_->distortion.k4));
+    lines.push_back("k5=" + std::to_string(impl_->distortion.k5));
+    lines.push_back("k6=" + std::to_string(impl_->distortion.k6));
+    lines.push_back("p1=" + std::to_string(impl_->distortion.p1));
+    lines.push_back("p2=" + std::to_string(impl_->distortion.p2));
+    lines.push_back("[CHECK]");
+    lines.push_back("fx_finite=" + boolText(std::isfinite(impl_->intrinsic.fx)));
+    lines.push_back("fy_finite=" + boolText(std::isfinite(impl_->intrinsic.fy)));
+    lines.push_back("focal_lengths_positive="
+                    + boolText(impl_->intrinsic.fx > 0.0f && impl_->intrinsic.fy > 0.0f));
+    lines.push_back("principal_point_valid="
+                    + boolText(std::isfinite(impl_->intrinsic.cx) && std::isfinite(impl_->intrinsic.cy)
+                               && impl_->intrinsic.cx >= 0.0f && impl_->intrinsic.cx < impl_->actualProfile.width
+                               && impl_->intrinsic.cy >= 0.0f && impl_->intrinsic.cy < impl_->actualProfile.height));
+    lines.push_back("intrinsic_size_matches_live_frame="
+                    + boolText(impl_->intrinsic.width == impl_->actualProfile.width
+                               && impl_->intrinsic.height == impl_->actualProfile.height));
+    lines.push_back("distortion_finite=" + boolText(distortionIsFinite(impl_->distortion)));
+    return lines;
+}
+
 std::string OrbbecCamera::profileDescription() const {
     std::ostringstream description;
     description << impl_->deviceName << " serial=" << impl_->serialNumber << " firmware=" << impl_->firmwareVersion
                 << " SDK=" << sdkVersionString() << " profile=" << impl_->selectedProfile->width() << 'x'
                 << impl_->selectedProfile->height() << '@' << impl_->selectedProfile->fps()
-                << " MJPG RGB-only";
+                << " " << formatName(impl_->selectedProfile->format())
+                << " RGB-only K/D=Pipeline::getCameraParam().rgb";
     return description.str();
 }
 

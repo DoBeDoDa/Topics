@@ -29,6 +29,7 @@ public:
                                                  int count,
                                                  int warmupFrames = 5);
     PixelRayDiagnostics pixelToUnitRay(double u, double v) const;
+    std::vector<std::string> diagnosticLines() const;
     std::string profileDescription() const;
 
 private:

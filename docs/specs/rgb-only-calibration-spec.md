@@ -53,9 +53,12 @@ HIWIN ABC 公式是使用者核准的暫定 Z-Y-X 規則，不是目前公開 HI
 - 精確檢查 Orbbec SDK runtime version 為 `1.10.18`。
 - 列舉裝置並要求恰好一台 Gemini 2 XL。
 - 從 Color stream profile list 精確選擇 `1280x720 MJPG` 的最高 FPS。
-- 從同一個已選定的 `VideoStreamProfile` 讀取 `getIntrinsic()` 與 `getDistortion()`。
+- config 只啟用已選定的 Color profile，先成功啟動 Color-only pipeline。
+- pipeline 啟動後取得第一張 live Color frame，確認解析度、格式與已選 profile 一致。
+- 透過 Orbbec SDK v1.10.18 的 `Pipeline::getCameraParam()` 取得相機參數，只讀取回傳值中的 `rgbIntrinsic` 與 `rgbDistortion`。
+- 接受 RGB K/D 前，確認 `fx/fy` 有限且為正、`cx/cy` 有限且在 live `1280x720` 影像合理範圍內、intrinsic 尺寸與 live frame 相同，且八個畸變係數全部有限；任一不符即 fail closed。
 - 啟用並擷取 Color stream，保存未 resize、crop、flip、rotate 或 letterbox 的原始 MJPG frame。
-- 保存 serial number、firmware、SDK version、profile、K、D 與座標軸定義。
+- 保存已由 live frame 驗證的實際 Color profile、serial number、firmware、SDK version、K、D 與座標軸定義。
 - 讀取完全靜止的 Tool2/Base0 pose，前後取樣並確認姿態不變。
 - YOLO 僅提供原始影像上的 bbox center `(u,v)`；幾何計算維持在 C++。
 
@@ -66,6 +69,7 @@ HIWIN ABC 公式是使用者核准的暫定 Z-Y-X 規則，不是目前公開 HI
 - D2C hardware/software alignment mode。
 - `getD2CDepthProfileList(...)` 與任何 matched Color/Depth profile 要求。
 - `Pipeline::getCalibrationParam(config)`。
+- `VideoStreamProfile::getIntrinsic()` 與 `VideoStreamProfile::getDistortion()` 作為 Gemini 2 XL RGB K/D 取得路徑。
 - 為取得 RGB 射線而保存或合成 `OBCalibrationParam`。
 - `CoordinateTransformHelper::calibration2dTo3dUndistortion`、`calibration3dTo2d` 與 `transformationInitXYTables`。
 - depth=1／1000 的 SDK helper 比例檢查，以及任何 Depth extrinsic、Depth frame 或深度單位。
@@ -165,6 +169,7 @@ P_Base0 = C_Base0 + lambda * d_Base0
 - Brown solver：中心、四角、邊界、YOLO subpixel、強畸變、未收斂、近零分母。
 - geometry：rotation matrix、前向射線、平行平面、負 lambda、球心平面。
 - live-match：serial/profile/K/D 任一不符即拒絕。
+- live camera parameter：Color-only pipeline 必須先啟動，live frame 與選定 profile 必須一致，`Pipeline::getCameraParam()` 回傳的 Color K/D 必須通過有限值、焦距、主點與尺寸檢查。
 - 禁用搜尋：production source 不得再出現 Depth/D2C/full-calibration helper 路徑。
 
 ### 7.2 實機 gate
@@ -198,6 +203,6 @@ P_Base0 = C_Base0 + lambda * d_Base0
 5. 至少六點實機 ground truth 通過全部門檻。
 6. 輸出仍禁止機械手臂動作。
 
-目前第 1、3、4、6 項已完成；第 2 項仍待 live Gemini 2 XL 確認，第 5 項仍待使用者提供並量測實機 ground truth，因此整體完成定義尚未達成。
+目前第 1、3、4、6 項已完成；第 2 項改用 Color-only pipeline 啟動後的 `Pipeline::getCameraParam()` RGB 欄位，但仍待 live Gemini 2 XL 確認；第 5 項仍待使用者提供並量測實機 ground truth，因此整體完成定義尚未達成。成功取得 K/D 不代表 Base0 ground-truth 驗收完成。
 
 主程式整合與袋口 Base0 計算都不屬於本修改。球點通過後，下一步必須先提醒使用者核准袋口規格；主程式整合必須再次取得明確同意。

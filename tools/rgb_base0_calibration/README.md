@@ -11,7 +11,8 @@
 - 只連接一台 Orbbec Gemini 2 XL。
 - Gemini 2 XL 原生資料連線是 USB 2.0；即使插入藍色 USB 3.x 連接埠，SDK 顯示 `USB2.0` 仍屬正常。
 - 相機必須提供 `1280x720 MJPG`；程式會選該格式實際可用的最高 FPS，並把 FPS 寫入校正檔。使用者實機目前回報最高為 10 FPS。沒有符合 profile 時直接停止並列出 SDK 回報的 profiles。
-- 程式只啟用選定的 Color profile，直接從同一個 `VideoStreamProfile` 讀取 RGB intrinsic 與 Brown distortion。它不查詢或啟用 Depth、不做 D2C，也不呼叫 `getCalibrationParam()`。
+- 程式只啟用選定的 Color profile，先啟動 Color-only pipeline 並確認第一張 live frame 是選定的 `1280x720 MJPG`，再從 Orbbec SDK v1.10.18 `Pipeline::getCameraParam()` 回傳值中只取 `rgbIntrinsic` 與 `rgbDistortion`。它不查詢或啟用 Depth、不做 D2C，也不呼叫 `getCalibrationParam()`。
+- RGB K/D 必須與實際 live Color frame 尺寸一致；焦距、主點與全部畸變係數通過有限值和範圍檢查後才會寫入校正檔，否則直接停止。校正檔同時保存經 live frame 驗證的 Color profile、相機序號、韌體與 SDK 版本。
 - HIWIN RA605-GC 控制器預設 IP `192.168.0.1`；操作者要先把手臂放在固定拍攝姿態並完全停止。
 - 控制器中的 Tool2 必須已由操作者設定好，而且 Tool2 原點就是 RGB optical center、Tool2 軸與 RGB optical 軸對齊。
 - 程式只暫時呼叫 `set_tool_number(2)`、`set_base_number(0)` 與讀取狀態／姿態函式。程式碼中沒有移動、馬達、清除警報或 DO 命令。
@@ -167,8 +168,8 @@ build/rgb_base0_calibration/rgb_base0_validate.exe `
 
 ## 軟體狀態與尚未完成
 
-- RGB-only Color profile、K/D 擷取、Brown inverse solver、schema v1.2、離線測試與建置已完成。
-- 尚未在使用者實機執行新的 RGB-only 校正，因此尚未確認 live Gemini 2 XL K/D 擷取與 Color-only stream capture。
+- RGB-only Color profile、pipeline 啟動後的 `getCameraParam()` RGB K/D 擷取、Brown inverse solver 與 schema v1.2 已實作。
+- 尚未在使用者實機執行新的 RGB-only 校正，因此尚未確認 live Gemini 2 XL K/D 擷取與 Color-only stream capture；即使 K/D 取得成功，也仍須完成 Base0 ground-truth 驗證。
 - 未做真實機械手臂移動或主程式整合；這是刻意的安全界線。
 - 尚未以至少六個 Base0 ground truth 球心完成物理驗收。
 - 袋口 Base0 計算刻意延後；球點確認後必須提醒使用者補做。

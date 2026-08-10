@@ -210,6 +210,9 @@ int main(const int argc, char** argv) {
         {
             rgb_base0::OrbbecCamera camera;
             logger->line("[CAMERA] " + camera.profileDescription());
+            for(const std::string& line : camera.diagnosticLines()) {
+                logger->line(line);
+            }
             camera.copyCameraFieldsTo(calibration);
             const auto frames = camera.captureMjpgFrames(options.outputDirectory / "raw_frames", 1);
             logger->line("[CAMERA] saved unmodified raw MJPG " + frames.front().path.string()

@@ -657,6 +657,9 @@ int main(const int argc, char** argv) {
         rgb_base0::OrbbecCamera camera;
         camera.requireMatches(calibration);
         logger->line("[CAMERA] serial/profile/intrinsic/distortion match passed: " + camera.profileDescription());
+        for(const std::string& line : camera.diagnosticLines()) {
+            logger->line(line);
+        }
         const bool manualMode = !options.manualPixels.empty();
         const int frameCount = manualMode ? 1 : 10;
         const auto frames = camera.captureMjpgFrames(runDirectory / "raw_frames", frameCount);
