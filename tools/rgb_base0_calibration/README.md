@@ -3,7 +3,7 @@
 這個目錄是獨立實驗工具，不會接入主程式，也不會把結果送給機械手臂。它只做兩件事：
 
 1. `rgb_base0_calibrate`：讀取已靜止的 HIWIN Tool2／Base0 姿態與 Gemini 2 XL RGB 內參，建立等價的 YAML、JSON 校正檔。
-2. `rgb_base0_validate`：把原始 RGB 像素用 Orbbec SDK v1.10.18 反投影成光線，再與 Base0 水平球心平面相交，輸出實驗點位與完整診斷。
+2. `rgb_base0_validate`：把原始 RGB 像素用版本化 Brown inverse solver 反投影成光線，再與 Base0 水平球心平面相交，輸出實驗點位與完整診斷。
 
 ## 必要前提與安全限制
 
@@ -11,7 +11,7 @@
 - 只連接一台 Orbbec Gemini 2 XL。
 - Gemini 2 XL 原生資料連線是 USB 2.0；即使插入藍色 USB 3.x 連接埠，SDK 顯示 `USB2.0` 仍屬正常。
 - 相機必須提供 `1280x720 MJPG`；程式會選該格式實際可用的最高 FPS，並把 FPS 寫入校正檔。使用者實機目前回報最高為 10 FPS。沒有符合 profile 時直接停止並列出 SDK 回報的 profiles。
-- 程式依 Orbbec SDK v1.10.18 `Sample-Transformation` 的流程，同時啟用同 FPS 的輔助 Depth profile、啟動 pipeline 後取得完整校正參數。Depth frame 不參與球座標求解，球的光線尺度仍由平面交點決定。
+- 程式只啟用選定的 Color profile，直接從同一個 `VideoStreamProfile` 讀取 RGB intrinsic 與 Brown distortion。它不查詢或啟用 Depth、不做 D2C，也不呼叫 `getCalibrationParam()`。
 - HIWIN RA605-GC 控制器預設 IP `192.168.0.1`；操作者要先把手臂放在固定拍攝姿態並完全停止。
 - 控制器中的 Tool2 必須已由操作者設定好，而且 Tool2 原點就是 RGB optical center、Tool2 軸與 RGB optical 軸對齊。
 - 程式只暫時呼叫 `set_tool_number(2)`、`set_base_number(0)` 與讀取狀態／姿態函式。程式碼中沒有移動、馬達、清除警報或 DO 命令。
@@ -41,17 +41,17 @@
 
 對原始 `1280x720` RGB 像素 `(u,v)`：
 
-1. 呼叫 Orbbec `calibration2dTo3dUndistortion(..., depth=1, COLOR, COLOR)` 得到只代表比例的 RGB 光線點。
-2. 同時用 depth=1000 驗證方向相同與比例約 1000 倍；depth=1/1000 都不是量測深度。
-3. 再做 3D→2D 回投影與 RGB XY-table 方向交叉檢查；任何不一致、非有限值或 `RGB z<=0` 都停止。
-4. 正規化為單位向量，乘上 `R_Base0_from_RGB`。
+1. 以 `fx,fy,cx,cy` 把 distorted pixel 轉成正規化座標。
+2. 使用 `rgb_brown_rational_v1` 迭代反解 undistorted 座標。最多 50 次、normalized convergence tolerance `1e-12`；未收斂、分母接近零、Jacobian 奇異或發散時停止。
+3. 用同一 forward model 回投影，誤差必須不超過 `0.25 px`。這只證明 solver 與其工程模型自洽，不證明模型就是相機的真實畸變；最後仍須通過 Base0 ground truth。
+4. 形成 `[x,y,1]` 並正規化為 RGB optical 單位向量，再乘上 `R_Base0_from_RGB`。
 5. 撞球直徑為 `44.5 mm`、半徑為 `22.25 mm`；球心平面為 `Z_target = Z_table + 22.25 mm`，交點比例：
 
    `lambda = (Z_target - C_Base0.z) / ray_Base0.z`
 
-6. `lambda<=0` 或光線近乎平行時拒絕，不會使用 depth frame 求 lambda。
+6. `lambda<=0` 或光線近乎平行時拒絕；流程完全不使用 Depth stream。
 
-畸變係數依 SDK 欄位順序保存為 `k1,k2,k3,k4,k5,k6,p1,p2`。程式不把它們假設成 OpenCV 係數順序，也不使用 `cv::fisheye`；實際反投影完全交給 Orbbec SDK。
+畸變係數依 SDK 欄位順序保存為 `k1,k2,k3,k4,k5,k6,p1,p2`。程式不把它們直接當成 OpenCV 8-vector，也不使用 `cv::fisheye`。目前版本化工程映射為：radial numerator=`k1,k2,k3`、radial denominator=`k4,k5,k6`、tangential=`p1,p2`。Orbbec profile API 未暴露足以獨立證實此完整方程的 variant，因此校正檔會明確保存 `engineering_assumption_pending_ground_truth_validation`，實機 ground truth 未通過前不得整合主程式。
 
 ## 建置
 
@@ -97,8 +97,7 @@ output/rgb_base0_calibration/<timestamp>/
   terminal_log.txt
 ```
 
-YAML 與 JSON 寫完後會立刻用嚴格 parser 讀回並檢查語意完全相同。缺欄、重複欄、錯誤型別、非有限數值、序號或 profile 不合都會報錯。
-兩者都明確保存 K、D、frame 定義、Tool2 原始 XYZABC、三個 rotation matrices、Tool2→RGB 修正、`C_Base0`、constant-Z plane 與單位；每個 rotation matrix 都檢查 `R^T R`、正交誤差與 determinant。
+YAML 與 JSON 寫完後會立刻用嚴格 parser 讀回並檢查語意完全相同。schema v1.2 明確保存 `authorized_for_robot_motion=false`、K、D、工程模型／係數映射、solver 版本與門檻、frame 定義、Tool2 原始 XYZABC、三個 rotation matrices、Tool2→RGB 修正、`C_Base0`、constant-Z plane 與單位。缺欄、重複欄、錯誤型別、非有限數值、序號或 profile 不合都會報錯；每個 rotation matrix 都檢查 `R^T R`、正交誤差與 determinant。
 
 ## 2. 自動 YOLO 驗證
 
@@ -166,9 +165,11 @@ build/rgb_base0_calibration/rgb_base0_validate.exe `
 
 目前已確認 `Z_table=-233.51 mm`，因此本配置的球心平面是 `-233.51+22.25=-211.26 mm`。若桌高改變，ground truth 的 Z 也必須跟著更新。
 
-## 尚未完成
+## 軟體狀態與尚未完成
 
+- RGB-only Color profile、K/D 擷取、Brown inverse solver、schema v1.2、離線測試與建置已完成。
+- 尚未在使用者實機執行新的 RGB-only 校正，因此尚未確認 live Gemini 2 XL K/D 擷取與 Color-only stream capture。
 - 未做真實機械手臂移動或主程式整合；這是刻意的安全界線。
-- 尚未用使用者的實際 `Z_table` 與實機 ground truth 完成物理驗收。
+- 尚未以至少六個 Base0 ground truth 球心完成物理驗收。
 - 袋口 Base0 計算刻意延後；球點確認後必須提醒使用者補做。
 - HIWIN ABC 的正式矩陣公式仍待對應控制器／HRSS 版本的官方確認；目前只能使用已明確標記的暫定 Z‑Y‑X 規則。

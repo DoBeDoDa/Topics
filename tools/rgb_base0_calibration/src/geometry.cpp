@@ -265,7 +265,7 @@ PlaneIntersection intersectRayWithHorizontalPlane(const Vec3& originBase0,
 }
 
 void validateCalibration(const CalibrationData& calibration) {
-    if(calibration.schemaVersion != "1.1") {
+    if(calibration.schemaVersion != "1.2") {
         throw std::runtime_error("Unsupported calibration schema_version: " + calibration.schemaVersion);
     }
     if(calibration.createdUtc.empty()) {
@@ -280,6 +280,9 @@ void validateCalibration(const CalibrationData& calibration) {
     }
     if(!calibration.experimental) {
         throw std::runtime_error("This schema only permits experimental calibration data");
+    }
+    if(calibration.authorizedForRobotMotion) {
+        throw std::runtime_error("RGB-only calibration data cannot authorize robot motion");
     }
     if(calibration.profile.width != 1280 || calibration.profile.height != 720 || calibration.profile.format != "MJPG") {
         throw std::runtime_error("Calibration profile must be exactly 1280x720 MJPG");
@@ -304,7 +307,19 @@ void validateCalibration(const CalibrationData& calibration) {
     }
     if(calibration.distortionFamily != "orbbec_brown"
        || calibration.distortionVariant != "not_exposed_by_profile_api"
-       || calibration.distortionHandling != "orbbec_sdk_inverse_projection") {
+       || calibration.distortionHandling != "versioned_iterative_brown_inverse"
+       || calibration.distortionModelAssumption !=
+              "engineering_assumption_pending_ground_truth_validation"
+       || calibration.distortionCoefficientMapping !=
+              "radial_numerator=k1,k2,k3; radial_denominator=k4,k5,k6; tangential=p1,p2"
+       || calibration.inverseProjectionVersion != "rgb_brown_rational_v1"
+       || calibration.inverseMaxIterations != kBrownInverseMaxIterations
+       || !finite(calibration.inverseConvergenceTolerance)
+       || !finite(calibration.inverseReprojectionTolerancePx)
+       || std::abs(calibration.inverseConvergenceTolerance
+                   - kBrownInverseConvergenceTolerance) > 1e-18
+       || std::abs(calibration.inverseReprojectionTolerancePx
+                   - kBrownReprojectionTolerancePx) > 1e-12) {
         throw std::runtime_error("Calibration distortion metadata is unsupported");
     }
     if(calibration.opticalAxes != "+X image-right, +Y image-down, +Z forward") {

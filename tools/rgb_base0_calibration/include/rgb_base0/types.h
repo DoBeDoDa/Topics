@@ -8,6 +8,14 @@ namespace rgb_base0 {
 
 inline constexpr double kBallDiameterMm = 44.5;
 inline constexpr double kBallRadiusMm = kBallDiameterMm / 2.0;
+inline constexpr int kBrownInverseMaxIterations = 50;
+inline constexpr double kBrownInverseConvergenceTolerance = 1e-12;
+inline constexpr double kBrownReprojectionTolerancePx = 0.25;
+
+struct Vec2 {
+    double x = 0.0;
+    double y = 0.0;
+};
 
 struct Vec3 {
     double x = 0.0;
@@ -52,9 +60,10 @@ struct CameraDistortionData {
 };
 
 struct CalibrationData {
-    std::string schemaVersion = "1.1";
+    std::string schemaVersion = "1.2";
     std::string createdUtc;
     bool experimental = true;
+    bool authorizedForRobotMotion = false;
 
     std::string sdkVersion = "1.10.18";
     std::string cameraModel = "Orbbec Gemini 2 XL";
@@ -66,7 +75,15 @@ struct CalibrationData {
     CameraDistortionData distortion;
     std::string distortionFamily = "orbbec_brown";
     std::string distortionVariant = "not_exposed_by_profile_api";
-    std::string distortionHandling = "orbbec_sdk_inverse_projection";
+    std::string distortionHandling = "versioned_iterative_brown_inverse";
+    std::string distortionModelAssumption =
+        "engineering_assumption_pending_ground_truth_validation";
+    std::string distortionCoefficientMapping =
+        "radial_numerator=k1,k2,k3; radial_denominator=k4,k5,k6; tangential=p1,p2";
+    std::string inverseProjectionVersion = "rgb_brown_rational_v1";
+    int inverseMaxIterations = kBrownInverseMaxIterations;
+    double inverseConvergenceTolerance = kBrownInverseConvergenceTolerance;
+    double inverseReprojectionTolerancePx = kBrownReprojectionTolerancePx;
     std::string opticalAxes = "+X image-right, +Y image-down, +Z forward";
     std::string cameraFrameName = "gemini2xl_rgb_optical_frame";
     std::string baseFrameName = "Base0";
@@ -105,13 +122,13 @@ struct RotationDiagnostics {
 };
 
 struct PixelRayDiagnostics {
-    Vec3 qAt1Mm;
-    Vec3 qAt1000Mm;
+    Vec2 distortedNormalized;
+    Vec2 undistortedNormalized;
+    Vec2 reprojectedPixel;
     Vec3 unitRayRgb;
-    double normalizedDirectionDifference = 0.0;
-    double scaleResidualMm = 0.0;
+    int inverseIterations = 0;
+    double finalNormalizedResidual = 0.0;
     double reprojectionErrorPx = 0.0;
-    double xyTableDirectionDifference = 0.0;
 };
 
 struct PlaneIntersection {

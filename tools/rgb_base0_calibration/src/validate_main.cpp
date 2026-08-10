@@ -492,16 +492,24 @@ void writeResults(const std::filesystem::path& runDirectory,
         throw std::runtime_error("Cannot create validation result artifacts");
     }
     json << std::setprecision(17)
-         << "{\n  \"schema_version\": \"1.0\",\n"
+         << "{\n  \"schema_version\": \"1.1\",\n"
          << "  \"experimental\": true,\n"
+         << "  \"authorized_for_robot_motion\": false,\n"
          << "  \"mode\": \"" << mode << "\",\n"
          << "  \"camera_serial\": \"" << escapeJson(calibration.serialNumber) << "\",\n"
+         << "  \"distortion_model_assumption\": \""
+         << escapeJson(calibration.distortionModelAssumption) << "\",\n"
+         << "  \"distortion_coefficient_mapping\": \""
+         << escapeJson(calibration.distortionCoefficientMapping) << "\",\n"
+         << "  \"inverse_projection_version\": \""
+         << escapeJson(calibration.inverseProjectionVersion) << "\",\n"
          << "  \"rotation_convention_source\": \"user_approved_temporary\",\n"
          << "  \"target_ball_center_z_mm\": " << calibration.zTableMm + calibration.ballRadiusMm << ",\n"
          << "  \"points\": [\n";
     csv << "class_id,class_name,source,u,v,observation_count,inlier_count,median_radial_distance_px,"
            "ray_rgb_x,ray_rgb_y,ray_rgb_z,ray_base0_x,ray_base0_y,ray_base0_z,lambda_mm,base0_x_mm,base0_y_mm,base0_z_mm,"
-           "direction_diff,scale_residual_mm,reprojection_error_px,xy_table_direction_diff\n";
+            "distorted_normalized_x,distorted_normalized_y,undistorted_normalized_x,undistorted_normalized_y,"
+            "inverse_iterations,final_normalized_residual,reprojection_error_px\n";
     for(std::size_t index = 0; index < results.size(); ++index) {
         const PointResult& result = results[index];
         const auto& input = result.input;
@@ -515,24 +523,29 @@ void writeResults(const std::filesystem::path& runDirectory,
              << "      \"observation_count\": " << input.observationCount << ",\n"
              << "      \"inlier_count\": " << input.inlierCount << ",\n"
              << "      \"median_radial_distance_px\": " << input.medianRadialDistancePx << ",\n"
-             << "      \"q_at_1_mm_rgb\": [" << ray.qAt1Mm.x << ", " << ray.qAt1Mm.y << ", " << ray.qAt1Mm.z << "],\n"
-             << "      \"q_at_1000_mm_rgb\": [" << ray.qAt1000Mm.x << ", " << ray.qAt1000Mm.y << ", " << ray.qAt1000Mm.z << "],\n"
+             << "      \"distorted_normalized\": [" << ray.distortedNormalized.x << ", "
+             << ray.distortedNormalized.y << "],\n"
+             << "      \"undistorted_normalized\": [" << ray.undistortedNormalized.x << ", "
+             << ray.undistortedNormalized.y << "],\n"
+             << "      \"reprojected_pixel\": [" << ray.reprojectedPixel.x << ", "
+             << ray.reprojectedPixel.y << "],\n"
              << "      \"unit_ray_rgb\": [" << ray.unitRayRgb.x << ", " << ray.unitRayRgb.y << ", " << ray.unitRayRgb.z << "],\n"
              << "      \"unit_ray_base0\": [" << hit.unitRayBase0.x << ", " << hit.unitRayBase0.y << ", " << hit.unitRayBase0.z << "],\n"
              << "      \"lambda_mm\": " << hit.lambdaMm << ",\n"
              << "      \"point_base0_mm\": [" << hit.pointBase0.x << ", " << hit.pointBase0.y << ", " << hit.pointBase0.z << "],\n"
-             << "      \"diagnostics\": {\"direction_difference\": " << ray.normalizedDirectionDifference
-             << ", \"scale_residual_mm\": " << ray.scaleResidualMm << ", \"reprojection_error_px\": "
-             << ray.reprojectionErrorPx << ", \"xy_table_direction_difference\": "
-             << ray.xyTableDirectionDifference << "}\n"
+             << "      \"diagnostics\": {\"inverse_iterations\": " << ray.inverseIterations
+             << ", \"final_normalized_residual\": " << ray.finalNormalizedResidual
+             << ", \"reprojection_error_px\": " << ray.reprojectionErrorPx << "}\n"
              << "    }" << (index + 1 == results.size() ? "\n" : ",\n");
         csv << input.classId << ",\"" << input.name << "\"," << input.source << ',' << input.u << ',' << input.v << ','
             << input.observationCount << ',' << input.inlierCount << ',' << input.medianRadialDistancePx << ','
             << ray.unitRayRgb.x << ',' << ray.unitRayRgb.y << ',' << ray.unitRayRgb.z << ','
             << hit.unitRayBase0.x << ',' << hit.unitRayBase0.y << ',' << hit.unitRayBase0.z << ',' << hit.lambdaMm << ','
             << hit.pointBase0.x << ',' << hit.pointBase0.y << ',' << hit.pointBase0.z << ','
-            << ray.normalizedDirectionDifference << ',' << ray.scaleResidualMm << ',' << ray.reprojectionErrorPx << ','
-            << ray.xyTableDirectionDifference << '\n';
+            << ray.distortedNormalized.x << ',' << ray.distortedNormalized.y << ','
+            << ray.undistortedNormalized.x << ',' << ray.undistortedNormalized.y << ','
+            << ray.inverseIterations << ',' << ray.finalNormalizedResidual << ','
+            << ray.reprojectionErrorPx << '\n';
     }
     json << "  ],\n  \"ground_truth\": {\n"
          << "    \"status\": \"" << escapeJson(truth.status) << "\",\n"
@@ -556,8 +569,7 @@ void writeResults(const std::filesystem::path& runDirectory,
              << (index + 1 == truth.errors.size() ? "\n" : ",\n");
     }
     json << "    ]\n  },\n"
-         << "  \"hole_calculation\": \"deferred_until_ball_points_confirmed\",\n"
-         << "  \"authorized_for_robot_motion\": false\n}\n";
+         << "  \"hole_calculation\": \"deferred_until_ball_points_confirmed\"\n}\n";
     if(!json || !csv) {
         throw std::runtime_error("Failed writing validation result artifacts");
     }
@@ -597,6 +609,13 @@ int main(const int argc, char** argv) {
                      + std::to_string(calibration.intrinsic.cy) + "],[0,0,1]]");
         logger->line("[DISTORTION] model=" + calibration.distortionFamily + " variant="
                      + calibration.distortionVariant + " method=" + calibration.distortionHandling);
+        logger->line("  assumption=" + calibration.distortionModelAssumption);
+        logger->line("  mapping=" + calibration.distortionCoefficientMapping);
+        logger->line("  inverse_version=" + calibration.inverseProjectionVersion
+                     + " max_iterations=" + std::to_string(calibration.inverseMaxIterations)
+                     + " convergence_tolerance=" + std::to_string(calibration.inverseConvergenceTolerance)
+                     + " reprojection_tolerance_px="
+                     + std::to_string(calibration.inverseReprojectionTolerancePx));
         logger->line("  D[k1,k2,k3,k4,k5,k6,p1,p2]=[" + std::to_string(calibration.distortion.k1) + ","
                      + std::to_string(calibration.distortion.k2) + "," + std::to_string(calibration.distortion.k3) + ","
                      + std::to_string(calibration.distortion.k4) + "," + std::to_string(calibration.distortion.k5) + ","
@@ -682,13 +701,15 @@ int main(const int argc, char** argv) {
             const rgb_base0::PlaneIntersection intersection = rgb_base0::intersectRayWithHorizontalPlane(
                 calibration.tBase0FromRgb, rayBase0, targetZ);
             results.push_back({pixel, ray, intersection});
-            logger->line("[UNDISTORTION / INVERSE PROJECTION] API=Orbbec calibration2dTo3dUndistortion COLOR->COLOR");
-            logger->line("  q_depth_1_mm=" + vectorText(ray.qAt1Mm)
-                         + " q_depth_1000_mm=" + vectorText(ray.qAt1000Mm)
-                         + " direction_diff=" + std::to_string(ray.normalizedDirectionDifference)
-                         + " scale_residual_mm=" + std::to_string(ray.scaleResidualMm)
-                         + " reprojection_error_px=" + std::to_string(ray.reprojectionErrorPx)
-                         + " xy_table_direction_diff=" + std::to_string(ray.xyTableDirectionDifference));
+            logger->line("[UNDISTORTION / INVERSE PROJECTION] algorithm="
+                         + calibration.inverseProjectionVersion + " RGB-only");
+            logger->line("  distorted_normalized=[" + std::to_string(ray.distortedNormalized.x) + ","
+                         + std::to_string(ray.distortedNormalized.y) + "] undistorted_normalized=["
+                         + std::to_string(ray.undistortedNormalized.x) + ","
+                         + std::to_string(ray.undistortedNormalized.y) + "] iterations="
+                         + std::to_string(ray.inverseIterations) + " normalized_residual="
+                         + std::to_string(ray.finalNormalizedResidual) + " reprojection_error_px="
+                         + std::to_string(ray.reprojectionErrorPx));
             logger->line("[RAY CAMERA] d_camera=" + vectorText(ray.unitRayRgb)
                          + " norm=" + std::to_string(rgb_base0::norm(ray.unitRayRgb)));
             logger->line("[RAY BASE0] d_Base0=" + vectorText(intersection.unitRayBase0)
@@ -706,7 +727,7 @@ int main(const int argc, char** argv) {
                  << intersection.unitRayBase0.y << ',' << intersection.unitRayBase0.z << ") lambda_mm="
                  << intersection.lambdaMm << " Base0_mm=(" << intersection.pointBase0.x << ','
                  << intersection.pointBase0.y << ',' << intersection.pointBase0.z << ") reprojection_px="
-                 << ray.reprojectionErrorPx << " xy_table_diff=" << ray.xyTableDirectionDifference;
+                 << ray.reprojectionErrorPx << " inverse_iterations=" << ray.inverseIterations;
             logger->line(line.str());
         }
 
