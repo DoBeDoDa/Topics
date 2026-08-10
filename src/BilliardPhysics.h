@@ -10,37 +10,15 @@
 #include "GeometryResults.h"
 #include "Point.h"
 
-struct PocketBoundaryCut {
-    BilliardConfig::PocketId pocketId;
-    Point entranceCenter;
-    Segment2D pocketExitSegment;
-    Vector2D outwardUnitNormal;
-};
-
 struct PlayableBallCenterRegion {
     AxisAlignedBounds2D bounds;
-    std::vector<PocketBoundaryCut> pocketBoundaries;
 };
 
-struct PocketCaptureCorridor {
-    BilliardConfig::PocketId pocketId;
-    Point entranceCenter;
-    Point virtualPocketTarget;
-    Vector2D outwardUnitNormal;
-    double halfWidthMm;
-};
-
-struct ResolvedPocketModel {
+struct ResolvedPocket {
     BilliardConfig::PocketId id;
-    BilliardConfig::PocketType type;
-    Point wirePocketCenter;
-    Vector2D outwardUnitNormal;
-    Point virtualPocketTarget;
-    Segment2D pocketExitSegment;
-    PocketCaptureCorridor captureCorridor;
-    double exitCrossingEpsilon;
-    double maxEntryAngleDeg;
-    double pocketBoundaryProbeEpsilonMm;
+
+    // 當次Vision取得的Robot Base0 XY袋口點
+    Point center;
 };
 
 struct PhysicalRailSegment {
@@ -64,7 +42,7 @@ struct RailReflectionRegion {
 struct ResolvedTableGeometry {
     std::string calibrationRevision;
     PlayableBallCenterRegion playableBallCenterRegion;
-    std::array<ResolvedPocketModel, 6> pockets;
+    std::array<ResolvedPocket, 6> pockets;
     std::array<PhysicalRailSegment, 6> physicalRails;
     RailReflectionRegion railReflectionRegion;
     double ballRadiusMm;
@@ -102,10 +80,6 @@ private:
     GhostBallDiagnostic diagnostic_;
 };
 
-struct PocketEntryAngle {
-    double degrees;
-};
-
 struct MinimumClearance {
     // nullopt means no non-excluded stationary obstacle exists.
     std::optional<double> millimeters;
@@ -121,11 +95,6 @@ public:
         const std::array<Point, 6>& currentCyclePocketCenters,
         const std::optional<BilliardConfig::TableGeometryConfig>& config);
 
-    static GeometryValueResult<ResolvedPocketModel> resolvePocketModel(
-        Point wirePocketCenter,
-        const BilliardConfig::PocketModelConfig& config,
-        const PlayableBallCenterRegion& playableRegion);
-
     static GeometryValueResult<EffectiveCueBallRailSegment> deriveEffectiveRail(
         const BilliardConfig::PhysicalRailConfig& physicalRail,
         const PlayableBallCenterRegion& playableRegion,
@@ -134,16 +103,8 @@ public:
     static GhostBallResult computeGhostBallPoint(
         Point cueBallCenter,
         Point targetBallCenter,
-        Point virtualPocketTarget,
+        Point pocketTarget,
         double ballRadiusMm);
-
-    static GeometryValueResult<PocketEntryAngle> computePocketEntryAngle(
-        Point targetBallCenter,
-        const ResolvedPocketModel& pocket);
-
-    static GeometryCheckResult checkPocketExitDirection(
-        Vector2D unitMovementDirection,
-        const ResolvedPocketModel& pocket);
 
     static GeometryCheckResult checkSegmentWithinPlayableRegion(
         Segment2D path,
@@ -151,8 +112,7 @@ public:
 
     static GeometryCheckResult checkTargetPathToPocket(
         Segment2D targetPath,
-        BilliardConfig::PocketId selectedPocket,
-        const std::array<ResolvedPocketModel, 6>& pockets,
+        Point pocketTarget,
         const PlayableBallCenterRegion& playableRegion);
 
     static GeometryCheckResult checkSegmentCollision(

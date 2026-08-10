@@ -15,32 +15,10 @@
 
 namespace {
 
-constexpr double ROOT_HALF = 0.70710678118654752440;
-
-BilliardConfig::PocketModelConfig planningPocket(
-    BilliardConfig::PocketId id,
-    BilliardConfig::PocketType type,
-    Vector2D outward)
-{
-    const Vector2D side{-outward.y, outward.x};
-    const double half = type == BilliardConfig::PocketType::Corner
-        ? 14.142135623730951 : 20.0;
-    return {id, type, outward, 30.0,
-        {{-side.x * half, -side.y * half}, {side.x * half, side.y * half}},
-        15.0, 2.0, 0.01, 45.0};
-}
-
 BilliardConfig::TableGeometryConfig planningTableConfig()
 {
     using namespace BilliardConfig;
     return {"p2-03-table-v1", {0.0, 1000.0, 0.0, 500.0}, 10.0, 20.0, 2.0,
-        {{planningPocket(PocketId::Pocket1, PocketType::Corner,
-             {-ROOT_HALF, -ROOT_HALF}),
-          planningPocket(PocketId::Pocket2, PocketType::Side, {0.0, -1.0}),
-          planningPocket(PocketId::Pocket3, PocketType::Corner, {ROOT_HALF, -ROOT_HALF}),
-          planningPocket(PocketId::Pocket4, PocketType::Corner, {-ROOT_HALF, ROOT_HALF}),
-          planningPocket(PocketId::Pocket5, PocketType::Side, {0.0, 1.0}),
-          planningPocket(PocketId::Pocket6, PocketType::Corner, {ROOT_HALF, ROOT_HALF})}},
         {{{RailId::Rail1, {{0.0, 0.0}, {500.0, 0.0}}, {0.0, 1.0}, 40.0, 40.0},
           {RailId::Rail2, {{500.0, 0.0}, {1000.0, 0.0}}, {0.0, 1.0}, 40.0, 40.0},
           {RailId::Rail3, {{0.0, 500.0}, {500.0, 500.0}}, {0.0, -1.0}, 40.0, 40.0},
@@ -91,13 +69,13 @@ BilliardConfig::MotionPlanningConfig planningMotionConfig()
     config.legalContactExecutionAuthorized = false;
     config.productionLegalContactFallbackAuthorized = false;
     const BilliardConfig::FixedForceEnvelopeLimits direct{
-        true, 0.0, 5000.0, 90.0, 180.0, std::nullopt};
+        true, 0.0, 5000.0, 90.0, std::nullopt};
     const BilliardConfig::FixedForceEnvelopeLimits kick{
-        true, 0.0, 5000.0, 90.0, 180.0, 89.0};
+        true, 0.0, 5000.0, 90.0, 89.0};
     const BilliardConfig::FixedForceEnvelopeLimits directLegal{
-        true, 0.0, 5000.0, std::nullopt, std::nullopt, std::nullopt};
+        true, 0.0, 5000.0, std::nullopt, std::nullopt};
     const BilliardConfig::FixedForceEnvelopeLimits kickLegal{
-        true, 0.0, 5000.0, std::nullopt, std::nullopt, 89.0};
+        true, 0.0, 5000.0, std::nullopt, 89.0};
     config.fixedForceEnvelope = BilliardConfig::FixedForceEnvelopeConfig{
         "force-test-v1", direct, kick, directLegal, kickLegal};
     config.pneumaticTimingProfile =
@@ -148,8 +126,8 @@ ExecutionPlan validPlan()
            PlannedStageSuccessCondition::TargetReachedAndStopped,
            PlannedStageFailureTransition::StopFailClosed,
            PlannedPathCheck::ApprovedPtpPolicyAndTargetReachability}}},
-        {"force-test-v1", 100.0, 10.0, 5.0, std::nullopt,
-         0.0, 200.0, 90.0, 90.0, std::nullopt},
+        {"force-test-v1", 100.0, 10.0, std::nullopt,
+         0.0, 200.0, 90.0, std::nullopt},
         {"pneumatic-test-v1", 100, 50, 100}, "policy-test-v1",
         BilliardConfig::ExecutionPolicyMode::RealHardware,
         ExecutionPolicyDecision::PotAccepted,

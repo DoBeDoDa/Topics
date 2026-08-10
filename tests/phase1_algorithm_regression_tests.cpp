@@ -19,26 +19,19 @@ namespace {
 constexpr double ROOT_HALF = 0.70710678118654752440;
 constexpr double TOLERANCE = 1e-9;
 
-BilliardConfig::PocketModelConfig pocketConfig(
-    BilliardConfig::PocketId id,
-    BilliardConfig::PocketType type,
-    Vector2D outward)
-{
-    const Vector2D side{-outward.y, outward.x};
-    const double halfLength =
-        type == BilliardConfig::PocketType::Corner ? 14.142135623730951 : 20.0;
-    return {
-        id,
-        type,
-        outward,
-        30.0,
-        {{-side.x * halfLength, -side.y * halfLength},
-         {side.x * halfLength, side.y * halfLength}},
-        15.0,
-        2.0,
-        0.01,
-        45.0};
-}
+// Test-local per-pocket direction vectors (pointing from the table center out
+// toward each pocket). These no longer come from any production pocket-model
+// API -- the refactored Pocket model is just a Vision-provided point -- but
+// they preserve the exact fixture geometry the Direct/Kick tests were built
+// around, so cue/target/ghost placement per pocket stays identical.
+constexpr std::array<Vector2D, 6> POCKET_DIRECTIONS{{
+    {-ROOT_HALF, -ROOT_HALF},
+    {0.0, -1.0},
+    {ROOT_HALF, -ROOT_HALF},
+    {-ROOT_HALF, ROOT_HALF},
+    {0.0, 1.0},
+    {ROOT_HALF, ROOT_HALF}
+}};
 
 BilliardConfig::TableGeometryConfig tableConfig()
 {
@@ -49,14 +42,6 @@ BilliardConfig::TableGeometryConfig tableConfig()
         10.0,
         20.0,
         2.0,
-        {{
-            pocketConfig(PocketId::Pocket1, PocketType::Corner, {-ROOT_HALF, -ROOT_HALF}),
-            pocketConfig(PocketId::Pocket2, PocketType::Side, {0.0, -1.0}),
-            pocketConfig(PocketId::Pocket3, PocketType::Corner, {ROOT_HALF, -ROOT_HALF}),
-            pocketConfig(PocketId::Pocket4, PocketType::Corner, {-ROOT_HALF, ROOT_HALF}),
-            pocketConfig(PocketId::Pocket5, PocketType::Side, {0.0, 1.0}),
-            pocketConfig(PocketId::Pocket6, PocketType::Corner, {ROOT_HALF, ROOT_HALF})
-        }},
         {{
             {RailId::Rail1, {{0.0, 0.0}, {500.0, 0.0}}, {0.0, 1.0}, 40.0, 40.0},
             {RailId::Rail2, {{500.0, 0.0}, {1000.0, 0.0}}, {0.0, 1.0}, 40.0, 40.0},
@@ -102,10 +87,10 @@ StableTableState alignedStateForPocket(
     std::size_t pocketIndex)
 {
     const auto& pocket = geometry.pockets[pocketIndex];
-    const Vector2D outward = pocket.outwardUnitNormal;
+    const Vector2D outward = POCKET_DIRECTIONS[pocketIndex];
     const Point target{
-        pocket.wirePocketCenter.x - 100.0 * outward.x,
-        pocket.wirePocketCenter.y - 100.0 * outward.y};
+        pocket.center.x - 100.0 * outward.x,
+        pocket.center.y - 100.0 * outward.y};
     const Point ghost{
         target.x - 2.0 * geometry.ballRadiusMm * outward.x,
         target.y - 2.0 * geometry.ballRadiusMm * outward.y};
@@ -139,12 +124,13 @@ StableTableState kickStateForRebound(
 {
     const auto& rail = geometry.railReflectionRegion.rails[railIndex];
     const auto& pocket = geometry.pockets[pocketIndex];
+    const Vector2D outward = POCKET_DIRECTIONS[pocketIndex];
     const Point target{
-        pocket.wirePocketCenter.x - 100.0 * pocket.outwardUnitNormal.x,
-        pocket.wirePocketCenter.y - 100.0 * pocket.outwardUnitNormal.y};
+        pocket.center.x - 100.0 * outward.x,
+        pocket.center.y - 100.0 * outward.y};
     const Point ghost{
-        target.x - 2.0 * geometry.ballRadiusMm * pocket.outwardUnitNormal.x,
-        target.y - 2.0 * geometry.ballRadiusMm * pocket.outwardUnitNormal.y};
+        target.x - 2.0 * geometry.ballRadiusMm * outward.x,
+        target.y - 2.0 * geometry.ballRadiusMm * outward.y};
     const Vector2D outgoingRaw{ghost.x - rebound.x, ghost.y - rebound.y};
     const double outgoingLength = std::hypot(outgoingRaw.x, outgoingRaw.y);
     const Vector2D outgoing{
@@ -371,20 +357,20 @@ int main()
                 "Direct candidate keeps the selected lowest target fixed");
             tests.expectTrue(static_cast<std::size_t>(candidate.pocketId) == pocketIndex,
                 "Direct candidate preserves pocket ID");
-            tests.expectNear(candidate.virtualPocketTarget.x,
-                geometry.pockets[pocketIndex].virtualPocketTarget.x,
-                TOLERANCE, "Direct candidate uses resolved virtual target X");
-            tests.expectNear(candidate.virtualPocketTarget.y,
-                geometry.pockets[pocketIndex].virtualPocketTarget.y,
-                TOLERANCE, "Direct candidate uses resolved virtual target Y");
+            tests.expectNear(candidate.pocketTarget.x,
+                geometry.pockets[pocketIndex].center.x,
+                TOLERANCE, "Direct candidate uses resolved pocket target X");
+            tests.expectNear(candidate.pocketTarget.y,
+                geometry.pockets[pocketIndex].center.y,
+                TOLERANCE, "Direct candidate uses resolved pocket target Y");
             tests.expectNear(candidate.cuePath.end.x, candidate.ghostBallPoint.center.x,
                 TOLERANCE, "cue path ends at GhostBallPoint X");
             tests.expectNear(candidate.cuePath.end.y, candidate.ghostBallPoint.center.y,
                 TOLERANCE, "cue path ends at GhostBallPoint Y");
-            tests.expectNear(candidate.targetPath.end.x, candidate.virtualPocketTarget.x,
-                TOLERANCE, "target path ends at VirtualPocketTarget X");
-            tests.expectNear(candidate.targetPath.end.y, candidate.virtualPocketTarget.y,
-                TOLERANCE, "target path ends at VirtualPocketTarget Y");
+            tests.expectNear(candidate.targetPath.end.x, candidate.pocketTarget.x,
+                TOLERANCE, "target path ends at PocketTarget X");
+            tests.expectNear(candidate.targetPath.end.y, candidate.pocketTarget.y,
+                TOLERANCE, "target path ends at PocketTarget Y");
             tests.expectNear(
                 std::hypot(
                     candidate.target.center.x - candidate.ghostBallPoint.center.x,
@@ -397,7 +383,7 @@ int main()
 
     auto nearContactState = alignedStateForPocket(geometry, 1);
     const Point nearContactTarget = *nearContactState.objectBalls[0];
-    const Vector2D nearContactOutward = geometry.pockets[1].outwardUnitNormal;
+    const Vector2D nearContactOutward = POCKET_DIRECTIONS[1];
     const Point nearContactGhost{
         nearContactTarget.x - 2.0 * geometry.ballRadiusMm * nearContactOutward.x,
         nearContactTarget.y - 2.0 * geometry.ballRadiusMm * nearContactOutward.y};
@@ -431,10 +417,10 @@ int main()
     const Point cueMid{
         (blockedCueState.cueBall.x +
          (blockedCueState.objectBalls[0]->x -
-          2.0 * geometry.ballRadiusMm * geometry.pockets[1].outwardUnitNormal.x)) / 2.0,
+          2.0 * geometry.ballRadiusMm * POCKET_DIRECTIONS[1].x)) / 2.0,
         (blockedCueState.cueBall.y +
          (blockedCueState.objectBalls[0]->y -
-          2.0 * geometry.ballRadiusMm * geometry.pockets[1].outwardUnitNormal.y)) / 2.0};
+          2.0 * geometry.ballRadiusMm * POCKET_DIRECTIONS[1].y)) / 2.0};
     blockedCueState.objectBalls[1] = cueMid;
     const auto blockedCueTarget = selector.select(blockedCueState);
     if (!blockedCueTarget.value()) {
@@ -456,9 +442,9 @@ int main()
     auto blockedTargetState = alignedStateForPocket(geometry, 1);
     blockedTargetState.objectBalls[1] = Point{
         (blockedTargetState.objectBalls[0]->x +
-         geometry.pockets[1].virtualPocketTarget.x) / 2.0,
+         geometry.pockets[1].center.x) / 2.0,
         (blockedTargetState.objectBalls[0]->y +
-         geometry.pockets[1].virtualPocketTarget.y) / 2.0};
+         geometry.pockets[1].center.y) / 2.0};
     const auto blockedTargetSelection = selector.select(blockedTargetState);
     if (!blockedTargetSelection.value()) {
         tests.expectTrue(false, "blocked-target fixture has a selected target");
@@ -495,70 +481,16 @@ int main()
             DirectPotRejectionReason::GhostGeometryInvalid,
         "overlapping cue and target geometry is rejected without fallback Point");
 
-    auto wrongExitGeometry = geometry;
-    wrongExitGeometry.pockets[0].pocketExitSegment.start.x =
-        std::numeric_limits<double>::quiet_NaN();
-    const auto normalState = alignedStateForPocket(geometry, 1);
-    const auto normalSelection = selector.select(normalState);
-    if (!normalSelection.value()) {
-        tests.expectTrue(false, "wrong-exit fixture has a selected target");
-        return tests.exitCode();
-    }
-    const auto wrongExit = BilliardAlgorithm::generateDirectPotCandidates(
-        normalState, *normalSelection.value(), wrongExitGeometry);
-    if (!wrongExit.value()) {
-        tests.expectTrue(false, "wrong-exit evaluation returns a business value");
-        return tests.exitCode();
-    }
-    tests.expectTrue(
-        diagnosticFor(*wrongExit.value(), 1) &&
-        diagnosticFor(*wrongExit.value(), 1)->reason ==
-            DirectPotRejectionReason::TargetPathInvalid,
-        "wrong or malformed pocket exit rejects Direct candidate");
-
-    auto entryGeometry = geometry;
-    entryGeometry.pockets[1].maxEntryAngleDeg = 5.0;
-    auto entryState = alignedStateForPocket(entryGeometry, 1);
-    const Point entryTarget{520.0, 110.0};
-    const Vector2D toPocket{
-        entryGeometry.pockets[1].virtualPocketTarget.x - entryTarget.x,
-        entryGeometry.pockets[1].virtualPocketTarget.y - entryTarget.y};
-    const double toPocketLength = std::hypot(toPocket.x, toPocket.y);
-    const Vector2D entryUnit{toPocket.x / toPocketLength, toPocket.y / toPocketLength};
-    const Point entryGhost{
-        entryTarget.x - 2.0 * geometry.ballRadiusMm * entryUnit.x,
-        entryTarget.y - 2.0 * geometry.ballRadiusMm * entryUnit.y};
-    entryState.objectBalls[0] = entryTarget;
-    entryState.cueBall = {
-        entryGhost.x - 100.0 * entryUnit.x,
-        entryGhost.y - 100.0 * entryUnit.y};
-    const auto entrySelection = selector.select(entryState);
-    if (!entrySelection.value()) {
-        tests.expectTrue(false, "entry-angle fixture has a selected target");
-        return tests.exitCode();
-    }
-    const auto entryRejected = BilliardAlgorithm::generateDirectPotCandidates(
-        entryState, *entrySelection.value(), entryGeometry);
-    if (!entryRejected.value()) {
-        tests.expectTrue(false, "entry-angle evaluation returns a business value");
-        return tests.exitCode();
-    }
-    tests.expectTrue(
-        diagnosticFor(*entryRejected.value(), 1) &&
-        diagnosticFor(*entryRejected.value(), 1)->reason ==
-            DirectPotRejectionReason::PocketEntryRejected,
-        "entry angle over the pocket threshold rejects Direct candidate");
-
     auto cutState = alignedStateForPocket(geometry, 1);
     const Point targetPoint = *cutState.objectBalls[0];
     const Point ghostPoint{
         targetPoint.x - 2.0 * geometry.ballRadiusMm *
-            geometry.pockets[1].outwardUnitNormal.x,
+            POCKET_DIRECTIONS[1].x,
         targetPoint.y - 2.0 * geometry.ballRadiusMm *
-            geometry.pockets[1].outwardUnitNormal.y};
+            POCKET_DIRECTIONS[1].y};
     cutState.cueBall = {
-        ghostPoint.x + 100.0 * geometry.pockets[1].outwardUnitNormal.x,
-        ghostPoint.y + 100.0 * geometry.pockets[1].outwardUnitNormal.y};
+        ghostPoint.x + 100.0 * POCKET_DIRECTIONS[1].x,
+        ghostPoint.y + 100.0 * POCKET_DIRECTIONS[1].y};
     const auto cutSelection = selector.select(cutState);
     if (!cutSelection.value()) {
         tests.expectTrue(false, "cut-angle fixture has a selected target");
@@ -648,10 +580,10 @@ int main()
             "Kick GhostBallPoint remains exactly 2r from target");
         tests.expectTrue(
             candidate->targetPath.end.x ==
-                geometry.pockets[pocketIndex].virtualPocketTarget.x &&
+                geometry.pockets[pocketIndex].center.x &&
             candidate->targetPath.end.y ==
-                geometry.pockets[pocketIndex].virtualPocketTarget.y,
-            "Kick target path uses the same resolved VirtualPocketTarget as Direct");
+                geometry.pockets[pocketIndex].center.y,
+            "Kick target path uses the same resolved pocket target as Direct");
         tests.expectNear(candidate->incidenceAngleDeg,
             candidate->reflectionAngleDeg,
             kickConfig().reflectionAngleToleranceDeg,
@@ -749,7 +681,7 @@ int main()
         "non-finite Kick table geometry fails closed");
 
     auto stalePocketGeometry = geometry;
-    stalePocketGeometry.pockets[0].wirePocketCenter.x += 1.0;
+    stalePocketGeometry.pockets[0].center.x += 1.0;
     const auto stalePocket = BilliardAlgorithm::generateKickPotCandidates(
         kickFixture,
         *kickFixtureTarget.value(),
@@ -811,32 +743,28 @@ int main()
     tests.expectTrue(
         baselineCandidate.targetPath.end.x == samePocketDirectCandidate.targetPath.end.x &&
         baselineCandidate.targetPath.end.y == samePocketDirectCandidate.targetPath.end.y &&
-        baselineCandidate.virtualPocketTarget.x ==
-            samePocketDirectCandidate.virtualPocketTarget.x &&
-        baselineCandidate.virtualPocketTarget.y ==
-            samePocketDirectCandidate.virtualPocketTarget.y,
-        "Direct and Kick share the selected ResolvedPocketModel target semantics");
+        baselineCandidate.pocketTarget.x ==
+            samePocketDirectCandidate.pocketTarget.x &&
+        baselineCandidate.pocketTarget.y ==
+            samePocketDirectCandidate.pocketTarget.y,
+        "Direct and Kick share the selected pocket target semantics");
     tests.expectTrue(
         baselineCandidate.pocketId == samePocketDirectCandidate.pocketId &&
         baselineCandidate.targetPath.start.x == samePocketDirectCandidate.targetPath.start.x &&
-        baselineCandidate.targetPath.start.y == samePocketDirectCandidate.targetPath.start.y &&
-        baselineCandidate.pocketEntryAngleDeg ==
-            samePocketDirectCandidate.pocketEntryAngleDeg,
-        "Direct and Kick share pocket ID, target path and pocket-entry geometry");
+        baselineCandidate.targetPath.start.y == samePocketDirectCandidate.targetPath.start.y,
+        "Direct and Kick share pocket ID and target path");
     const auto directPocketPathCheck = BilliardPhysics::checkTargetPathToPocket(
         samePocketDirectCandidate.targetPath,
-        samePocketDirectCandidate.pocketId,
-        geometry.pockets,
+        samePocketDirectCandidate.pocketTarget,
         geometry.playableBallCenterRegion);
     const auto kickPocketPathCheck = BilliardPhysics::checkTargetPathToPocket(
         baselineCandidate.targetPath,
-        baselineCandidate.pocketId,
-        geometry.pockets,
+        baselineCandidate.pocketTarget,
         geometry.playableBallCenterRegion);
     tests.expectTrue(
         directPocketPathCheck.status() == GeometryStatus::Clear &&
         kickPocketPathCheck.status() == GeometryStatus::Clear,
-        "Direct and Kick traverse the same PocketExitSegment and capture corridor");
+        "Direct and Kick target paths both resolve as Clear to the pocket target");
     tests.expectTrue(
         baselineCandidate.ghostBallPoint.center.x ==
             samePocketDirectCandidate.ghostBallPoint.center.x &&
@@ -1141,7 +1069,7 @@ int main()
     if (directWinner) {
         tests.expectNear(directWinner->audit.rawWeights.kickPenalty, 0.30,
             TOLERANCE, "audit preserves raw kick weight");
-        tests.expectNear(directWinner->audit.rawWeightSum, 1.0,
+        tests.expectNear(directWinner->audit.rawWeightSum, 0.95,
             TOLERANCE, "audit preserves raw weight sum");
         tests.expectNear(directWinner->audit.effectiveWeights.sum(), 1.0,
             scoreConfig.effectiveWeightSumTolerance,
@@ -1182,16 +1110,6 @@ int main()
                 : 0.0,
             TOLERANCE,
             "clearance risk uses blocked and preferred clearance bounds");
-        tests.expectNear(
-            directWinner->audit.normalizedCosts.pocketEntryAngle,
-            std::clamp(
-                directWinner->audit.rawCosts.pocketEntryAngleDeg /
-                    geometry.pockets[static_cast<std::size_t>(directWinner->pocketId)]
-                        .maxEntryAngleDeg,
-                0.0,
-                1.0),
-            TOLERANCE,
-            "pocket entry uses the selected pocket class threshold");
         tests.expectTrue(
             directWinner->audit.normalizedCosts.kickRailAngleRisk == 0.0,
             "Direct kick-rail angle cost is explicitly zero");
@@ -1268,6 +1186,11 @@ int main()
     auto qualityScoringConfig = scoreConfig;
     qualityScoringConfig.maxCutAngleDeg = 60.0;
     qualityScoringConfig.maxDistanceMm = 1.0e9;
+    // Bias heavily toward cutting angle and clearance risk (and away from the
+    // fixed Kick penalty/rail-angle risk) so a genuinely well-aligned Kick can
+    // out-score a Direct shot that this fixture deliberately forces into a
+    // large cutting angle and near-blocking clearance.
+    qualityScoringConfig.rawWeights = {0.05, 0.60, 0.05, 0.25, 0.05};
     for (std::size_t railIndex = 0;
          railIndex < geometry.railReflectionRegion.rails.size() && !validKickWon;
          ++railIndex) {
@@ -1276,12 +1199,13 @@ int main()
              pocketIndex < geometry.pockets.size() && !validKickWon;
              ++pocketIndex) {
             const auto& pocket = geometry.pockets[pocketIndex];
+            const Vector2D outward = POCKET_DIRECTIONS[pocketIndex];
             const Point target{
-                pocket.wirePocketCenter.x - 100.0 * pocket.outwardUnitNormal.x,
-                pocket.wirePocketCenter.y - 100.0 * pocket.outwardUnitNormal.y};
+                pocket.center.x - 100.0 * outward.x,
+                pocket.center.y - 100.0 * outward.y};
             const Point ghost{
-                target.x - 2.0 * geometry.ballRadiusMm * pocket.outwardUnitNormal.x,
-                target.y - 2.0 * geometry.ballRadiusMm * pocket.outwardUnitNormal.y};
+                target.x - 2.0 * geometry.ballRadiusMm * outward.x,
+                target.y - 2.0 * geometry.ballRadiusMm * outward.y};
             const Vector2D railDirection{
                 rail.end.x - rail.start.x,
                 rail.end.y - rail.start.y};
@@ -1740,7 +1664,7 @@ int main()
     std::array<std::optional<Point>, 9> manualBalls{};
     manualBalls[0] = Point{500.0, 250.0};
     for (std::size_t pocket = 0; pocket < geometry.pockets.size(); ++pocket) {
-        const Point virtualTarget = geometry.pockets[pocket].virtualPocketTarget;
+        const Point virtualTarget = geometry.pockets[pocket].center;
         manualBalls[pocket + 1] = Point{
             manualBalls[0]->x + 0.75 * (virtualTarget.x - manualBalls[0]->x),
             manualBalls[0]->y + 0.75 * (virtualTarget.y - manualBalls[0]->y)};
@@ -2342,7 +2266,7 @@ int main()
         "zero raw weight sum fails closed");
 
     auto scaledWeights = scoreConfig;
-    scaledWeights.rawWeights = {0.60, 0.60, 0.40, 0.20, 0.10, 0.10};
+    scaledWeights.rawWeights = {0.60, 0.60, 0.40, 0.30, 0.10};
     const auto normalizedScaledWeights = BilliardAlgorithm::selectBestPot(
         kickFixture,
         *kickFixtureTarget.value(),
@@ -2367,7 +2291,6 @@ int main()
     overflowWeights.rawWeights = {
         std::numeric_limits<double>::max(),
         std::numeric_limits<double>::max(),
-        0.0,
         0.0,
         0.0,
         0.0};

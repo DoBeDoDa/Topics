@@ -75,12 +75,10 @@ struct FixedForceEnvelopeEvaluation {
     std::string calibrationRevision;
     double totalPathLengthMm;
     std::optional<double> cuttingAngleDeg;
-    std::optional<double> pocketEntryAngleDeg;
     std::optional<double> kickRailAngleDeg;
     double minTotalPathLengthMm;
     double maxTotalPathLengthMm;
     std::optional<double> maxCuttingAngleDeg;
-    std::optional<double> maxPocketEntryAngleDeg;
     std::optional<double> maxExecutableKickRailAngleDeg;
 
     [[nodiscard]] bool isValid() const noexcept;

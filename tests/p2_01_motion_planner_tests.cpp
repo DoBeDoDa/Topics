@@ -15,37 +15,13 @@
 #include <variant>
 
 namespace {
-constexpr double ROOT_HALF = 0.70710678118654752440;
 constexpr double TOLERANCE = 1e-9;
-
-BilliardConfig::PocketModelConfig pocketConfig(
-    BilliardConfig::PocketId id,
-    BilliardConfig::PocketType type,
-    Vector2D outward)
-{
-    const Vector2D side{-outward.y, outward.x};
-    const double halfLength =
-        type == BilliardConfig::PocketType::Corner ? 14.142135623730951 : 20.0;
-    return {
-        id, type, outward, 30.0,
-        {{-side.x * halfLength, -side.y * halfLength},
-         {side.x * halfLength, side.y * halfLength}},
-        15.0, 2.0, 0.01, 45.0};
-}
 
 BilliardConfig::TableGeometryConfig tableConfig()
 {
     using namespace BilliardConfig;
     return {
         "p2-01-table-v1", {0.0, 1000.0, 0.0, 500.0}, 10.0, 20.0, 2.0,
-        {{
-            pocketConfig(PocketId::Pocket1, PocketType::Corner, {-ROOT_HALF, -ROOT_HALF}),
-            pocketConfig(PocketId::Pocket2, PocketType::Side, {0.0, -1.0}),
-            pocketConfig(PocketId::Pocket3, PocketType::Corner, {ROOT_HALF, -ROOT_HALF}),
-            pocketConfig(PocketId::Pocket4, PocketType::Corner, {-ROOT_HALF, ROOT_HALF}),
-            pocketConfig(PocketId::Pocket5, PocketType::Side, {0.0, 1.0}),
-            pocketConfig(PocketId::Pocket6, PocketType::Corner, {ROOT_HALF, ROOT_HALF})
-        }},
         {{
             {RailId::Rail1, {{0.0, 0.0}, {500.0, 0.0}}, {0.0, 1.0}, 40.0, 40.0},
             {RailId::Rail2, {{500.0, 0.0}, {1000.0, 0.0}}, {0.0, 1.0}, 40.0, 40.0},
@@ -104,12 +80,19 @@ StableTableState kickStateForRebound(
         (rail.segment.start.x + rail.segment.end.x) / 2.0,
         (rail.segment.start.y + rail.segment.end.y) / 2.0};
     const auto& pocket = geometry.pockets[pocketIndex];
+    const auto& bounds = geometry.playableBallCenterRegion.bounds;
+    const Point tableCenter{
+        (bounds.minX + bounds.maxX) / 2.0, (bounds.minY + bounds.maxY) / 2.0};
+    const Vector2D inwardRaw{
+        tableCenter.x - pocket.center.x, tableCenter.y - pocket.center.y};
+    const double inwardLength = std::hypot(inwardRaw.x, inwardRaw.y);
+    const Vector2D inward{inwardRaw.x / inwardLength, inwardRaw.y / inwardLength};
     const Point target{
-        pocket.wirePocketCenter.x - 100.0 * pocket.outwardUnitNormal.x,
-        pocket.wirePocketCenter.y - 100.0 * pocket.outwardUnitNormal.y};
+        pocket.center.x + 100.0 * inward.x,
+        pocket.center.y + 100.0 * inward.y};
     const Point ghost{
-        target.x - 2.0 * geometry.ballRadiusMm * pocket.outwardUnitNormal.x,
-        target.y - 2.0 * geometry.ballRadiusMm * pocket.outwardUnitNormal.y};
+        target.x + 2.0 * geometry.ballRadiusMm * inward.x,
+        target.y + 2.0 * geometry.ballRadiusMm * inward.y};
     const Vector2D outgoingRaw{ghost.x - rebound.x, ghost.y - rebound.y};
     const double outgoingLength = std::hypot(outgoingRaw.x, outgoingRaw.y);
     const Vector2D outgoing{
@@ -183,7 +166,7 @@ std::optional<PlanningResult> legalPlanning(const ResolvedTableGeometry& geometr
     std::array<std::optional<Point>, 9> balls{};
     balls[0] = Point{500.0, 250.0};
     for (std::size_t pocket = 0; pocket < geometry.pockets.size(); ++pocket) {
-        const Point target = geometry.pockets[pocket].virtualPocketTarget;
+        const Point target = geometry.pockets[pocket].center;
         balls[pocket + 1] = Point{
             balls[0]->x + 0.75 * (target.x - balls[0]->x),
             balls[0]->y + 0.75 * (target.y - balls[0]->y)};
@@ -229,13 +212,13 @@ BilliardConfig::MotionPlanningConfig motionConfig()
     config.policyMode = BilliardConfig::ExecutionPolicyMode::PlanningTest;
     config.legalContactExecutionAuthorized = false;
     const BilliardConfig::FixedForceEnvelopeLimits directPot{
-        true, 0.0, 5000.0, 90.0, 180.0, std::nullopt};
+        true, 0.0, 5000.0, 90.0, std::nullopt};
     const BilliardConfig::FixedForceEnvelopeLimits kickPot{
-        true, 0.0, 5000.0, 90.0, 180.0, 89.0};
+        true, 0.0, 5000.0, 90.0, 89.0};
     const BilliardConfig::FixedForceEnvelopeLimits directLegal{
-        true, 0.0, 5000.0, std::nullopt, std::nullopt, std::nullopt};
+        true, 0.0, 5000.0, std::nullopt, std::nullopt};
     const BilliardConfig::FixedForceEnvelopeLimits kickLegal{
-        true, 0.0, 5000.0, std::nullopt, std::nullopt, 89.0};
+        true, 0.0, 5000.0, std::nullopt, 89.0};
     config.fixedForceEnvelope = BilliardConfig::FixedForceEnvelopeConfig{
         "fixed-force-test-v1", directPot, kickPot, directLegal, kickLegal};
     config.pneumaticTimingProfile =

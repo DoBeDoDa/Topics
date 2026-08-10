@@ -79,7 +79,6 @@ bool isPot(ShotPlanType type) noexcept
 struct ShotExecutionMetrics {
     double totalPathLengthMm;
     std::optional<double> cuttingAngleDeg;
-    std::optional<double> pocketEntryAngleDeg;
     std::optional<double> kickRailAngleDeg;
 };
 
@@ -89,14 +88,12 @@ std::optional<ShotExecutionMetrics> shotMetrics(const ShotPlan& plan) noexcept
         return ShotExecutionMetrics{
             value->scoring.rawCosts.totalDistanceMm,
             value->candidate.cuttingAngleDeg,
-            value->candidate.pocketEntryAngleDeg,
             std::nullopt};
     }
     if (const auto* value = std::get_if<KickPotShotPlanPayload>(&plan.payload)) {
         return ShotExecutionMetrics{
             value->scoring.rawCosts.totalDistanceMm,
             value->candidate.cuttingAngleDeg,
-            value->candidate.pocketEntryAngleDeg,
             value->candidate.incidenceAngleDeg};
     }
     if (const auto* value =
@@ -104,14 +101,12 @@ std::optional<ShotExecutionMetrics> shotMetrics(const ShotPlan& plan) noexcept
         return ShotExecutionMetrics{
             value->audit.totalPathLengthMm,
             std::nullopt,
-            std::nullopt,
             std::nullopt};
     }
     if (const auto* value =
             std::get_if<KickLegalContactShotPlanPayload>(&plan.payload)) {
         return ShotExecutionMetrics{
             value->audit.totalPathLengthMm,
-            std::nullopt,
             std::nullopt,
             value->candidate.incidenceAngleDeg};
     }
@@ -142,7 +137,6 @@ bool validEnvelopeLimits(
         limits.minTotalPathLengthMm >= 0.0 &&
         limits.maxTotalPathLengthMm >= limits.minTotalPathLengthMm &&
         validAngle(limits.maxCuttingAngleDeg) &&
-        validAngle(limits.maxPocketEntryAngleDeg) &&
         validAngle(limits.maxExecutableKickRailAngleDeg);
 }
 
@@ -155,16 +149,12 @@ bool validFixedForceConfig(
         validEnvelopeLimits(config.directLegalContact) &&
         validEnvelopeLimits(config.kickLegalContact) &&
         config.directPot.maxCuttingAngleDeg &&
-        config.directPot.maxPocketEntryAngleDeg &&
         !config.directPot.maxExecutableKickRailAngleDeg &&
         config.kickPot.maxCuttingAngleDeg &&
-        config.kickPot.maxPocketEntryAngleDeg &&
         config.kickPot.maxExecutableKickRailAngleDeg &&
         !config.directLegalContact.maxCuttingAngleDeg &&
-        !config.directLegalContact.maxPocketEntryAngleDeg &&
         !config.directLegalContact.maxExecutableKickRailAngleDeg &&
         !config.kickLegalContact.maxCuttingAngleDeg &&
-        !config.kickLegalContact.maxPocketEntryAngleDeg &&
         config.kickLegalContact.maxExecutableKickRailAngleDeg;
 }
 
@@ -313,7 +303,6 @@ bool FixedForceEnvelopeEvaluation::isValid() const noexcept
         totalPathLengthMm >= minTotalPathLengthMm &&
         totalPathLengthMm <= maxTotalPathLengthMm &&
         withinOptional(cuttingAngleDeg, maxCuttingAngleDeg) &&
-        withinOptional(pocketEntryAngleDeg, maxPocketEntryAngleDeg) &&
         withinOptional(kickRailAngleDeg, maxExecutableKickRailAngleDeg);
 }
 
@@ -445,19 +434,15 @@ bool ExecutionPlan::isValid() const noexcept
     const bool validEnvelopeShape =
         (sourceShotType == ShotPlanType::DirectPot &&
          fixedForceEnvelope.cuttingAngleDeg &&
-         fixedForceEnvelope.pocketEntryAngleDeg &&
          !fixedForceEnvelope.kickRailAngleDeg) ||
         (sourceShotType == ShotPlanType::KickPot &&
          fixedForceEnvelope.cuttingAngleDeg &&
-         fixedForceEnvelope.pocketEntryAngleDeg &&
          fixedForceEnvelope.kickRailAngleDeg) ||
         (sourceShotType == ShotPlanType::DirectLegalContact &&
          !fixedForceEnvelope.cuttingAngleDeg &&
-         !fixedForceEnvelope.pocketEntryAngleDeg &&
          !fixedForceEnvelope.kickRailAngleDeg) ||
         (sourceShotType == ShotPlanType::KickLegalContact &&
          !fixedForceEnvelope.cuttingAngleDeg &&
-         !fixedForceEnvelope.pocketEntryAngleDeg &&
          fixedForceEnvelope.kickRailAngleDeg);
     const double directionLength = std::hypot(
         shotDirectionXY.x, shotDirectionXY.y);
@@ -677,12 +662,10 @@ ExecutionPlanResult MotionPlanner::createExecutionPlan(
         metrics ? metrics->totalPathLengthMm
                 : std::numeric_limits<double>::quiet_NaN(),
         metrics ? metrics->cuttingAngleDeg : std::nullopt,
-        metrics ? metrics->pocketEntryAngleDeg : std::nullopt,
         metrics ? metrics->kickRailAngleDeg : std::nullopt,
         envelope->minTotalPathLengthMm,
         envelope->maxTotalPathLengthMm,
         envelope->maxCuttingAngleDeg,
-        envelope->maxPocketEntryAngleDeg,
         envelope->maxExecutableKickRailAngleDeg};
     if (phase1KickMaximum &&
         (!envelope->maxExecutableKickRailAngleDeg ||

@@ -28,23 +28,6 @@ enum class RailId : std::size_t {
     Rail6
 };
 
-enum class PocketType {
-    Corner,
-    Side
-};
-
-struct PocketModelConfig {
-    PocketId id;
-    PocketType type;
-    Vector2D outwardUnitNormal;  // 袋口朝桌外方向。
-    double virtualTargetOffsetMm;  // 虛擬袋口目標外移距離。
-    Segment2D pocketExitSegmentOffsetsFromEntrance;  // 有效出口線段。
-    double corridorHalfWidthMm;  // 進袋走廊半寬。
-    double pocketBoundaryProbeEpsilonMm;  // 袋口內外判斷小距離。
-    double exitCrossingEpsilon;  // 穿越出口方向門檻。
-    double maxEntryAngleDeg;  // 最大進袋角。
-};
-
 struct PhysicalRailConfig {
     RailId id;
     Segment2D segment;  // 實體庫邊端點。
@@ -59,7 +42,6 @@ struct TableGeometryConfig {
     double ballRadiusMm;  // 球半徑。
     double ballDiameterMm;  // 球直徑。
     double collisionMarginMm;  // 碰撞額外安全距離。
-    std::array<PocketModelConfig, 6> pockets;
     std::array<PhysicalRailConfig, 6> rails;
 };
 
@@ -79,13 +61,12 @@ struct ScoringWeights {
     double cuttingAngle;  // 切球角成本。
     double totalDistance;  // 總路徑距離成本。
     double clearanceRisk;  // 障礙淨空風險成本。
-    double pocketEntryAngle;  // 進袋角成本。
     double kickRailAngleRisk;  // Kick碰庫角風險成本。
 
     [[nodiscard]] double sum() const noexcept
     {
         return kickPenalty + cuttingAngle + totalDistance + clearanceRisk +
-            pocketEntryAngle + kickRailAngleRisk;
+            kickRailAngleRisk;
     }
 };
 
@@ -139,7 +120,6 @@ struct FixedForceEnvelopeLimits {
     double minTotalPathLengthMm;
     double maxTotalPathLengthMm;
     std::optional<double> maxCuttingAngleDeg;
-    std::optional<double> maxPocketEntryAngleDeg;
     std::optional<double> maxExecutableKickRailAngleDeg;
 };
 

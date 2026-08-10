@@ -91,7 +91,7 @@ const double YAW_OFFSET_DEG = 0.0;
 // 主要用於避免接近零長度向量造成不穩定。
 // 此值屬演算法安全門檻，不是球桌尺寸。
 // 修改前應確認 Math / Motion 使用位置。
-const double MIN_AIM_DISTANCE_MM = 5.0;
+const double MIN_AIM_DISTANCE_MM = 3.0;
 
 // [需實測 / Robot規格確認]
 // 允許使用的最大手臂工作半徑。
@@ -104,17 +104,18 @@ const double MAX_REACH_RADIUS_MM = 850.0;
 // 4. Vision / 32-value 外部資料契約
 // ============================================================
 
-// [暫勿啟用]
+
 // 單筆 newline-delimited 32-value CSV 允許的最大 byte 數。
 // 需根據實際 Python 格式、數字小數位數及合理上限核准後填入。
 // 這是防止異常超長 frame 的安全限制，不是座標值限制。
-const std::optional<std::size_t> VISION_MAX_FRAME_BYTES = std::nullopt;
+const std::optional<std::size_t> VISION_MAX_FRAME_BYTES = 1024;
 
-// [暫勿啟用]
+
+
 // C++ 等待一筆完整 newline frame 的最長時間，單位 ms。
 // 需要根據 Python 實際 frame 傳送頻率及網路狀況測試後決定。
 // 太短會誤判 timeout；太長會讓失效連線反應太慢。
-const std::optional<unsigned long> VISION_RECEIVE_TIMEOUT_MS = std::nullopt;
+const std::optional<unsigned long> VISION_RECEIVE_TIMEOUT_MS = 2000;
 
 // [需實測 / 標定]
 // Python 傳入 Robot Base0 XY 時允許的合法觀測範圍。
@@ -122,34 +123,40 @@ const std::optional<unsigned long> VISION_RECEIVE_TIMEOUT_MS = std::nullopt;
 // 需要根據實際相機視野＋Base0 校正範圍取得。
 // 尚未核准前保持 nullopt。
 const std::optional<AxisAlignedBounds2D>
-    VISION_OBSERVATION_BOUNDS = std::nullopt;
+    VISION_OBSERVATION_BOUNDS =
+        AxisAlignedBounds2D{
+            -750,
+            750,
+            150,
+            1000
+        };
 
 
 // ============================================================
 // 5. 三幀穩定性設定
 // ============================================================
 
-// [需實測]
+
 // 同一顆球在連續三次有效偵測中，
 // 每一幀相對三幀中位數允許的最大位置偏差，單位 mm。
 // 建議先讓球完全靜止，記錄 20～30 次 Vision Base0 XY 抖動，
 // 再依真實 noise 決定，而不是猜 1 mm、5 mm 等值。
 const std::optional<double>
-    STABLE_FRAME_TOLERANCE_MM = std::nullopt;
+    STABLE_FRAME_TOLERANCE_MM = 7.0;
 
-// [需實測]
+
 // 六個袋口在三次偵測中允許的最大位置偏差，單位 mm。
 // 袋口理論上固定，因此可利用實際 YOLO + Homography 抖動資料標定。
 // 同樣不可直接猜值。
 const std::optional<double>
-    POCKET_STABILITY_TOLERANCE_MM = std::nullopt;
+    POCKET_STABILITY_TOLERANCE_MM = 7.0;
 
-// [需實測]
+
 // 相鄰兩筆有效 ReceiveEvent 最大允許時間間隔，單位 ms。
 // 應根據相機 FPS、YOLO inference 時間與 socket 實際傳送週期決定。
 // 超過此值代表三筆資料時間距離太遠，不應被視為同一次穩定觀測。
 const std::optional<unsigned long>
-    MAX_INTER_FRAME_INTERVAL_MS = std::nullopt;
+    MAX_INTER_FRAME_INTERVAL_MS = 500;
 
 
 // ============================================================
@@ -183,41 +190,8 @@ const std::optional<unsigned long>
 //   球與障礙物碰撞判定之外額外加入的安全距離。
 //   應根據視覺誤差、球尺寸誤差與實際測試決定。
 //
-// 每個 PocketModel：
-//
-// outwardUnitNormal
-//   [需標定]
-//   該袋口由桌內朝桌外的單位方向向量。
-//
-// virtualTargetOffsetMm
-//   [需標定 / 實驗]
-//   VirtualPocketTarget 從袋口入口向外延伸多少 mm。
-//   影響目標球進袋方向與 entry geometry。
-//
-// pocketExitSegmentOffsetsFromEntrance
-//   [需標定]
-//   該袋口有效出口線段相對袋口入口中心的位置。
-//   需依實際袋口開口幾何建立。
-//
-// corridorHalfWidthMm
-//   [需標定]
-//   有效進袋走廊的半寬。
-//   需依實際袋口開口尺寸與容許進袋路徑決定。
-//
-// pocketBoundaryProbeEpsilonMm
-//   [人工設定 / 數值容差]
-//   判定球路在袋口邊界內外時使用的小距離。
-//   主要處理 floating-point 與幾何邊界問題。
-//
-// exitCrossingEpsilon
-//   [人工設定 / 數值容差]
-//   判斷是否確實朝出口正向穿越的方向門檻。
-//   不是球桌的實體尺寸。
-//
-// maxEntryAngleDeg
-//   [需實驗]
-//   允許目標球進入袋口的最大入袋角。
-//   最好用實際球桌進袋實驗決定。
+// 袋口本身不再由此設定建模：StableTableState.pockets 是每次 Vision
+// 提供的 Robot Base0 XY 袋口點，直接作為唯一 Pocket target 使用。
 //
 // 每個 Physical Rail：
 //
@@ -235,7 +209,29 @@ const std::optional<unsigned long>
 //   用來避免反彈點太接近袋口或庫邊端點。
 //
 const std::optional<TableGeometryConfig>
-    TABLE_GEOMETRY = std::nullopt;
+    TABLE_GEOMETRY =
+        TableGeometryConfig{
+
+            // 1. 球桌幾何標定版本
+            "REPLACE_TABLE_GEOMETRY_REVISION",
+
+            // 2. 真正 playable surface，Base0 XY
+            AxisAlignedBounds2D{
+                -750.0,   // minX
+                750.0,   // maxX
+                150.0,   // minY
+                1000.0    // maxY
+            },
+
+            // 3. 球半徑
+            24.76,
+
+            // 4. 球直徑
+            49.52,
+
+            // 5. 額外碰撞安全距離
+            3.0,
+        };
 
 
 // ============================================================
@@ -262,14 +258,14 @@ const std::optional<TableGeometryConfig>
 const std::optional<KickGeometryConfig>
     KICK_GEOMETRY = std::nullopt;
 
-
 // ============================================================
 // 8. Phase 1 評分設定
 // ============================================================
 
-// [目前已定義的實驗權重]
-// 六項成本的初始實驗權重。
-// 全部相加 = 1.00。
+// [目前已定義的實驗權重 / 尚需人工重新核准]
+// 五項成本的初始實驗權重（pocketEntryAngle項目已隨舊Pocket model移除，
+// 其餘raw weight沿用先前數值，未重新分配，總和非1.00亦可，
+// 實際排名使用raw/rawSum正規化）。
 //
 // 0.30 kickPenalty
 //   是否使用一次碰庫。
@@ -288,10 +284,6 @@ const std::optional<KickGeometryConfig>
 //   與障礙球的安全淨空成本。
 //   越接近障礙物，成本越高。
 //
-// 0.05 pocketEntryAngle
-//   目標球進袋角度成本。
-//   越偏離理想進袋方向，成本越高。
-//
 // 0.05 kickRailAngleRisk
 //   Kick 碰庫角風險。
 //   Direct 對此項通常沒有 Kick 成本。
@@ -301,9 +293,8 @@ const ScoringWeights INITIAL_EXPERIMENTAL_SCORING_WEIGHTS = {
     0.30,  // Cutting angle：切球角成本
     0.20,  // Total distance：總路徑長度成本
     0.10,  // Clearance：障礙球安全淨空成本
-    0.05,  // Pocket entry：進袋角成本
-    0.05   // Kick rail angle：碰庫角風險
-};
+    0.05,  // Kick rail angle：碰庫角風險
+    };
 
 
 // [需人工核准]

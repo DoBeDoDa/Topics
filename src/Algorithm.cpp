@@ -63,7 +63,7 @@ std::optional<DirectPotGenerationStatus> validateInputs(
     for (std::size_t index = 0; index < table.pockets.size(); ++index) {
         if (static_cast<std::size_t>(geometry.pockets[index].id) != index ||
             !samePoint(
-                geometry.pockets[index].wirePocketCenter,
+                geometry.pockets[index].center,
                 table.pockets[index])) {
             return DirectPotGenerationStatus::InvalidGeometryConfiguration;
         }
@@ -145,12 +145,11 @@ struct NormalizedWeights {
 std::optional<NormalizedWeights> normalizeWeights(
     const BilliardConfig::ScoringConfig& config) noexcept
 {
-    const std::array<double, 6> raw{{
+    const std::array<double, 5> raw{{
         config.rawWeights.kickPenalty,
         config.rawWeights.cuttingAngle,
         config.rawWeights.totalDistance,
         config.rawWeights.clearanceRisk,
-        config.rawWeights.pocketEntryAngle,
         config.rawWeights.kickRailAngleRisk}};
     long double sum = 0.0L;
     for (const double weight : raw) {
@@ -172,8 +171,7 @@ std::optional<NormalizedWeights> normalizeWeights(
         raw[1] / rawSum,
         raw[2] / rawSum,
         raw[3] / rawSum,
-        raw[4] / rawSum,
-        raw[5] / rawSum};
+        raw[4] / rawSum};
     const double effectiveSum = effective.sum();
     if (!std::isfinite(config.effectiveWeightSumTolerance) ||
         config.effectiveWeightSumTolerance < 0.0 ||
@@ -287,19 +285,17 @@ std::optional<double> weightedTotal(
     const BilliardConfig::ScoringWeights& weights,
     double tolerance) noexcept
 {
-    const std::array<double, 6> costValues{{
+    const std::array<double, 5> costValues{{
         costs.kickPenalty,
         costs.cuttingAngle,
         costs.totalDistance,
         costs.clearanceRisk,
-        costs.pocketEntryAngle,
         costs.kickRailAngleRisk}};
-    const std::array<double, 6> weightValues{{
+    const std::array<double, 5> weightValues{{
         weights.kickPenalty,
         weights.cuttingAngle,
         weights.totalDistance,
         weights.clearanceRisk,
-        weights.pocketEntryAngle,
         weights.kickRailAngleRisk}};
     long double total = 0.0L;
     for (std::size_t index = 0; index < costValues.size(); ++index) {
@@ -333,12 +329,11 @@ bool sameDirectCandidate(
 {
     return sameEligibleTarget(candidate.target, authoritative.target) &&
         candidate.pocketId == authoritative.pocketId &&
-        samePoint(candidate.virtualPocketTarget, authoritative.virtualPocketTarget) &&
+        samePoint(candidate.pocketTarget, authoritative.pocketTarget) &&
         samePoint(candidate.ghostBallPoint.center, authoritative.ghostBallPoint.center) &&
         sameSegment(candidate.cuePath, authoritative.cuePath) &&
         sameSegment(candidate.targetPath, authoritative.targetPath) &&
-        candidate.cuttingAngleDeg == authoritative.cuttingAngleDeg &&
-        candidate.pocketEntryAngleDeg == authoritative.pocketEntryAngleDeg;
+        candidate.cuttingAngleDeg == authoritative.cuttingAngleDeg;
 }
 
 bool sameKickCandidate(
@@ -348,14 +343,13 @@ bool sameKickCandidate(
     return sameEligibleTarget(candidate.target, authoritative.target) &&
         candidate.pocketId == authoritative.pocketId &&
         candidate.railId == authoritative.railId &&
-        samePoint(candidate.virtualPocketTarget, authoritative.virtualPocketTarget) &&
+        samePoint(candidate.pocketTarget, authoritative.pocketTarget) &&
         samePoint(candidate.ghostBallPoint.center, authoritative.ghostBallPoint.center) &&
         samePoint(candidate.reboundPoint, authoritative.reboundPoint) &&
         sameSegment(candidate.cuePathFirst, authoritative.cuePathFirst) &&
         sameSegment(candidate.cuePathSecond, authoritative.cuePathSecond) &&
         sameSegment(candidate.targetPath, authoritative.targetPath) &&
         candidate.cuttingAngleDeg == authoritative.cuttingAngleDeg &&
-        candidate.pocketEntryAngleDeg == authoritative.pocketEntryAngleDeg &&
         candidate.incidenceAngleDeg == authoritative.incidenceAngleDeg &&
         candidate.reflectionAngleDeg == authoritative.reflectionAngleDeg;
 }
@@ -980,11 +974,11 @@ DirectPotGenerationResult BilliardAlgorithm::generateDirectPotCandidates(
 
     DirectPotEvaluation evaluation{selectedTarget, {}, {}};
     for (std::size_t index = 0; index < geometry.pockets.size(); ++index) {
-        const ResolvedPocketModel& pocket = geometry.pockets[index];
+        const ResolvedPocket& pocket = geometry.pockets[index];
         const GhostBallResult ghost = BilliardPhysics::computeGhostBallPoint(
             table.cueBall,
             selectedTarget.center,
-            pocket.virtualPocketTarget,
+            pocket.center,
             geometry.ballRadiusMm);
         if (!ghost.value()) {
             evaluation.rejected[index] = rejected(
@@ -997,7 +991,7 @@ DirectPotGenerationResult BilliardAlgorithm::generateDirectPotCandidates(
         const Segment2D cuePath{table.cueBall, ghost.value()->center};
         const Segment2D targetPath{
             selectedTarget.center,
-            pocket.virtualPocketTarget};
+            pocket.center};
 
         const GeometryCheckResult cueRegion =
             BilliardPhysics::checkSegmentWithinPlayableRegion(
@@ -1015,8 +1009,7 @@ DirectPotGenerationResult BilliardAlgorithm::generateDirectPotCandidates(
         const GeometryCheckResult targetRegion =
             BilliardPhysics::checkTargetPathToPocket(
                 targetPath,
-                pocket.id,
-                geometry.pockets,
+                pocket.center,
                 geometry.playableBallCenterRegion);
         if (targetRegion.status() != GeometryStatus::Clear) {
             evaluation.rejected[index] = rejected(
@@ -1024,17 +1017,6 @@ DirectPotGenerationResult BilliardAlgorithm::generateDirectPotCandidates(
                 DirectPotRejectionReason::TargetPathInvalid,
                 targetRegion.status(),
                 relatedIndex(targetRegion));
-            continue;
-        }
-
-        const auto pocketEntry = BilliardPhysics::computePocketEntryAngle(
-            selectedTarget.center,
-            pocket);
-        if (!pocketEntry.value()) {
-            evaluation.rejected[index] = rejected(
-                pocket.id,
-                DirectPotRejectionReason::PocketEntryRejected,
-                pocketEntry.status());
             continue;
         }
 
@@ -1093,12 +1075,11 @@ DirectPotGenerationResult BilliardAlgorithm::generateDirectPotCandidates(
         evaluation.feasible[index] = DirectPotCandidate{
             selectedTarget,
             pocket.id,
-            pocket.virtualPocketTarget,
+            pocket.center,
             *ghost.value(),
             cuePath,
             targetPath,
-            *cutAngle,
-            pocketEntry.value()->degrees};
+            *cutAngle};
     }
 
     return DirectPotGenerationResult::success(std::move(evaluation));
@@ -1155,7 +1136,7 @@ KickPotGenerationResult BilliardAlgorithm::generateKickPotCandidates(
 
     KickPotEvaluation evaluation{selectedTarget, {}, {}};
     for (std::size_t pocketIndex = 0; pocketIndex < geometry.pockets.size(); ++pocketIndex) {
-        const ResolvedPocketModel& pocket = geometry.pockets[pocketIndex];
+        const ResolvedPocket& pocket = geometry.pockets[pocketIndex];
         for (std::size_t railIndex = 0;
              railIndex < geometry.railReflectionRegion.rails.size();
              ++railIndex) {
@@ -1175,7 +1156,7 @@ KickPotGenerationResult BilliardAlgorithm::generateKickPotCandidates(
             const GhostBallResult ghost = BilliardPhysics::computeGhostBallPoint(
                 table.cueBall,
                 selectedTarget.center,
-                pocket.virtualPocketTarget,
+                pocket.center,
                 geometry.ballRadiusMm);
             if (!ghost.value()) {
                 reject(KickPotRejectionReason::GhostGeometryInvalid, ghost.status());
@@ -1183,25 +1164,17 @@ KickPotGenerationResult BilliardAlgorithm::generateKickPotCandidates(
             }
             const Segment2D targetPath{
                 selectedTarget.center,
-                pocket.virtualPocketTarget};
+                pocket.center};
             const GeometryCheckResult targetRegion =
                 BilliardPhysics::checkTargetPathToPocket(
                     targetPath,
-                    pocket.id,
-                    geometry.pockets,
+                    pocket.center,
                     geometry.playableBallCenterRegion);
             if (targetRegion.status() != GeometryStatus::Clear) {
                 reject(
                     KickPotRejectionReason::TargetPathInvalid,
                     targetRegion.status(),
                     relatedIndex(targetRegion));
-                continue;
-            }
-            const auto pocketEntry = BilliardPhysics::computePocketEntryAngle(
-                selectedTarget.center,
-                pocket);
-            if (!pocketEntry.value()) {
-                reject(KickPotRejectionReason::PocketEntryRejected, pocketEntry.status());
                 continue;
             }
             const GeometryCheckResult targetCollision =
@@ -1371,14 +1344,13 @@ KickPotGenerationResult BilliardAlgorithm::generateKickPotCandidates(
                 selectedTarget,
                 pocket.id,
                 rail.physicalRailId,
-                pocket.virtualPocketTarget,
+                pocket.center,
                 *ghost.value(),
                 *rebound.value(),
                 cuePathFirst,
                 cuePathSecond,
                 targetPath,
                 *cutAngle,
-                pocketEntry.value()->degrees,
                 *incidenceAngle,
                 *reflectionAngle};
         }
@@ -1470,7 +1442,6 @@ RankedPotSelectionResult BilliardAlgorithm::rankPotCandidates(
     const double blockedThreshold = geometry.ballDiameterMm + geometry.collisionMarginMm;
 
     auto makeAudit = [&](ScoringRawCosts raw,
-                         double maximumEntryAngle,
                          double maximumKickAngle)
         -> std::optional<PotScoringAudit> {
         const auto cut = normalizedRatio(raw.cuttingAngleDeg, scoringConfig->maxCutAngleDeg);
@@ -1479,13 +1450,12 @@ RankedPotSelectionResult BilliardAlgorithm::rankPotCandidates(
             raw.minimumClearanceMm,
             blockedThreshold,
             scoringConfig->preferredClearanceMm);
-        const auto entry = normalizedRatio(raw.pocketEntryAngleDeg, maximumEntryAngle);
         const auto rail = raw.kickPenalty == 0.0
             ? std::optional<double>{0.0}
             : normalizedRatio(raw.kickRailAngleDeg, maximumKickAngle);
         if (!std::isfinite(raw.kickPenalty) ||
             (raw.kickPenalty != 0.0 && raw.kickPenalty != 1.0) ||
-            !cut || !distance || !clearance || !entry || !rail) {
+            !cut || !distance || !clearance || !rail) {
             return std::nullopt;
         }
         const ScoringNormalizedCosts normalized{
@@ -1493,7 +1463,6 @@ RankedPotSelectionResult BilliardAlgorithm::rankPotCandidates(
             *cut,
             *distance,
             *clearance,
-            *entry,
             *rail};
         const auto total = weightedTotal(
             normalized,
@@ -1515,7 +1484,6 @@ RankedPotSelectionResult BilliardAlgorithm::rankPotCandidates(
                 scoringConfig->maxDistanceMm,
                 blockedThreshold,
                 scoringConfig->preferredClearanceMm,
-                maximumEntryAngle,
                 raw.kickPenalty == 1.0
                     ? std::optional<double>{maximumKickAngle}
                     : std::nullopt,
@@ -1531,11 +1499,11 @@ RankedPotSelectionResult BilliardAlgorithm::rankPotCandidates(
             continue;
         }
         const DirectPotCandidate& candidate = *directCandidates.feasible[pocketIndex];
-        const ResolvedPocketModel& pocket = geometry.pockets[pocketIndex];
+        const ResolvedPocket& pocket = geometry.pockets[pocketIndex];
         const auto& expected = authoritativeDirect.value()->feasible[pocketIndex];
         if (!sameEligibleTarget(candidate.target, selectedTarget) ||
             candidate.pocketId != pocket.id ||
-            !samePoint(candidate.virtualPocketTarget, pocket.virtualPocketTarget) ||
+            !samePoint(candidate.pocketTarget, pocket.center) ||
             !expected || !sameDirectCandidate(candidate, *expected)) {
             return RankedPotSelectionResult::rejected(PotSelectionStatus::InvalidCandidateInput);
         }
@@ -1563,9 +1531,7 @@ RankedPotSelectionResult BilliardAlgorithm::rankPotCandidates(
                 candidate.cuttingAngleDeg,
                 totalDistance,
                 minimumClearance,
-                candidate.pocketEntryAngleDeg,
                 0.0},
-            pocket.maxEntryAngleDeg,
             1.0);
         if (!audit) {
             return RankedPotSelectionResult::rejected(PotSelectionStatus::NumericalFailure);
@@ -1588,13 +1554,13 @@ RankedPotSelectionResult BilliardAlgorithm::rankPotCandidates(
             }
             const KickPotCandidate& candidate =
                 *kickCandidates.feasible[pocketIndex][railIndex];
-            const ResolvedPocketModel& pocket = geometry.pockets[pocketIndex];
+            const ResolvedPocket& pocket = geometry.pockets[pocketIndex];
             const auto& expected =
                 authoritativeKick.feasible[pocketIndex][railIndex];
             if (!sameEligibleTarget(candidate.target, selectedTarget) ||
                 candidate.pocketId != pocket.id ||
                 static_cast<std::size_t>(candidate.railId) != railIndex ||
-                !samePoint(candidate.virtualPocketTarget, pocket.virtualPocketTarget) ||
+                !samePoint(candidate.pocketTarget, pocket.center) ||
                 !expected || !sameKickCandidate(candidate, *expected)) {
                 return RankedPotSelectionResult::rejected(PotSelectionStatus::InvalidCandidateInput);
             }
@@ -1628,9 +1594,7 @@ RankedPotSelectionResult BilliardAlgorithm::rankPotCandidates(
                     candidate.cuttingAngleDeg,
                     totalDistance,
                     minimumClearance,
-                    candidate.pocketEntryAngleDeg,
                     candidate.incidenceAngleDeg},
-                pocket.maxEntryAngleDeg,
                 kickConfig->maxKickRailAngleDeg);
             if (!audit) {
                 return RankedPotSelectionResult::rejected(PotSelectionStatus::NumericalFailure);

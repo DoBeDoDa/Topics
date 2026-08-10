@@ -12,28 +12,6 @@
 
 namespace {
 constexpr double TOLERANCE = 1e-9;
-constexpr double ROOT_HALF = 0.70710678118654752440;
-
-BilliardConfig::PocketModelConfig pocketConfig(
-    BilliardConfig::PocketId id,
-    BilliardConfig::PocketType type,
-    Vector2D outward)
-{
-    const Vector2D side{-outward.y, outward.x};
-    const double exitHalfLength =
-        type == BilliardConfig::PocketType::Corner ? 14.142135623730951 : 20.0;
-    return {
-        id,
-        type,
-        outward,
-        30.0,
-        {{-side.x * exitHalfLength, -side.y * exitHalfLength},
-         {side.x * exitHalfLength, side.y * exitHalfLength}},
-        15.0,
-        2.0,
-        0.01,
-        45.0};
-}
 
 BilliardConfig::TableGeometryConfig validConfig()
 {
@@ -44,14 +22,6 @@ BilliardConfig::TableGeometryConfig validConfig()
         10.0,
         20.0,
         2.0,
-        {{
-            pocketConfig(PocketId::Pocket1, PocketType::Corner, {-ROOT_HALF, -ROOT_HALF}),
-            pocketConfig(PocketId::Pocket2, PocketType::Side, {0.0, -1.0}),
-            pocketConfig(PocketId::Pocket3, PocketType::Corner, {ROOT_HALF, -ROOT_HALF}),
-            pocketConfig(PocketId::Pocket4, PocketType::Corner, {-ROOT_HALF, ROOT_HALF}),
-            pocketConfig(PocketId::Pocket5, PocketType::Side, {0.0, 1.0}),
-            pocketConfig(PocketId::Pocket6, PocketType::Corner, {ROOT_HALF, ROOT_HALF})
-        }},
         {{
             {RailId::Rail1, {{0.0, 0.0}, {500.0, 0.0}}, {0.0, 1.0}, 40.0, 40.0},
             {RailId::Rail2, {{500.0, 0.0}, {1000.0, 0.0}}, {0.0, 1.0}, 40.0, 40.0},
@@ -102,34 +72,13 @@ int main()
     tests.expectNear(table.playableBallCenterRegion.bounds.minX, 10.0, TOLERANCE,
         "playable region is physical surface inset by one radius");
     for (std::size_t index = 0; index < table.pockets.size(); ++index) {
-        tests.expectNear(table.pockets[index].wirePocketCenter.x, stable.pockets[index].x,
-            TOLERANCE, "resolved pocket preserves current-cycle wire X");
-        tests.expectNear(table.pockets[index].wirePocketCenter.y, stable.pockets[index].y,
-            TOLERANCE, "resolved pocket preserves current-cycle wire Y");
+        tests.expectNear(table.pockets[index].center.x, stable.pockets[index].x,
+            TOLERANCE, "resolved pocket preserves current-cycle vision X");
+        tests.expectNear(table.pockets[index].center.y, stable.pockets[index].y,
+            TOLERANCE, "resolved pocket preserves current-cycle vision Y");
         tests.expectTrue(static_cast<std::size_t>(table.pockets[index].id) == index,
-            "fixed pocket ID remains associated with wire pocket index");
+            "fixed pocket ID remains associated with vision pocket index");
     }
-    auto internalExitCenters = stable.pockets;
-    internalExitCenters[1] = {500.0, 20.0};
-    tests.expectTrue(
-        BilliardPhysics::resolveTableGeometry(internalExitCenters, config).status() ==
-            GeometryStatus::InvalidConfiguration,
-        "pocket exit wholly inside the playable bounds is rejected");
-    auto overlappingConfig = config;
-    auto overlappingCenters = stable.pockets;
-    overlappingConfig.pockets[0] = overlappingConfig.pockets[1];
-    overlappingConfig.pockets[0].id = BilliardConfig::PocketId::Pocket1;
-    overlappingCenters[0] = overlappingCenters[1];
-    tests.expectTrue(
-        BilliardPhysics::resolveTableGeometry(overlappingCenters, overlappingConfig).status() ==
-            GeometryStatus::InvalidConfiguration,
-        "overlapping pocket exits are rejected");
-    auto railOverlapConfig = config;
-    railOverlapConfig.rails[0].endExclusionMm = 0.0;
-    tests.expectTrue(
-        BilliardPhysics::resolveTableGeometry(stable.pockets, railOverlapConfig).status() ==
-            GeometryStatus::InvalidConfiguration,
-        "pocket exit cannot overlap an effective reflection rail");
 
     const auto ghost = BilliardPhysics::computeGhostBallPoint(
         {100.0, 100.0}, {300.0, 100.0}, {400.0, 100.0}, 10.0);
@@ -139,9 +88,9 @@ int main()
         tests.expectNear(ghost.value()->center.x, 280.0, TOLERANCE,
             "ghost center is two radii behind target");
         tests.expectNear(ghost.value()->center.y, 100.0, TOLERANCE,
-            "ghost, target and virtual pocket target are collinear");
+            "ghost, target and pocket target are collinear");
         tests.expectTrue(ghost.value()->center.x < 300.0,
-            "ghost lies on the side opposite the virtual pocket target");
+            "ghost lies on the side opposite the pocket target");
         const double separation = std::hypot(
             ghost.value()->center.x - 300.0,
             ghost.value()->center.y - 100.0);
@@ -164,90 +113,32 @@ int main()
             GeometryStatus::DegenerateGeometry,
         "zero target direction fails closed");
 
-    const auto& bottomPocket = table.pockets[1];
-    const auto entryZero = BilliardPhysics::computePocketEntryAngle(
-        {500.0, 100.0}, bottomPocket);
-    tests.expectTrue(entryZero.value().has_value(), "zero-degree pocket entry succeeds");
-    if (entryZero.value()) {
-        tests.expectNear(entryZero.value()->degrees, 0.0, TOLERANCE,
-            "outward capture direction is zero degrees");
-    }
-    const auto entryThreshold = BilliardPhysics::computePocketEntryAngle(
-        {600.0, 80.0}, bottomPocket);
-    tests.expectTrue(entryThreshold.value().has_value(), "entry at angle threshold succeeds");
-    if (entryThreshold.value()) {
-        tests.expectNear(entryThreshold.value()->degrees, 45.0, TOLERANCE,
-            "threshold entry angle uses unique outward-normal formula");
-    }
-    tests.expectTrue(
-        BilliardPhysics::computePocketEntryAngle({500.0, -30.0}, bottomPocket).status() ==
-            GeometryStatus::DirectionRejected,
-        "180-degree reverse pocket entry is rejected");
-    tests.expectTrue(
-        BilliardPhysics::checkPocketExitDirection({0.0, -1.0}, bottomPocket).status() ==
-            GeometryStatus::Clear,
-        "positive outward pocket crossing direction succeeds");
-    tests.expectTrue(
-        BilliardPhysics::checkPocketExitDirection({1.0, 0.0}, bottomPocket).status() ==
-            GeometryStatus::DirectionRejected,
-        "tangential pocket exit direction is rejected");
-    tests.expectTrue(
-        BilliardPhysics::checkPocketExitDirection({0.0, 1.0}, bottomPocket).status() ==
-            GeometryStatus::DirectionRejected,
-        "reverse corridor-to-table direction is rejected");
-    auto thresholdPocket = bottomPocket;
-    thresholdPocket.exitCrossingEpsilon = 0.6;
-    tests.expectTrue(
-        BilliardPhysics::checkPocketExitDirection({0.8, -0.6}, thresholdPocket).status() ==
-            GeometryStatus::DirectionRejected,
-        "exit direction equal to threshold is rejected by strict crossing rule");
-    auto reversedPocketConfig = config.pockets[1];
-    reversedPocketConfig.outwardUnitNormal = {0.0, 1.0};
-    tests.expectTrue(
-        BilliardPhysics::resolvePocketModel(
-            stable.pockets[1],
-            reversedPocketConfig,
-            table.playableBallCenterRegion).status() ==
-            GeometryStatus::InvalidConfiguration,
-        "pocket outward normal inconsistent with capture direction fails closed");
-    auto degenerateCorridorConfig = config.pockets[1];
-    degenerateCorridorConfig.corridorHalfWidthMm = 0.0;
-    tests.expectTrue(
-        BilliardPhysics::resolvePocketModel(
-            stable.pockets[1],
-            degenerateCorridorConfig,
-            table.playableBallCenterRegion).status() ==
-            GeometryStatus::InvalidConfiguration,
-        "degenerate pocket corridor fails closed");
-
-    const Segment2D targetPath{{500.0, 100.0}, bottomPocket.virtualPocketTarget};
+    const Point bottomPocketTarget = table.pockets[1].center;
+    const Segment2D targetPath{{500.0, 100.0}, bottomPocketTarget};
     tests.expectTrue(
         BilliardPhysics::checkTargetPathToPocket(
             targetPath,
-            BilliardConfig::PocketId::Pocket2,
-            table.pockets,
+            bottomPocketTarget,
             table.playableBallCenterRegion).status() == GeometryStatus::Clear,
-        "target may leave playable region only through selected pocket corridor");
-    auto conflictingPockets = table.pockets;
-    conflictingPockets[0].pocketExitSegment = {{480.0, 50.0}, {520.0, 50.0}};
+        "target path ending exactly at the pocket target is accepted");
+    tests.expectTrue(
+        BilliardPhysics::checkTargetPathToPocket(
+            {{500.0, 100.0}, {500.0, 100.0}},
+            bottomPocketTarget,
+            table.playableBallCenterRegion).status() == GeometryStatus::DegenerateGeometry,
+        "zero-length target path fails closed");
     tests.expectTrue(
         BilliardPhysics::checkTargetPathToPocket(
             targetPath,
-            BilliardConfig::PocketId::Pocket2,
-            conflictingPockets,
+            {600.0, 100.0},
             table.playableBallCenterRegion).status() == GeometryStatus::InvalidConfiguration,
-        "untrusted wrong-exit topology is rejected before path acceptance");
-    auto malformedOtherPocket = table.pockets;
-    malformedOtherPocket[0].pocketExitSegment.start.x =
-        std::numeric_limits<double>::quiet_NaN();
+        "target path ending away from the pocket target is rejected");
     tests.expectTrue(
         BilliardPhysics::checkTargetPathToPocket(
-            targetPath,
-            BilliardConfig::PocketId::Pocket2,
-            malformedOtherPocket,
-            table.playableBallCenterRegion).status() ==
-            GeometryStatus::InvalidConfiguration,
-        "malformed non-selected pocket geometry invalidates the whole path check");
+            {{-5.0, 100.0}, bottomPocketTarget},
+            bottomPocketTarget,
+            table.playableBallCenterRegion).status() == GeometryStatus::InvalidInput,
+        "target path starting outside the playable region fails closed");
     tests.expectTrue(
         BilliardPhysics::checkSegmentWithinPlayableRegion(
             {{30.0, 10.0}, {970.0, 490.0}},

@@ -814,7 +814,6 @@ enum class DirectPotRejectionReason {
     CuePathBlocked,
     TargetPathInvalid,
     TargetPathBlocked,
-    PocketEntryRejected,
     CutAngleInvalid
 };
 
@@ -828,12 +827,11 @@ struct DirectPotCandidateDiagnostic {
 struct DirectPotCandidate {
     EligibleTarget target;
     BilliardConfig::PocketId pocketId;
-    Point virtualPocketTarget;
+    Point pocketTarget;
     GhostBallPoint ghostBallPoint;
     Segment2D cuePath;
     Segment2D targetPath;
     double cuttingAngleDeg;
-    double pocketEntryAngleDeg;
 };
 
 struct DirectPotEvaluation {
@@ -862,7 +860,7 @@ struct DirectPotEvaluation {
                 if (static_cast<std::size_t>(candidate.pocketId) != index ||
                     candidate.target.ballNumber != target.ballNumber ||
                     !samePoint(candidate.target.center, target.center) ||
-                    !finitePoint(candidate.virtualPocketTarget) ||
+                    !finitePoint(candidate.pocketTarget) ||
                     !finitePoint(candidate.ghostBallPoint.center) ||
                     !finitePoint(candidate.cuePath.start) ||
                     !finitePoint(candidate.cuePath.end) ||
@@ -870,11 +868,9 @@ struct DirectPotEvaluation {
                     !finitePoint(candidate.targetPath.end) ||
                     !samePoint(candidate.cuePath.end, candidate.ghostBallPoint.center) ||
                     !samePoint(candidate.targetPath.start, target.center) ||
-                    !samePoint(candidate.targetPath.end, candidate.virtualPocketTarget) ||
+                    !samePoint(candidate.targetPath.end, candidate.pocketTarget) ||
                     !std::isfinite(candidate.cuttingAngleDeg) ||
-                    candidate.cuttingAngleDeg < 0.0 || candidate.cuttingAngleDeg >= 90.0 ||
-                    !std::isfinite(candidate.pocketEntryAngleDeg) ||
-                    candidate.pocketEntryAngleDeg < 0.0) {
+                    candidate.cuttingAngleDeg < 0.0 || candidate.cuttingAngleDeg >= 90.0) {
                     return false;
                 }
             }
@@ -960,7 +956,6 @@ enum class KickPotRejectionReason {
     CueSecondSegmentBlocked,
     TargetPathInvalid,
     TargetPathBlocked,
-    PocketEntryRejected,
     CutAngleInvalid
 };
 
@@ -976,14 +971,13 @@ struct KickPotCandidate {
     EligibleTarget target;
     BilliardConfig::PocketId pocketId;
     BilliardConfig::RailId railId;
-    Point virtualPocketTarget;
+    Point pocketTarget;
     GhostBallPoint ghostBallPoint;
     Point reboundPoint;
     Segment2D cuePathFirst;
     Segment2D cuePathSecond;
     Segment2D targetPath;
     double cuttingAngleDeg;
-    double pocketEntryAngleDeg;
     double incidenceAngleDeg;
     double reflectionAngleDeg;
 };
@@ -1022,7 +1016,7 @@ struct KickPotEvaluation {
                         static_cast<std::size_t>(candidate.railId) != rail ||
                         candidate.target.ballNumber != target.ballNumber ||
                         !samePoint(candidate.target.center, target.center) ||
-                        !finitePoint(candidate.virtualPocketTarget) ||
+                        !finitePoint(candidate.pocketTarget) ||
                         !finitePoint(candidate.ghostBallPoint.center) ||
                         !finitePoint(candidate.reboundPoint) ||
                         !finitePoint(candidate.cuePathFirst.start) ||
@@ -1037,12 +1031,10 @@ struct KickPotEvaluation {
                             candidate.ghostBallPoint.center) ||
                         !samePoint(candidate.targetPath.start, target.center) ||
                         !samePoint(candidate.targetPath.end,
-                            candidate.virtualPocketTarget) ||
+                            candidate.pocketTarget) ||
                         !std::isfinite(candidate.cuttingAngleDeg) ||
                         candidate.cuttingAngleDeg < 0.0 ||
                         candidate.cuttingAngleDeg >= 90.0 ||
-                        !std::isfinite(candidate.pocketEntryAngleDeg) ||
-                        candidate.pocketEntryAngleDeg < 0.0 ||
                         !std::isfinite(candidate.incidenceAngleDeg) ||
                         candidate.incidenceAngleDeg < 0.0 ||
                         candidate.incidenceAngleDeg > 90.0 ||
@@ -1135,7 +1127,6 @@ struct ScoringRawCosts {
     double cuttingAngleDeg;
     double totalDistanceMm;
     std::optional<double> minimumClearanceMm;
-    double pocketEntryAngleDeg;
     double kickRailAngleDeg;
 };
 
@@ -1144,7 +1135,6 @@ struct ScoringNormalizedCosts {
     double cuttingAngle;
     double totalDistance;
     double clearanceRisk;
-    double pocketEntryAngle;
     double kickRailAngleRisk;
 };
 
@@ -1155,7 +1145,6 @@ struct ScoringNormalizationSnapshot {
     double maxDistanceMm;
     double blockedClearanceThresholdMm;
     double preferredClearanceMm;
-    double pocketMaxEntryAngleDeg;
     std::optional<double> maxKickRailAngleDeg;
     double tieEpsilon;
 };
@@ -1177,19 +1166,17 @@ struct PotScoringAudit {
         const auto unitCost = [&](double value) noexcept {
             return finiteNonNegative(value) && value <= 1.0;
         };
-        const std::array<double, 6> rawWeightValues{{
+        const std::array<double, 5> rawWeightValues{{
             rawWeights.kickPenalty,
             rawWeights.cuttingAngle,
             rawWeights.totalDistance,
             rawWeights.clearanceRisk,
-            rawWeights.pocketEntryAngle,
             rawWeights.kickRailAngleRisk}};
-        const std::array<double, 6> effectiveWeightValues{{
+        const std::array<double, 5> effectiveWeightValues{{
             effectiveWeights.kickPenalty,
             effectiveWeights.cuttingAngle,
             effectiveWeights.totalDistance,
             effectiveWeights.clearanceRisk,
-            effectiveWeights.pocketEntryAngle,
             effectiveWeights.kickRailAngleRisk}};
         for (const double weight : rawWeightValues) {
             if (!finiteNonNegative(weight)) return false;
@@ -1203,13 +1190,11 @@ struct PotScoringAudit {
             !finiteNonNegative(rawCosts.totalDistanceMm) ||
             (rawCosts.minimumClearanceMm &&
              !finiteNonNegative(*rawCosts.minimumClearanceMm)) ||
-            !finiteNonNegative(rawCosts.pocketEntryAngleDeg) ||
             !finiteNonNegative(rawCosts.kickRailAngleDeg) ||
             !unitCost(normalizedCosts.kickPenalty) ||
             !unitCost(normalizedCosts.cuttingAngle) ||
             !unitCost(normalizedCosts.totalDistance) ||
             !unitCost(normalizedCosts.clearanceRisk) ||
-            !unitCost(normalizedCosts.pocketEntryAngle) ||
             !unitCost(normalizedCosts.kickRailAngleRisk) ||
             !std::isfinite(rawWeightSum) || rawWeightSum <= 0.0 ||
             !finiteNonNegative(normalization.effectiveWeightSumTolerance) ||
@@ -1222,8 +1207,6 @@ struct PotScoringAudit {
             !std::isfinite(normalization.preferredClearanceMm) ||
             normalization.preferredClearanceMm <=
                 normalization.blockedClearanceThresholdMm ||
-            !std::isfinite(normalization.pocketMaxEntryAngleDeg) ||
-            normalization.pocketMaxEntryAngleDeg <= 0.0 ||
             !finiteNonNegative(normalization.tieEpsilon) ||
             !unitCost(totalCost)) {
             return false;
@@ -1276,20 +1259,17 @@ struct PotScoringAudit {
             ? ratio(rawCosts.kickRailAngleDeg,
                 *normalization.maxKickRailAngleDeg)
             : 0.0;
-        const std::array<double, 6> expectedNormalized{{
+        const std::array<double, 5> expectedNormalized{{
             rawCosts.kickPenalty,
             ratio(rawCosts.cuttingAngleDeg, normalization.maxCutAngleDeg),
             expectedDistance,
             expectedClearance,
-            ratio(rawCosts.pocketEntryAngleDeg,
-                normalization.pocketMaxEntryAngleDeg),
             expectedKickRail}};
-        const std::array<double, 6> actualNormalized{{
+        const std::array<double, 5> actualNormalized{{
             normalizedCosts.kickPenalty,
             normalizedCosts.cuttingAngle,
             normalizedCosts.totalDistance,
             normalizedCosts.clearanceRisk,
-            normalizedCosts.pocketEntryAngle,
             normalizedCosts.kickRailAngleRisk}};
         long double calculatedTotal = 0.0L;
         for (std::size_t index = 0; index < actualNormalized.size(); ++index) {
@@ -1347,8 +1327,7 @@ struct ScoredPotCandidate {
                 direct->target.center.x != target.center.x ||
                 direct->target.center.y != target.center.y ||
                 direct->pocketId != pocketId ||
-                direct->cuttingAngleDeg != audit.rawCosts.cuttingAngleDeg ||
-                direct->pocketEntryAngleDeg != audit.rawCosts.pocketEntryAngleDeg) {
+                direct->cuttingAngleDeg != audit.rawCosts.cuttingAngleDeg) {
                 return false;
             }
             const double totalDistance = segmentLength(direct->cuePath) +
@@ -1379,7 +1358,6 @@ struct ScoredPotCandidate {
             kick->target.center.y != target.center.y ||
             kick->pocketId != pocketId || kick->railId != *railId ||
             kick->cuttingAngleDeg != audit.rawCosts.cuttingAngleDeg ||
-            kick->pocketEntryAngleDeg != audit.rawCosts.pocketEntryAngleDeg ||
             kick->incidenceAngleDeg != audit.rawCosts.kickRailAngleDeg) {
             return false;
         }

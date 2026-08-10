@@ -111,34 +111,14 @@ bool containsInclusive(
     const PlayableBallCenterRegion& region,
     Point point) noexcept
 {
-    if (!containsInclusive(region.bounds, point)) {
-        return false;
-    }
-    for (const PocketBoundaryCut& boundary : region.pocketBoundaries) {
-        const auto offset = BilliardMath::getVector(boundary.entranceCenter, point);
-        if (!offset || !unitVector(boundary.outwardUnitNormal) ||
-            dot(*offset, boundary.outwardUnitNormal) > NUMERICAL_EPSILON) {
-            return false;
-        }
-    }
-    return true;
+    return containsInclusive(region.bounds, point);
 }
 
 bool containsInterior(
     const PlayableBallCenterRegion& region,
     Point point) noexcept
 {
-    if (!containsInterior(region.bounds, point)) {
-        return false;
-    }
-    for (const PocketBoundaryCut& boundary : region.pocketBoundaries) {
-        const auto offset = BilliardMath::getVector(boundary.entranceCenter, point);
-        if (!offset || !unitVector(boundary.outwardUnitNormal) ||
-            dot(*offset, boundary.outwardUnitNormal) >= -NUMERICAL_EPSILON) {
-            return false;
-        }
-    }
-    return true;
+    return containsInterior(region.bounds, point);
 }
 
 bool onBoundsBoundary(AxisAlignedBounds2D bounds, Point point) noexcept
@@ -150,258 +130,9 @@ bool onBoundsBoundary(AxisAlignedBounds2D bounds, Point point) noexcept
          approximatelyEqual(point.y, bounds.maxY));
 }
 
-Segment2D translateSegment(Point origin, Segment2D offsets) noexcept
-{
-    return {
-        {origin.x + offsets.start.x, origin.y + offsets.start.y},
-        {origin.x + offsets.end.x, origin.y + offsets.end.y}};
-}
-
-Point snapToBounds(Point point, AxisAlignedBounds2D bounds) noexcept
-{
-    if (approximatelyEqual(point.x, bounds.minX)) point.x = bounds.minX;
-    if (approximatelyEqual(point.x, bounds.maxX)) point.x = bounds.maxX;
-    if (approximatelyEqual(point.y, bounds.minY)) point.y = bounds.minY;
-    if (approximatelyEqual(point.y, bounds.maxY)) point.y = bounds.maxY;
-    return point;
-}
-
-Segment2D translateAndSnapSegment(
-    Point origin,
-    Segment2D offsets,
-    AxisAlignedBounds2D bounds) noexcept
-{
-    Segment2D result = translateSegment(origin, offsets);
-    result.start = snapToBounds(result.start, bounds);
-    result.end = snapToBounds(result.end, bounds);
-    return result;
-}
-
-bool pointInRelativeInterior(Point point, Segment2D segment) noexcept
-{
-    const auto direction = BilliardMath::getVector(segment.start, segment.end);
-    const auto toPoint = BilliardMath::getVector(segment.start, point);
-    if (!direction || !toPoint) {
-        return false;
-    }
-    const double lengthSquared = dot(*direction, *direction);
-    if (!finite(lengthSquared) || lengthSquared <= NUMERICAL_EPSILON) {
-        return false;
-    }
-    const double parameter = dot(*toPoint, *direction) / lengthSquared;
-    const double distanceFromLine = std::fabs(cross(*toPoint, *direction)) /
-        std::sqrt(lengthSquared);
-    return finite(parameter) && finite(distanceFromLine) &&
-        parameter > NUMERICAL_EPSILON && parameter < 1.0 - NUMERICAL_EPSILON &&
-        distanceFromLine <= NUMERICAL_EPSILON;
-}
-
-bool pointInCorridor(Point point, const PocketCaptureCorridor& corridor) noexcept
-{
-    if (!BilliardMath::isFinite(point) ||
-        !BilliardMath::isFinite(corridor.entranceCenter) ||
-        !BilliardMath::isFinite(corridor.virtualPocketTarget) ||
-        !unitVector(corridor.outwardUnitNormal) ||
-        !finite(corridor.halfWidthMm) || corridor.halfWidthMm < 0.0) {
-        return false;
-    }
-    const auto offset = BilliardMath::getVector(corridor.entranceCenter, point);
-    const auto length = BilliardMath::getDistance(
-        corridor.entranceCenter,
-        corridor.virtualPocketTarget);
-    if (!offset || !length || *length <= NUMERICAL_EPSILON) {
-        return approximatelyEqual(point, corridor.entranceCenter);
-    }
-    const Vector2D side{-corridor.outwardUnitNormal.y, corridor.outwardUnitNormal.x};
-    const double longitudinal = dot(*offset, corridor.outwardUnitNormal);
-    const double lateral = std::fabs(dot(*offset, side));
-    return finite(longitudinal) && finite(lateral) &&
-        longitudinal >= -NUMERICAL_EPSILON &&
-        longitudinal <= *length + NUMERICAL_EPSILON &&
-        lateral <= corridor.halfWidthMm + NUMERICAL_EPSILON;
-}
-
-struct SegmentIntersection {
-    bool intersects;
-    bool parallel;
-    bool coincident;
-    std::optional<Point> point;
-    double firstParameter;
-};
-
-SegmentIntersection intersectSegments(Segment2D first, Segment2D second) noexcept
-{
-    const auto firstDirection = BilliardMath::getVector(first.start, first.end);
-    const auto secondDirection = BilliardMath::getVector(second.start, second.end);
-    const auto starts = BilliardMath::getVector(first.start, second.start);
-    if (!firstDirection || !secondDirection || !starts) {
-        return {false, false, false, std::nullopt, 0.0};
-    }
-    const double denominator = cross(*firstDirection, *secondDirection);
-    if (!finite(denominator) || std::fabs(denominator) <= NUMERICAL_EPSILON) {
-        const bool coincident = std::fabs(cross(*starts, *firstDirection)) <=
-            NUMERICAL_EPSILON;
-        return {false, !coincident, coincident, std::nullopt, 0.0};
-    }
-    const double firstParameter = cross(*starts, *secondDirection) / denominator;
-    const double secondParameter = cross(*starts, *firstDirection) / denominator;
-    if (!finite(firstParameter) || !finite(secondParameter) ||
-        firstParameter < -NUMERICAL_EPSILON || firstParameter > 1.0 + NUMERICAL_EPSILON ||
-        secondParameter < -NUMERICAL_EPSILON || secondParameter > 1.0 + NUMERICAL_EPSILON) {
-        return {false, false, false, std::nullopt, firstParameter};
-    }
-    const Point point = add(first.start, *firstDirection, firstParameter);
-    return {
-        BilliardMath::isFinite(point),
-        false,
-        false,
-        BilliardMath::isFinite(point) ? std::optional<Point>{point} : std::nullopt,
-        firstParameter};
-}
-
-bool segmentsOverlapOrTouch(Segment2D first, Segment2D second) noexcept
-{
-    const auto intersection = intersectSegments(first, second);
-    if (intersection.intersects) {
-        return true;
-    }
-    if (!intersection.coincident) {
-        return false;
-    }
-    const auto direction = BilliardMath::getVector(first.start, first.end);
-    const auto length = direction ? BilliardMath::getLength(*direction) : std::nullopt;
-    if (!direction || !length || *length <= NUMERICAL_EPSILON) {
-        return true;
-    }
-    const Vector2D axis{direction->x / *length, direction->y / *length};
-    const auto secondStart = BilliardMath::getVector(first.start, second.start);
-    const auto secondEnd = BilliardMath::getVector(first.start, second.end);
-    if (!secondStart || !secondEnd) {
-        return true;
-    }
-    const double secondMin = std::min(dot(*secondStart, axis), dot(*secondEnd, axis));
-    const double secondMax = std::max(dot(*secondStart, axis), dot(*secondEnd, axis));
-    return secondMax >= -NUMERICAL_EPSILON && secondMin <= *length + NUMERICAL_EPSILON;
-}
-
-std::optional<double> firstRegionExitParameter(
-    Segment2D segment,
-    const PlayableBallCenterRegion& region) noexcept
-{
-    const auto direction = BilliardMath::getVector(segment.start, segment.end);
-    if (!direction || !containsInclusive(region, segment.start)) {
-        return std::nullopt;
-    }
-    double result = std::numeric_limits<double>::infinity();
-    if (direction->x > NUMERICAL_EPSILON) {
-        result = std::min(result, (region.bounds.maxX - segment.start.x) / direction->x);
-    } else if (direction->x < -NUMERICAL_EPSILON) {
-        result = std::min(result, (region.bounds.minX - segment.start.x) / direction->x);
-    }
-    if (direction->y > NUMERICAL_EPSILON) {
-        result = std::min(result, (region.bounds.maxY - segment.start.y) / direction->y);
-    } else if (direction->y < -NUMERICAL_EPSILON) {
-        result = std::min(result, (region.bounds.minY - segment.start.y) / direction->y);
-    }
-    for (const PocketBoundaryCut& boundary : region.pocketBoundaries) {
-        const auto startOffset = BilliardMath::getVector(
-            boundary.entranceCenter,
-            segment.start);
-        if (!startOffset) {
-            return std::nullopt;
-        }
-        const double rate = dot(*direction, boundary.outwardUnitNormal);
-        if (rate > NUMERICAL_EPSILON) {
-            const double parameter = -dot(*startOffset, boundary.outwardUnitNormal) / rate;
-            if (!finite(parameter)) {
-                return std::nullopt;
-            }
-            result = std::min(result, parameter);
-        }
-    }
-    return finite(result) ? std::optional<double>{result} : std::nullopt;
-}
-
 bool excluded(std::size_t index, const std::vector<std::size_t>& exclusions)
 {
     return std::find(exclusions.begin(), exclusions.end(), index) != exclusions.end();
-}
-
-bool validResolvedPocketModel(
-    const ResolvedPocketModel& pocket,
-    std::size_t expectedIndex,
-    const PlayableBallCenterRegion& region) noexcept
-{
-    const auto exitLength = finite(pocket.pocketExitSegment)
-        ? BilliardMath::getDistance(
-            pocket.pocketExitSegment.start,
-            pocket.pocketExitSegment.end)
-        : std::nullopt;
-    if (static_cast<std::size_t>(pocket.id) != expectedIndex ||
-        pocket.captureCorridor.pocketId != pocket.id ||
-        !BilliardMath::isFinite(pocket.wirePocketCenter) ||
-        !BilliardMath::isFinite(pocket.virtualPocketTarget) ||
-        !unitVector(pocket.outwardUnitNormal) ||
-        !exitLength || *exitLength <= NUMERICAL_EPSILON ||
-        !pointInRelativeInterior(pocket.wirePocketCenter, pocket.pocketExitSegment) ||
-        !onBoundsBoundary(region.bounds, pocket.pocketExitSegment.start) ||
-        !onBoundsBoundary(region.bounds, pocket.pocketExitSegment.end) ||
-        !containsInclusive(region, pocket.pocketExitSegment.start) ||
-        !containsInclusive(region, pocket.pocketExitSegment.end) ||
-        !approximatelyEqual(
-            pocket.captureCorridor.entranceCenter,
-            pocket.wirePocketCenter) ||
-        !approximatelyEqual(
-            pocket.captureCorridor.virtualPocketTarget,
-            pocket.virtualPocketTarget) ||
-        !approximatelyEqual(
-            pocket.captureCorridor.outwardUnitNormal.x,
-            pocket.outwardUnitNormal.x) ||
-        !approximatelyEqual(
-            pocket.captureCorridor.outwardUnitNormal.y,
-            pocket.outwardUnitNormal.y) ||
-        !finite(pocket.captureCorridor.halfWidthMm) ||
-        pocket.captureCorridor.halfWidthMm <= 0.0 ||
-        !finite(pocket.pocketBoundaryProbeEpsilonMm) ||
-        pocket.pocketBoundaryProbeEpsilonMm <= 0.0 ||
-        !finite(pocket.exitCrossingEpsilon) ||
-        pocket.exitCrossingEpsilon < 0.0 || pocket.exitCrossingEpsilon >= 1.0 ||
-        !finite(pocket.maxEntryAngleDeg) ||
-        pocket.maxEntryAngleDeg < 0.0 || pocket.maxEntryAngleDeg > 180.0 ||
-        !pointInCorridor(pocket.virtualPocketTarget, pocket.captureCorridor)) {
-        return false;
-    }
-    const Point innerProbe = add(
-        pocket.wirePocketCenter,
-        pocket.outwardUnitNormal,
-        -pocket.pocketBoundaryProbeEpsilonMm);
-    const Point outerProbe = add(
-        pocket.wirePocketCenter,
-        pocket.outwardUnitNormal,
-        pocket.pocketBoundaryProbeEpsilonMm);
-    if (!containsInterior(region, innerProbe) ||
-        containsInclusive(region, outerProbe) ||
-        !pointInCorridor(outerProbe, pocket.captureCorridor)) {
-        return false;
-    }
-    for (const PocketBoundaryCut& boundary : region.pocketBoundaries) {
-        if (boundary.pocketId == pocket.id) {
-            return approximatelyEqual(boundary.entranceCenter, pocket.wirePocketCenter) &&
-                approximatelyEqual(
-                    boundary.pocketExitSegment.start,
-                    pocket.pocketExitSegment.start) &&
-                approximatelyEqual(
-                    boundary.pocketExitSegment.end,
-                    pocket.pocketExitSegment.end) &&
-                approximatelyEqual(
-                    boundary.outwardUnitNormal.x,
-                    pocket.outwardUnitNormal.x) &&
-                approximatelyEqual(
-                    boundary.outwardUnitNormal.y,
-                    pocket.outwardUnitNormal.y);
-        }
-    }
-    return false;
 }
 }
 
@@ -459,91 +190,7 @@ BilliardPhysics::derivePlayableBallCenterRegion(
         return GeometryValueResult<PlayableBallCenterRegion>::failure(
             GeometryStatus::InvalidConfiguration);
     }
-    return GeometryValueResult<PlayableBallCenterRegion>::success({playable, {}});
-}
-
-GeometryValueResult<ResolvedPocketModel> BilliardPhysics::resolvePocketModel(
-    Point wirePocketCenter,
-    const BilliardConfig::PocketModelConfig& config,
-    const PlayableBallCenterRegion& playableRegion)
-{
-    const Segment2D pocketExitSegment = translateAndSnapSegment(
-        wirePocketCenter,
-        config.pocketExitSegmentOffsetsFromEntrance,
-        playableRegion.bounds);
-    if (!BilliardMath::isFinite(wirePocketCenter) ||
-        !validBounds(playableRegion.bounds) ||
-        !unitVector(config.outwardUnitNormal) ||
-        !finite(config.pocketExitSegmentOffsetsFromEntrance) ||
-        !finite(pocketExitSegment) ||
-        !finite(config.virtualTargetOffsetMm) || config.virtualTargetOffsetMm <= 0.0 ||
-        !finite(config.corridorHalfWidthMm) || config.corridorHalfWidthMm <= 0.0 ||
-        !finite(config.pocketBoundaryProbeEpsilonMm) ||
-        config.pocketBoundaryProbeEpsilonMm <= 0.0 ||
-        config.pocketBoundaryProbeEpsilonMm >= config.virtualTargetOffsetMm ||
-        !finite(config.exitCrossingEpsilon) || config.exitCrossingEpsilon < 0.0 ||
-        config.exitCrossingEpsilon >= 1.0 ||
-        !finite(config.maxEntryAngleDeg) || config.maxEntryAngleDeg < 0.0 ||
-        config.maxEntryAngleDeg > 180.0 ||
-        !pointInRelativeInterior(wirePocketCenter, pocketExitSegment) ||
-        !onBoundsBoundary(playableRegion.bounds, pocketExitSegment.start) ||
-        !onBoundsBoundary(playableRegion.bounds, pocketExitSegment.end) ||
-        !containsInclusive(playableRegion, pocketExitSegment.start) ||
-        !containsInclusive(playableRegion, pocketExitSegment.end)) {
-        return GeometryValueResult<ResolvedPocketModel>::failure(
-            GeometryStatus::InvalidConfiguration);
-    }
-
-    const auto exitDirection = BilliardMath::getVector(
-        pocketExitSegment.start,
-        pocketExitSegment.end);
-    const auto normalizedExit = exitDirection
-        ? BilliardMath::normalize(*exitDirection)
-        : std::nullopt;
-    if (!normalizedExit ||
-        std::fabs(dot(*normalizedExit, config.outwardUnitNormal)) > NUMERICAL_EPSILON) {
-        return GeometryValueResult<ResolvedPocketModel>::failure(
-            GeometryStatus::InvalidConfiguration);
-    }
-
-    const Point virtualTarget = add(
-        wirePocketCenter,
-        config.outwardUnitNormal,
-        config.virtualTargetOffsetMm);
-    const PocketCaptureCorridor corridor{
-        config.id,
-        wirePocketCenter,
-        virtualTarget,
-        config.outwardUnitNormal,
-        config.corridorHalfWidthMm};
-    const Point innerProbe = add(
-        wirePocketCenter,
-        config.outwardUnitNormal,
-        -config.pocketBoundaryProbeEpsilonMm);
-    const Point outerProbe = add(
-        wirePocketCenter,
-        config.outwardUnitNormal,
-        config.pocketBoundaryProbeEpsilonMm);
-    if (!BilliardMath::isFinite(virtualTarget) ||
-        !containsInterior(playableRegion, innerProbe) ||
-        containsInclusive(playableRegion, outerProbe) ||
-        !pointInCorridor(outerProbe, corridor) ||
-        !pointInCorridor(virtualTarget, corridor)) {
-        return GeometryValueResult<ResolvedPocketModel>::failure(
-            GeometryStatus::InvalidConfiguration);
-    }
-
-    return GeometryValueResult<ResolvedPocketModel>::success({
-        config.id,
-        config.type,
-        wirePocketCenter,
-        config.outwardUnitNormal,
-        virtualTarget,
-        pocketExitSegment,
-        corridor,
-        config.exitCrossingEpsilon,
-        config.maxEntryAngleDeg,
-        config.pocketBoundaryProbeEpsilonMm});
+    return GeometryValueResult<PlayableBallCenterRegion>::success({playable});
 }
 
 GeometryValueResult<EffectiveCueBallRailSegment> BilliardPhysics::deriveEffectiveRail(
@@ -633,48 +280,21 @@ GeometryValueResult<ResolvedTableGeometry> BilliardPhysics::resolveTableGeometry
         return GeometryValueResult<ResolvedTableGeometry>::failure(playable.status());
     }
 
-    PlayableBallCenterRegion resolvedPlayable = *playable.value();
-    resolvedPlayable.pocketBoundaries.reserve(6);
-    for (std::size_t index = 0; index < currentCyclePocketCenters.size(); ++index) {
-        if (static_cast<std::size_t>(config->pockets[index].id) != index ||
-            !BilliardMath::isFinite(currentCyclePocketCenters[index]) ||
-            !unitVector(config->pockets[index].outwardUnitNormal) ||
-            !finite(config->pockets[index].pocketExitSegmentOffsetsFromEntrance)) {
-            return GeometryValueResult<ResolvedTableGeometry>::failure(
-                GeometryStatus::InvalidConfiguration,
-                index);
-        }
-        resolvedPlayable.pocketBoundaries.push_back({
-            config->pockets[index].id,
-            currentCyclePocketCenters[index],
-            translateAndSnapSegment(
-                currentCyclePocketCenters[index],
-                config->pockets[index].pocketExitSegmentOffsetsFromEntrance,
-                resolvedPlayable.bounds),
-            config->pockets[index].outwardUnitNormal});
-    }
+    const PlayableBallCenterRegion& resolvedPlayable = *playable.value();
 
-    std::array<ResolvedPocketModel, 6> pockets{};
+    std::array<ResolvedPocket, 6> pockets{};
     std::array<PhysicalRailSegment, 6> physicalRails{};
     std::array<EffectiveCueBallRailSegment, 6> effectiveRails{};
     for (std::size_t index = 0; index < pockets.size(); ++index) {
-        if (static_cast<std::size_t>(config->pockets[index].id) != index ||
-            static_cast<std::size_t>(config->rails[index].id) != index ||
+        if (static_cast<std::size_t>(config->rails[index].id) != index ||
             !BilliardMath::isFinite(currentCyclePocketCenters[index])) {
             return GeometryValueResult<ResolvedTableGeometry>::failure(
                 GeometryStatus::InvalidConfiguration,
                 index);
         }
-        const auto pocket = resolvePocketModel(
-            currentCyclePocketCenters[index],
-            config->pockets[index],
-            resolvedPlayable);
-        if (!pocket.value()) {
-            return GeometryValueResult<ResolvedTableGeometry>::failure(
-                pocket.status(),
-                index);
-        }
-        pockets[index] = *pocket.value();
+        pockets[index] = ResolvedPocket{
+            static_cast<BilliardConfig::PocketId>(index),
+            currentCyclePocketCenters[index]};
 
         physicalRails[index] = {
             config->rails[index].id,
@@ -694,27 +314,6 @@ GeometryValueResult<ResolvedTableGeometry> BilliardPhysics::resolveTableGeometry
         effectiveRails[index] = *effective.value();
     }
 
-    for (std::size_t first = 0; first < pockets.size(); ++first) {
-        for (std::size_t second = first + 1; second < pockets.size(); ++second) {
-            if (segmentsOverlapOrTouch(
-                    pockets[first].pocketExitSegment,
-                    pockets[second].pocketExitSegment)) {
-                return GeometryValueResult<ResolvedTableGeometry>::failure(
-                    GeometryStatus::InvalidConfiguration,
-                    second);
-            }
-        }
-        for (std::size_t rail = 0; rail < effectiveRails.size(); ++rail) {
-            if (segmentsOverlapOrTouch(
-                    pockets[first].pocketExitSegment,
-                    effectiveRails[rail].segment)) {
-                return GeometryValueResult<ResolvedTableGeometry>::failure(
-                    GeometryStatus::InvalidConfiguration,
-                    first);
-            }
-        }
-    }
-
     return GeometryValueResult<ResolvedTableGeometry>::success({
         config->calibrationRevision,
         resolvedPlayable,
@@ -729,12 +328,12 @@ GeometryValueResult<ResolvedTableGeometry> BilliardPhysics::resolveTableGeometry
 GhostBallResult BilliardPhysics::computeGhostBallPoint(
     Point cueBallCenter,
     Point targetBallCenter,
-    Point virtualPocketTarget,
+    Point pocketTarget,
     double ballRadiusMm)
 {
     if (!BilliardMath::isFinite(cueBallCenter) ||
         !BilliardMath::isFinite(targetBallCenter) ||
-        !BilliardMath::isFinite(virtualPocketTarget) ||
+        !BilliardMath::isFinite(pocketTarget) ||
         !finite(ballRadiusMm) || ballRadiusMm <= 0.0) {
         return GhostBallResult::failure(GeometryStatus::InvalidInput);
     }
@@ -746,12 +345,12 @@ GhostBallResult BilliardPhysics::computeGhostBallPoint(
     if (!cueDistance) {
         return GhostBallResult::failure(GeometryStatus::InvalidInput);
     }
-    if (samePoint(targetBallCenter, virtualPocketTarget)) {
+    if (samePoint(targetBallCenter, pocketTarget)) {
         return GhostBallResult::failure(GeometryStatus::DegenerateGeometry);
     }
     const auto targetDirection = BilliardMath::getVector(
         targetBallCenter,
-        virtualPocketTarget);
+        pocketTarget);
     const auto unit = targetDirection ? BilliardMath::normalize(*targetDirection) : std::nullopt;
     if (!unit) {
         return GhostBallResult::failure(GeometryStatus::InvalidInput);
@@ -762,81 +361,6 @@ GhostBallResult BilliardPhysics::computeGhostBallPoint(
         return GhostBallResult::failure(GeometryStatus::InvalidInput);
     }
     return GhostBallResult::success({ghost}, surfaceContact);
-}
-
-GeometryValueResult<PocketEntryAngle> BilliardPhysics::computePocketEntryAngle(
-    Point targetBallCenter,
-    const ResolvedPocketModel& pocket)
-{
-    if (!BilliardMath::isFinite(targetBallCenter) ||
-        !BilliardMath::isFinite(pocket.virtualPocketTarget) ||
-        !unitVector(pocket.outwardUnitNormal) ||
-        pocket.captureCorridor.pocketId != pocket.id ||
-        !approximatelyEqual(
-            pocket.captureCorridor.entranceCenter,
-            pocket.wirePocketCenter) ||
-        !approximatelyEqual(
-            pocket.captureCorridor.virtualPocketTarget,
-            pocket.virtualPocketTarget) ||
-        !approximatelyEqual(
-            pocket.captureCorridor.outwardUnitNormal.x,
-            pocket.outwardUnitNormal.x) ||
-        !approximatelyEqual(
-            pocket.captureCorridor.outwardUnitNormal.y,
-            pocket.outwardUnitNormal.y) ||
-        !finite(pocket.captureCorridor.halfWidthMm) ||
-        pocket.captureCorridor.halfWidthMm <= 0.0 ||
-        !finite(pocket.maxEntryAngleDeg) || pocket.maxEntryAngleDeg < 0.0 ||
-        pocket.maxEntryAngleDeg > 180.0) {
-        return GeometryValueResult<PocketEntryAngle>::failure(
-            GeometryStatus::InvalidConfiguration);
-    }
-    if (samePoint(targetBallCenter, pocket.virtualPocketTarget)) {
-        return GeometryValueResult<PocketEntryAngle>::failure(
-            GeometryStatus::DegenerateGeometry);
-    }
-    const auto direction = BilliardMath::getVector(
-        targetBallCenter,
-        pocket.virtualPocketTarget);
-    if (!direction) {
-        return GeometryValueResult<PocketEntryAngle>::failure(
-            GeometryStatus::InvalidInput);
-    }
-    const auto unit = BilliardMath::normalize(*direction);
-    if (!unit) {
-        return GeometryValueResult<PocketEntryAngle>::failure(
-            GeometryStatus::DegenerateGeometry);
-    }
-    const double cosine = std::clamp(dot(*unit, pocket.outwardUnitNormal), -1.0, 1.0);
-    const double angle = std::acos(cosine) * 180.0 / BilliardMath::PI;
-    if (!finite(angle)) {
-        return GeometryValueResult<PocketEntryAngle>::failure(
-            GeometryStatus::InvalidInput);
-    }
-    if (angle > pocket.maxEntryAngleDeg + NUMERICAL_EPSILON) {
-        return GeometryValueResult<PocketEntryAngle>::failure(
-            GeometryStatus::DirectionRejected);
-    }
-    return GeometryValueResult<PocketEntryAngle>::success({angle});
-}
-
-GeometryCheckResult BilliardPhysics::checkPocketExitDirection(
-    Vector2D unitMovementDirection,
-    const ResolvedPocketModel& pocket)
-{
-    if (!unitVector(unitMovementDirection)) {
-        return GeometryCheckResult::rejected(GeometryStatus::InvalidInput);
-    }
-    if (!unitVector(pocket.outwardUnitNormal) ||
-        !finite(pocket.exitCrossingEpsilon) ||
-        pocket.exitCrossingEpsilon < 0.0 || pocket.exitCrossingEpsilon >= 1.0) {
-        return GeometryCheckResult::rejected(GeometryStatus::InvalidConfiguration);
-    }
-    if (dot(unitMovementDirection, pocket.outwardUnitNormal) <=
-        pocket.exitCrossingEpsilon) {
-        return GeometryCheckResult::rejected(GeometryStatus::DirectionRejected);
-    }
-    return GeometryCheckResult::clear();
 }
 
 GeometryCheckResult BilliardPhysics::checkSegmentWithinPlayableRegion(
@@ -861,8 +385,7 @@ GeometryCheckResult BilliardPhysics::checkSegmentWithinPlayableRegion(
 
 GeometryCheckResult BilliardPhysics::checkTargetPathToPocket(
     Segment2D targetPath,
-    BilliardConfig::PocketId selectedPocket,
-    const std::array<ResolvedPocketModel, 6>& pockets,
+    Point pocketTarget,
     const PlayableBallCenterRegion& playableRegion)
 {
     const auto length = finite(targetPath)
@@ -871,66 +394,13 @@ GeometryCheckResult BilliardPhysics::checkTargetPathToPocket(
     if (samePoint(targetPath.start, targetPath.end)) {
         return GeometryCheckResult::rejected(GeometryStatus::DegenerateGeometry);
     }
-    if (!length || !validBounds(playableRegion.bounds) ||
+    if (!length || !BilliardMath::isFinite(pocketTarget) ||
+        !validBounds(playableRegion.bounds) ||
         !containsInclusive(playableRegion, targetPath.start)) {
         return GeometryCheckResult::rejected(GeometryStatus::InvalidInput);
     }
-    const std::size_t selectedIndex = static_cast<std::size_t>(selectedPocket);
-    for (std::size_t index = 0; index < pockets.size(); ++index) {
-        if (!validResolvedPocketModel(pockets[index], index, playableRegion)) {
-            return GeometryCheckResult::rejected(
-                GeometryStatus::InvalidConfiguration,
-                index);
-        }
-        for (std::size_t other = index + 1; other < pockets.size(); ++other) {
-            if (segmentsOverlapOrTouch(
-                    pockets[index].pocketExitSegment,
-                    pockets[other].pocketExitSegment)) {
-                return GeometryCheckResult::rejected(
-                    GeometryStatus::InvalidConfiguration,
-                    other);
-            }
-        }
-    }
-    if (selectedIndex >= pockets.size() || pockets[selectedIndex].id != selectedPocket ||
-        !approximatelyEqual(targetPath.end, pockets[selectedIndex].virtualPocketTarget)) {
+    if (!approximatelyEqual(targetPath.end, pocketTarget)) {
         return GeometryCheckResult::rejected(GeometryStatus::InvalidConfiguration);
-    }
-    const ResolvedPocketModel& selected = pockets[selectedIndex];
-    const auto direction = BilliardMath::getVector(targetPath.start, targetPath.end);
-    const auto unit = direction ? BilliardMath::normalize(*direction) : std::nullopt;
-    if (!unit) {
-        return GeometryCheckResult::rejected(GeometryStatus::InvalidInput);
-    }
-    const auto exitDirection = checkPocketExitDirection(*unit, selected);
-    if (exitDirection.status() != GeometryStatus::Clear) {
-        return exitDirection;
-    }
-
-    const SegmentIntersection selectedIntersection = intersectSegments(
-        targetPath,
-        selected.pocketExitSegment);
-    if (!selectedIntersection.intersects) {
-        return GeometryCheckResult::rejected(GeometryStatus::NoIntersection);
-    }
-    for (std::size_t index = 0; index < pockets.size(); ++index) {
-        if (index == selectedIndex) {
-            continue;
-        }
-        const auto other = intersectSegments(targetPath, pockets[index].pocketExitSegment);
-        if (other.intersects &&
-            other.firstParameter <= selectedIntersection.firstParameter + NUMERICAL_EPSILON) {
-            return GeometryCheckResult::rejected(GeometryStatus::OutsideValidRegion, index);
-        }
-    }
-
-    const auto boundsExit = firstRegionExitParameter(targetPath, playableRegion);
-    if (!boundsExit ||
-        std::fabs(*boundsExit - selectedIntersection.firstParameter) > NUMERICAL_EPSILON ||
-        !selectedIntersection.point ||
-        !pointInCorridor(*selectedIntersection.point, selected.captureCorridor) ||
-        !pointInCorridor(targetPath.end, selected.captureCorridor)) {
-        return GeometryCheckResult::rejected(GeometryStatus::OutsideValidRegion);
     }
     return GeometryCheckResult::clear();
 }
