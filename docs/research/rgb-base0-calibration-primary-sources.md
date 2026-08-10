@@ -48,5 +48,5 @@
 - Python：只執行既有 Ultralytics YOLO model，不控制相機、不做座標轉換。
 - RGB frame：只接受原始 1280×720 MJPG，不允許 resize、crop、mirror、flip、rotation 或 letterbox 後的座標。
 - Ray：depth=1 只是比例；以 SDK inverse projection + 1000 mm scale check + reprojection + XY-table check fail closed。
-- 平面：球中心使用 `Z_table + 24.76 mm`；lambda 只由 Base0 plane intersection 計算。
+- 平面：依使用者 2026-08-10 更新的球徑 44.5 mm，球中心使用 `Z_table + 22.25 mm`；lambda 只由 Base0 plane intersection 計算。
 - 驗收：至少 6 點、RMS XY ≤3 mm、每點 ≤5 mm；影像位置系統性趨勢以可記錄、可調整的 Pearson correlation gate 操作化，預設絕對值 0.7，並明確聲明不是官方規格。

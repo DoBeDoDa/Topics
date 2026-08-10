@@ -614,6 +614,7 @@ int main(const int argc, char** argv) {
         logRotation(*logger, "R_Tool2_from_RGB", calibration.rTool2FromRgb);
         logRotation(*logger, "R_Base0_from_RGB", calibration.rBase0FromRgb);
         logger->line("[TABLE] Z_table_mm=" + std::to_string(calibration.zTableMm)
+                     + " ball_diameter_mm=" + std::to_string(calibration.ballDiameterMm)
                      + " ball_radius_mm=" + std::to_string(calibration.ballRadiusMm)
                      + " Z_target_mm=" + std::to_string(calibration.zTableMm + calibration.ballRadiusMm)
                      + " table_plane_model=" + calibration.tablePlaneModel);

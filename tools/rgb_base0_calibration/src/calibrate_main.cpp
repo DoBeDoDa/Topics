@@ -177,7 +177,9 @@ int main(const int argc, char** argv) {
         logger->line("[WARNING] rotation_convention_source=user_approved_temporary");
         logger->line("[WARNING] HIWIN's public documents do not verify the full ABC-to-matrix convention.");
         logger->line("[INPUT] robot_ip=" + options.robotIp + " Tool2 Base0 z_table_mm="
-                     + std::to_string(options.zTableMm) + " ball_radius_mm=24.76");
+                     + std::to_string(options.zTableMm) + " ball_diameter_mm="
+                     + std::to_string(rgb_base0::kBallDiameterMm) + " ball_radius_mm="
+                     + std::to_string(rgb_base0::kBallRadiusMm));
 
         rgb_base0::CalibrationData calibration;
         calibration.createdUtc = rgb_base0::utcIsoTimestamp();
@@ -263,6 +265,7 @@ int main(const int argc, char** argv) {
         logRotation(*logger, "R_Tool2_from_RGB", calibration.rTool2FromRgb);
         logRotation(*logger, "R_Base0_from_RGB", calibration.rBase0FromRgb);
         logger->line("[TABLE] Z_table_mm=" + std::to_string(calibration.zTableMm)
+                     + " ball_diameter_mm=" + std::to_string(calibration.ballDiameterMm)
                      + " ball_radius_mm=" + std::to_string(calibration.ballRadiusMm)
                      + " Z_target_mm=" + std::to_string(calibration.zTableMm + calibration.ballRadiusMm)
                      + " model=" + calibration.tablePlaneModel);

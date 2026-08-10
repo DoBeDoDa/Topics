@@ -6,6 +6,9 @@
 
 namespace rgb_base0 {
 
+inline constexpr double kBallDiameterMm = 44.5;
+inline constexpr double kBallRadiusMm = kBallDiameterMm / 2.0;
+
 struct Vec3 {
     double x = 0.0;
     double y = 0.0;
@@ -49,7 +52,7 @@ struct CameraDistortionData {
 };
 
 struct CalibrationData {
-    std::string schemaVersion = "1.0";
+    std::string schemaVersion = "1.1";
     std::string createdUtc;
     bool experimental = true;
 
@@ -89,7 +92,8 @@ struct CalibrationData {
     Vec3 tBase0FromRgb;
 
     double zTableMm = 0.0;
-    double ballRadiusMm = 24.76;
+    double ballDiameterMm = kBallDiameterMm;
+    double ballRadiusMm = kBallRadiusMm;
     std::string tablePlaneModel = "constant_z";
     std::string translationUnit = "mm";
 };

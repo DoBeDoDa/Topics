@@ -265,7 +265,7 @@ PlaneIntersection intersectRayWithHorizontalPlane(const Vec3& originBase0,
 }
 
 void validateCalibration(const CalibrationData& calibration) {
-    if(calibration.schemaVersion != "1.0") {
+    if(calibration.schemaVersion != "1.1") {
         throw std::runtime_error("Unsupported calibration schema_version: " + calibration.schemaVersion);
     }
     if(calibration.createdUtc.empty()) {
@@ -340,8 +340,11 @@ void validateCalibration(const CalibrationData& calibration) {
     if(!std::all_of(pose.begin(), pose.end(), finite)) {
         throw std::runtime_error("Robot pose contains a non-finite value");
     }
-    if(!finite(calibration.zTableMm) || !finite(calibration.ballRadiusMm)
-       || std::abs(calibration.ballRadiusMm - 24.76) > 1e-9) {
+    if(!finite(calibration.zTableMm) || !finite(calibration.ballDiameterMm)
+       || !finite(calibration.ballRadiusMm)
+       || std::abs(calibration.ballDiameterMm - kBallDiameterMm) > 1e-9
+       || std::abs(calibration.ballRadiusMm - kBallRadiusMm) > 1e-9
+       || std::abs(calibration.ballDiameterMm - 2.0 * calibration.ballRadiusMm) > 1e-9) {
         throw std::runtime_error("Table or ball geometry is invalid");
     }
     validateRotationMatrix(calibration.rBase0FromTool2, "R_Base0_from_Tool2");
