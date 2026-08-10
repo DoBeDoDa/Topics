@@ -1,8 +1,17 @@
 # P1-03 — CameraCompensator
 
-**Status:** ready-for-agent
+**Status:** Superseded — historical only, do not implement
 
 **Blocked by:** P1-02 — 基礎型別、GeometryResults與MathUtils
+
+## Superseded Classification and Requirement Migration
+
+- Classification：Superseded；Approved Specs明確禁止C++ CameraCompensator與double compensation。
+- 核心「C++再次補償」及新增`CameraCompensator.cpp/.h`要求：obsolete，不遷移。
+- finite／overflow validation、fail-closed、Diagnostic與不得raw Point fallback：遷移至active P1-03。
+- 純MathUtils不得含camera compensation：已由Completed P1-02保留。
+- 原測試中只驗證補償公式者失效；通用非法輸入／Result不變量測試遷移至P1-03。
+- 本文件只供Git歷史追溯，不是Approved需求、active ticket或實作依據。
 
 ## 1. Ticket ID與標題
 
@@ -114,4 +123,3 @@ M  .vscode/tasks.json
 ```text
 refactor(vision): extract camera compensator
 ```
-

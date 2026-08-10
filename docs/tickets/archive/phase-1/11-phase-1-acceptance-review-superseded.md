@@ -1,8 +1,16 @@
 # P1-11 — Phase 1全面驗收與Code Review
 
-**Status:** ready-for-agent
+**Status:** Superseded — acceptance distributed, do not implement as a separate capability
 
 **Blocked by:** P1-10 — BilliardApp、test_cueball與完整編譯相容
+
+## Superseded Classification and Requirement Migration
+
+- Classification：Superseded／Merge；單獨「總驗收ticket」不再是主要能力identity。
+- 每項離線test、dependency audit、禁用fallback、diff scope及fail-closed要求已遷移到P1-03～P1-09與P2-01～P2-03各自Acceptance／Test／Definition of Done。
+- Phase 1整合驗收由active P1-09承接；fake完整cycle由P2-02承接；real adapter與硬體安全驗收由P2-03承接。
+- P1-01／P1-02完成證據保留在各自Completed ticket，不由本票重做。
+- 本文件只供Git歷史與requirement traceability，不是active ticket或額外第13個能力。
 
 ## 1. Ticket ID與標題
 
@@ -159,4 +167,3 @@ test: complete phase 1 safety acceptance
 ```
 
 若無diff，無需建立空commit；以review／PR驗收紀錄結案。
-
