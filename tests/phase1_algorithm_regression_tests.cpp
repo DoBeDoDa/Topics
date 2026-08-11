@@ -24,18 +24,22 @@ constexpr double TOLERANCE = 1e-9;
 // API -- the refactored Pocket model is just a Vision-provided point -- but
 // they preserve the exact fixture geometry the Direct/Kick tests were built
 // around, so cue/target/ghost placement per pocket stays identical.
+// Index order follows pocketCenters()'s CCW perimeter walk (BL, BM, BR, TR,
+// TM, TL), matching PhysicalRailConfig's Pocket(N)->Pocket(N+1) adjacency.
 constexpr std::array<Vector2D, 6> POCKET_DIRECTIONS{{
     {-ROOT_HALF, -ROOT_HALF},
     {0.0, -1.0},
     {ROOT_HALF, -ROOT_HALF},
-    {-ROOT_HALF, ROOT_HALF},
+    {ROOT_HALF, ROOT_HALF},
     {0.0, 1.0},
-    {ROOT_HALF, ROOT_HALF}
+    {-ROOT_HALF, ROOT_HALF}
 }};
 
 BilliardConfig::TableGeometryConfig tableConfig()
 {
     using namespace BilliardConfig;
+    // rail的segment不再寫死，改由startPocket/endPocket於resolveTableGeometry
+    // 查pocketCenters()即時組成，下方座標即對應舊版六段寫死線段。
     return {
         "p1-06-test-v1",
         {0.0, 1000.0, 0.0, 500.0},
@@ -43,20 +47,20 @@ BilliardConfig::TableGeometryConfig tableConfig()
         20.0,
         2.0,
         {{
-            {RailId::Rail1, {{0.0, 0.0}, {500.0, 0.0}}, {0.0, 1.0}, 40.0, 40.0},
-            {RailId::Rail2, {{500.0, 0.0}, {1000.0, 0.0}}, {0.0, 1.0}, 40.0, 40.0},
-            {RailId::Rail3, {{0.0, 500.0}, {500.0, 500.0}}, {0.0, -1.0}, 40.0, 40.0},
-            {RailId::Rail4, {{500.0, 500.0}, {1000.0, 500.0}}, {0.0, -1.0}, 40.0, 40.0},
-            {RailId::Rail5, {{0.0, 0.0}, {0.0, 500.0}}, {1.0, 0.0}, 40.0, 40.0},
-            {RailId::Rail6, {{1000.0, 0.0}, {1000.0, 500.0}}, {-1.0, 0.0}, 40.0, 40.0}
+            {RailId::Rail1, PocketId::Pocket1, PocketId::Pocket2, {0.0, 1.0}, 40.0, 40.0, 0.0},
+            {RailId::Rail2, PocketId::Pocket2, PocketId::Pocket3, {0.0, 1.0}, 40.0, 40.0, 0.0},
+            {RailId::Rail3, PocketId::Pocket3, PocketId::Pocket4, {-1.0, 0.0}, 40.0, 40.0, 0.0},
+            {RailId::Rail4, PocketId::Pocket4, PocketId::Pocket5, {0.0, -1.0}, 40.0, 40.0, 0.0},
+            {RailId::Rail5, PocketId::Pocket5, PocketId::Pocket6, {0.0, -1.0}, 40.0, 40.0, 0.0},
+            {RailId::Rail6, PocketId::Pocket6, PocketId::Pocket1, {1.0, 0.0}, 40.0, 40.0, 0.0}
         }}};
 }
 
 std::array<Point, 6> pocketCenters()
 {
     return {{
-        {20.0, 20.0}, {500.0, 10.0}, {980.0, 20.0},
-        {20.0, 480.0}, {500.0, 490.0}, {980.0, 480.0}}};
+        {0.0, 0.0}, {500.0, 0.0}, {1000.0, 0.0},
+        {1000.0, 500.0}, {500.0, 500.0}, {0.0, 500.0}}};
 }
 
 StableTableState state(
@@ -1067,9 +1071,9 @@ int main()
         "Kick-only feasible set selects the Kick candidate");
 
     if (directWinner) {
-        tests.expectNear(directWinner->audit.rawWeights.kickPenalty, 0.30,
+        tests.expectNear(directWinner->audit.rawWeights.kickPenalty, 0.35,
             TOLERANCE, "audit preserves raw kick weight");
-        tests.expectNear(directWinner->audit.rawWeightSum, 0.95,
+        tests.expectNear(directWinner->audit.rawWeightSum, 1.0,
             TOLERANCE, "audit preserves raw weight sum");
         tests.expectNear(directWinner->audit.effectiveWeights.sum(), 1.0,
             scoreConfig.effectiveWeightSumTolerance,

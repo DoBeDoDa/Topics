@@ -23,19 +23,19 @@ BilliardConfig::TableGeometryConfig tableConfig()
     return {
         "p2-01-table-v1", {0.0, 1000.0, 0.0, 500.0}, 10.0, 20.0, 2.0,
         {{
-            {RailId::Rail1, {{0.0, 0.0}, {500.0, 0.0}}, {0.0, 1.0}, 40.0, 40.0},
-            {RailId::Rail2, {{500.0, 0.0}, {1000.0, 0.0}}, {0.0, 1.0}, 40.0, 40.0},
-            {RailId::Rail3, {{0.0, 500.0}, {500.0, 500.0}}, {0.0, -1.0}, 40.0, 40.0},
-            {RailId::Rail4, {{500.0, 500.0}, {1000.0, 500.0}}, {0.0, -1.0}, 40.0, 40.0},
-            {RailId::Rail5, {{0.0, 0.0}, {0.0, 500.0}}, {1.0, 0.0}, 40.0, 40.0},
-            {RailId::Rail6, {{1000.0, 0.0}, {1000.0, 500.0}}, {-1.0, 0.0}, 40.0, 40.0}
+            {RailId::Rail1, PocketId::Pocket1, PocketId::Pocket2, {0.0, 1.0}, 40.0, 40.0, 0.0},
+            {RailId::Rail2, PocketId::Pocket2, PocketId::Pocket3, {0.0, 1.0}, 40.0, 40.0, 0.0},
+            {RailId::Rail3, PocketId::Pocket3, PocketId::Pocket4, {-1.0, 0.0}, 40.0, 40.0, 0.0},
+            {RailId::Rail4, PocketId::Pocket4, PocketId::Pocket5, {0.0, -1.0}, 40.0, 40.0, 0.0},
+            {RailId::Rail5, PocketId::Pocket5, PocketId::Pocket6, {0.0, -1.0}, 40.0, 40.0, 0.0},
+            {RailId::Rail6, PocketId::Pocket6, PocketId::Pocket1, {1.0, 0.0}, 40.0, 40.0, 0.0}
         }}};
 }
 
 std::array<Point, 6> pocketCenters()
 {
-    return {{{20.0, 20.0}, {500.0, 10.0}, {980.0, 20.0},
-             {20.0, 480.0}, {500.0, 490.0}, {980.0, 480.0}}};
+    return {{{0.0, 0.0}, {500.0, 0.0}, {1000.0, 0.0},
+             {1000.0, 500.0}, {500.0, 500.0}, {0.0, 500.0}}};
 }
 
 StableTableState state(

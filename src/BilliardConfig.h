@@ -30,10 +30,12 @@ enum class RailId : std::size_t {
 
 struct PhysicalRailConfig {
     RailId id;
-    Segment2D segment;  // 實體庫邊端點。
+    PocketId startPocket;  // 庫邊起點對應袋口，實際座標於每輪Vision週期查表取得。
+    PocketId endPocket;  // 庫邊終點對應袋口。
     Vector2D inwardUnitNormal;  // 朝桌內方向。
     double startExclusionMm;  // 起點不可反彈區。
     double endExclusionMm;  // 終點不可反彈區。
+    double cushionInsetMm;  // 緩衝墊壓縮造成的碰撞面內縮量，沿inwardUnitNormal方向，疊加於ballRadiusMm之後。
 };
 
 struct TableGeometryConfig {

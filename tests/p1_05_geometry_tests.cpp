@@ -16,6 +16,10 @@ constexpr double TOLERANCE = 1e-9;
 BilliardConfig::TableGeometryConfig validConfig()
 {
     using namespace BilliardConfig;
+    // rail的segment不再寫死，改由startPocket/endPocket於resolveTableGeometry
+    // 查stableStateWithNoNumberedBalls()的pockets即時組成。下方pocket六邊形
+    // 座標即對應(0,0)-(500,0)-(1000,0)-(1000,500)-(500,500)-(0,500)逆時針一圈，
+    // 讓Rail1實際線段與舊版寫死值({0,0}-{500,0})完全相同。
     return {
         "table-geometry-test-v1",
         {0.0, 1000.0, 0.0, 500.0},
@@ -23,12 +27,12 @@ BilliardConfig::TableGeometryConfig validConfig()
         20.0,
         2.0,
         {{
-            {RailId::Rail1, {{0.0, 0.0}, {500.0, 0.0}}, {0.0, 1.0}, 40.0, 40.0},
-            {RailId::Rail2, {{500.0, 0.0}, {1000.0, 0.0}}, {0.0, 1.0}, 40.0, 40.0},
-            {RailId::Rail3, {{0.0, 500.0}, {500.0, 500.0}}, {0.0, -1.0}, 40.0, 40.0},
-            {RailId::Rail4, {{500.0, 500.0}, {1000.0, 500.0}}, {0.0, -1.0}, 40.0, 40.0},
-            {RailId::Rail5, {{0.0, 0.0}, {0.0, 500.0}}, {1.0, 0.0}, 40.0, 40.0},
-            {RailId::Rail6, {{1000.0, 0.0}, {1000.0, 500.0}}, {-1.0, 0.0}, 40.0, 40.0}
+            {RailId::Rail1, PocketId::Pocket1, PocketId::Pocket2, {0.0, 1.0}, 40.0, 40.0, 0.0},
+            {RailId::Rail2, PocketId::Pocket2, PocketId::Pocket3, {0.0, 1.0}, 40.0, 40.0, 0.0},
+            {RailId::Rail3, PocketId::Pocket3, PocketId::Pocket4, {-1.0, 0.0}, 40.0, 40.0, 0.0},
+            {RailId::Rail4, PocketId::Pocket4, PocketId::Pocket5, {0.0, -1.0}, 40.0, 40.0, 0.0},
+            {RailId::Rail5, PocketId::Pocket5, PocketId::Pocket6, {0.0, -1.0}, 40.0, 40.0, 0.0},
+            {RailId::Rail6, PocketId::Pocket6, PocketId::Pocket1, {1.0, 0.0}, 40.0, 40.0, 0.0}
         }}};
 }
 
@@ -36,8 +40,8 @@ StableTableState stableStateWithNoNumberedBalls()
 {
     std::array<std::optional<Point>, 9> balls{};
     const std::array<Point, 6> pockets{{
-        {20.0, 20.0}, {500.0, 10.0}, {980.0, 20.0},
-        {20.0, 480.0}, {500.0, 490.0}, {980.0, 480.0}}};
+        {0.0, 0.0}, {500.0, 0.0}, {1000.0, 0.0},
+        {1000.0, 500.0}, {500.0, 500.0}, {0.0, 500.0}}};
     const auto now = std::chrono::steady_clock::now();
     return StableTableState{
         balls,
@@ -113,7 +117,8 @@ int main()
             GeometryStatus::DegenerateGeometry,
         "zero target direction fails closed");
 
-    const Point bottomPocketTarget = table.pockets[1].center;
+    // 獨立於已配置袋口，僅作為checkTargetPathToPocket的通用幾何測試點。
+    const Point bottomPocketTarget{500.0, 10.0};
     const Segment2D targetPath{{500.0, 100.0}, bottomPocketTarget};
     tests.expectTrue(
         BilliardPhysics::checkTargetPathToPocket(
@@ -166,11 +171,14 @@ int main()
         "physical start exclusion maps longitudinally to effective rail");
     tests.expectNear(effective.segment.end.x, 460.0, TOLERANCE,
         "physical end exclusion maps longitudinally to effective rail");
+    const Segment2D rail1Segment{{0.0, 0.0}, {500.0, 0.0}};
+
     auto reversedRail = config.rails[0];
     reversedRail.inwardUnitNormal = {0.0, -1.0};
     tests.expectTrue(
         BilliardPhysics::deriveEffectiveRail(
             reversedRail,
+            rail1Segment,
             table.playableBallCenterRegion,
             config.ballRadiusMm).status() == GeometryStatus::InvalidConfiguration,
         "outward/reversed rail normal fails closed");
@@ -180,14 +188,15 @@ int main()
     tests.expectTrue(
         BilliardPhysics::deriveEffectiveRail(
             emptyRail,
+            rail1Segment,
             table.playableBallCenterRegion,
             config.ballRadiusMm).status() == GeometryStatus::InvalidConfiguration,
         "empty effective rail fails closed");
-    auto zeroLengthRail = config.rails[0];
-    zeroLengthRail.segment.end = zeroLengthRail.segment.start;
+    const Segment2D zeroLengthSegment{{0.0, 0.0}, {0.0, 0.0}};
     tests.expectTrue(
         BilliardPhysics::deriveEffectiveRail(
-            zeroLengthRail,
+            config.rails[0],
+            zeroLengthSegment,
             table.playableBallCenterRegion,
             config.ballRadiusMm).status() == GeometryStatus::InvalidConfiguration,
         "zero-length physical rail fails closed");
@@ -196,6 +205,7 @@ int main()
     tests.expectTrue(
         BilliardPhysics::deriveEffectiveRail(
             nonUnitRail,
+            rail1Segment,
             table.playableBallCenterRegion,
             config.ballRadiusMm).status() == GeometryStatus::InvalidConfiguration,
         "non-unit rail normal fails closed");
@@ -205,6 +215,7 @@ int main()
     tests.expectTrue(
         BilliardPhysics::deriveEffectiveRail(
             nonFiniteRail,
+            rail1Segment,
             table.playableBallCenterRegion,
             config.ballRadiusMm).status() == GeometryStatus::InvalidConfiguration,
         "non-finite rail normal fails closed");

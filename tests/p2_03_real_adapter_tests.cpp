@@ -19,20 +19,22 @@ BilliardConfig::TableGeometryConfig planningTableConfig()
 {
     using namespace BilliardConfig;
     return {"p2-03-table-v1", {0.0, 1000.0, 0.0, 500.0}, 10.0, 20.0, 2.0,
-        {{{RailId::Rail1, {{0.0, 0.0}, {500.0, 0.0}}, {0.0, 1.0}, 40.0, 40.0},
-          {RailId::Rail2, {{500.0, 0.0}, {1000.0, 0.0}}, {0.0, 1.0}, 40.0, 40.0},
-          {RailId::Rail3, {{0.0, 500.0}, {500.0, 500.0}}, {0.0, -1.0}, 40.0, 40.0},
-          {RailId::Rail4, {{500.0, 500.0}, {1000.0, 500.0}}, {0.0, -1.0}, 40.0, 40.0},
-          {RailId::Rail5, {{0.0, 0.0}, {0.0, 500.0}}, {1.0, 0.0}, 40.0, 40.0},
-          {RailId::Rail6, {{1000.0, 0.0}, {1000.0, 500.0}}, {-1.0, 0.0}, 40.0, 40.0}}}};
+        {{{RailId::Rail1, PocketId::Pocket1, PocketId::Pocket2, {0.0, 1.0}, 40.0, 40.0, 0.0},
+          {RailId::Rail2, PocketId::Pocket2, PocketId::Pocket3, {0.0, 1.0}, 40.0, 40.0, 0.0},
+          {RailId::Rail3, PocketId::Pocket3, PocketId::Pocket4, {-1.0, 0.0}, 40.0, 40.0, 0.0},
+          {RailId::Rail4, PocketId::Pocket4, PocketId::Pocket5, {0.0, -1.0}, 40.0, 40.0, 0.0},
+          {RailId::Rail5, PocketId::Pocket5, PocketId::Pocket6, {0.0, -1.0}, 40.0, 40.0, 0.0},
+          {RailId::Rail6, PocketId::Pocket6, PocketId::Pocket1, {1.0, 0.0}, 40.0, 40.0, 0.0}}}};
 }
 
 std::string currentCycleFrame()
 {
+    // 袋口座標改用精確六邊形角點，與tableConfig()的PocketId拓樸對應，
+    // 使即時查表算出的rail segment與舊版寫死線段完全相同。
     return "500,250,-9999,-9999,-9999,-9999,-9999,-9999,"
            "-9999,-9999,-9999,-9999,-9999,-9999,-9999,-9999,"
-           "-9999,-9999,400,250,20,20,500,10,980,20,20,480,"
-           "500,490,980,480";
+           "-9999,-9999,400,250,0,0,500,0,1000,0,1000,500,"
+           "500,500,0,500";
 }
 
 BilliardConfig::BrainConfig planningBrainConfig()

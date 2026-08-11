@@ -97,6 +97,7 @@ public:
 
     static GeometryValueResult<EffectiveCueBallRailSegment> deriveEffectiveRail(
         const BilliardConfig::PhysicalRailConfig& physicalRail,
+        const Segment2D& segment,
         const PlayableBallCenterRegion& playableRegion,
         double ballRadiusMm);
 

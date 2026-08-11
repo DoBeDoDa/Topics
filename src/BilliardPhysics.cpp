@@ -195,17 +195,17 @@ BilliardPhysics::derivePlayableBallCenterRegion(
 
 GeometryValueResult<EffectiveCueBallRailSegment> BilliardPhysics::deriveEffectiveRail(
     const BilliardConfig::PhysicalRailConfig& physicalRail,
+    const Segment2D& segment,
     const PlayableBallCenterRegion& playableRegion,
     double ballRadiusMm)
 {
-    const auto direction = BilliardMath::getVector(
-        physicalRail.segment.start,
-        physicalRail.segment.end);
+    const auto direction = BilliardMath::getVector(segment.start, segment.end);
     const auto length = direction ? BilliardMath::getLength(*direction) : std::nullopt;
     const auto tangent = direction ? BilliardMath::normalize(*direction) : std::nullopt;
-    if (!finite(physicalRail.segment) || !validBounds(playableRegion.bounds) ||
+    if (!finite(segment) || !validBounds(playableRegion.bounds) ||
         !unitVector(physicalRail.inwardUnitNormal) || !length || !tangent ||
         *length <= NUMERICAL_EPSILON || !finite(ballRadiusMm) || ballRadiusMm <= 0.0 ||
+        !finite(physicalRail.cushionInsetMm) || physicalRail.cushionInsetMm < 0.0 ||
         !finite(physicalRail.startExclusionMm) || physicalRail.startExclusionMm < 0.0 ||
         !finite(physicalRail.endExclusionMm) || physicalRail.endExclusionMm < 0.0 ||
         physicalRail.startExclusionMm + physicalRail.endExclusionMm >= *length) {
@@ -213,25 +213,26 @@ GeometryValueResult<EffectiveCueBallRailSegment> BilliardPhysics::deriveEffectiv
             GeometryStatus::InvalidConfiguration);
     }
 
+    const double normalInsetMm = ballRadiusMm + physicalRail.cushionInsetMm;
     const Point offsetStart = add(
-        physicalRail.segment.start,
+        segment.start,
         physicalRail.inwardUnitNormal,
-        ballRadiusMm);
+        normalInsetMm);
     const Point offsetEnd = add(
-        physicalRail.segment.end,
+        segment.end,
         physicalRail.inwardUnitNormal,
-        ballRadiusMm);
+        normalInsetMm);
     const Point effectiveStart = add(offsetStart, *tangent, physicalRail.startExclusionMm);
     const Point effectiveEnd = add(offsetEnd, *tangent, -physicalRail.endExclusionMm);
     const Segment2D effective{effectiveStart, effectiveEnd};
     const auto effectiveLength = BilliardMath::getDistance(effectiveStart, effectiveEnd);
     const Point physicalMidpoint{
-        (physicalRail.segment.start.x + physicalRail.segment.end.x) / 2.0,
-        (physicalRail.segment.start.y + physicalRail.segment.end.y) / 2.0};
+        (segment.start.x + segment.end.x) / 2.0,
+        (segment.start.y + segment.end.y) / 2.0};
     const Point effectiveMidpoint = add(
         physicalMidpoint,
         physicalRail.inwardUnitNormal,
-        ballRadiusMm);
+        normalInsetMm);
     const double directionProbeMm = ballRadiusMm / 4.0;
     const Point inwardProbe = add(
         effectiveMidpoint,
@@ -286,7 +287,11 @@ GeometryValueResult<ResolvedTableGeometry> BilliardPhysics::resolveTableGeometry
     std::array<PhysicalRailSegment, 6> physicalRails{};
     std::array<EffectiveCueBallRailSegment, 6> effectiveRails{};
     for (std::size_t index = 0; index < pockets.size(); ++index) {
+        const std::size_t startIndex = static_cast<std::size_t>(config->rails[index].startPocket);
+        const std::size_t endIndex = static_cast<std::size_t>(config->rails[index].endPocket);
         if (static_cast<std::size_t>(config->rails[index].id) != index ||
+            startIndex >= currentCyclePocketCenters.size() ||
+            endIndex >= currentCyclePocketCenters.size() ||
             !BilliardMath::isFinite(currentCyclePocketCenters[index])) {
             return GeometryValueResult<ResolvedTableGeometry>::failure(
                 GeometryStatus::InvalidConfiguration,
@@ -296,14 +301,18 @@ GeometryValueResult<ResolvedTableGeometry> BilliardPhysics::resolveTableGeometry
             static_cast<BilliardConfig::PocketId>(index),
             currentCyclePocketCenters[index]};
 
+        const Segment2D railSegment{
+            currentCyclePocketCenters[startIndex],
+            currentCyclePocketCenters[endIndex]};
         physicalRails[index] = {
             config->rails[index].id,
-            config->rails[index].segment,
+            railSegment,
             config->rails[index].inwardUnitNormal,
             config->rails[index].startExclusionMm,
             config->rails[index].endExclusionMm};
         const auto effective = deriveEffectiveRail(
             config->rails[index],
+            railSegment,
             resolvedPlayable,
             config->ballRadiusMm);
         if (!effective.value()) {

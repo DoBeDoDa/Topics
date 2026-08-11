@@ -1,5 +1,14 @@
 // 定義機械手臂連線、視覺連線、球桌幾何、演算法、Tool/Base、
 // 關節點位及正式／測試動作參數。
+
+//P1 = (-619.212, 246.817);
+//P2 = (10.788, 246.817);
+//P3 = (640.788, 246.817);
+//P4 = (640.788, 876.817);
+//P5 = (10.788, 876.817);
+//P6 = (-619.212, 876.817);
+//擊球z=218;
+
 #include "BilliardConfig.h"
 
 namespace BilliardConfig {
@@ -162,52 +171,6 @@ const std::optional<unsigned long>
 // ============================================================
 // 6. 球桌 / 袋口 / 庫邊完整幾何設定
 // ============================================================
-
-// [需完整標定]
-// Phase 1 球桌幾何的核心設定。
-// 尚未標定完成前保持 nullopt，不能自行填假資料讓 production 通過。
-// 內部至少應包含：
-//
-// calibrationRevision
-//   [人工設定]
-//   本組球桌 / Base0 幾何標定版本名稱。
-//   每次實體桌面、相機、Base0 或袋口幾何重新標定時要更新版本。
-//
-// physicalPlayingSurface
-//   [需實測]
-//   Robot Base0 中的球桌實際 XY 邊界。
-//
-// ballRadiusMm
-//   [需實測]
-//   實際球半徑。
-//
-// ballDiameterMm
-//   [需實測]
-//   實際球直徑，理論上 = 2 * ballRadiusMm。
-//
-// collisionMarginMm
-//   [需實驗]
-//   球與障礙物碰撞判定之外額外加入的安全距離。
-//   應根據視覺誤差、球尺寸誤差與實際測試決定。
-//
-// 袋口本身不再由此設定建模：StableTableState.pockets 是每次 Vision
-// 提供的 Robot Base0 XY 袋口點，直接作為唯一 Pocket target 使用。
-//
-// 每個 Physical Rail：
-//
-// segment
-//   [需標定]
-//   實體庫邊在 Robot Base0 XY 中的兩個端點。
-//
-// inwardUnitNormal
-//   [需標定]
-//   該庫邊朝向桌內的單位法向量。
-//
-// startExclusionMm / endExclusionMm
-//   [需標定 / 實驗]
-//   庫邊兩端靠近袋口區域不可作為有效 Kick 反彈點的距離。
-//   用來避免反彈點太接近袋口或庫邊端點。
-//
 const std::optional<TableGeometryConfig>
     TABLE_GEOMETRY =
         TableGeometryConfig{
@@ -215,24 +178,98 @@ const std::optional<TableGeometryConfig>
             // 1. 球桌幾何標定版本
             "REPLACE_TABLE_GEOMETRY_REVISION",
 
-            // 2. 真正 playable surface，Base0 XY
+            // 2. 球桌實體 playing-surface 邊界，Robot Base0 XY
+            // 注意：這不是球心可移動邊界。
+            // 程式之後會自動向內縮 ballRadiusMm。
             AxisAlignedBounds2D{
                 -750.0,   // minX
-                750.0,   // maxX
-                150.0,   // minY
+                 750.0,   // maxX
+                 150.0,   // minY
                 1000.0    // maxY
             },
 
-            // 3. 球半徑
+            // 3. 球半徑 mm
             24.76,
 
-            // 4. 球直徑
+            // 4. 球直徑 mm
             49.52,
 
-            // 5. 額外碰撞安全距離
+            // 5. 碰撞額外安全距離 mm
             3.0,
-        };
 
+            // 6. 六段實體庫邊
+            // segment端點不在此寫死，改由PocketId於每輪Vision週期查
+            // StableTableState.pockets即時取得（見BilliardPhysics::resolveTableGeometry）。
+            std::array<PhysicalRailConfig, 6>{{
+
+                // Rail1：P1 左下角 → P2 下中袋
+                PhysicalRailConfig{
+                    RailId::Rail1,
+                    PocketId::Pocket1,
+                    PocketId::Pocket2,
+                    Vector2D{0.0, 1.0},
+                    35.0,   // startExclusionMm（須≥ballRadiusMm，否則corner袋口端點會落在playableRegion外）
+                    35.0,   // endExclusionMm
+                    0.0     // cushionInsetMm（非0會讓checkEffectiveRailForReflection必定失敗，見P1-xx討論）
+                },
+
+                // Rail2：P2 下中袋 → P3 右下角
+                PhysicalRailConfig{
+                    RailId::Rail2,
+                    PocketId::Pocket2,
+                    PocketId::Pocket3,
+                    Vector2D{0.0, 1.0},
+                    35.0,
+                    35.0,
+                    0.0
+                },
+
+                // Rail3：P3 右下角 → P4 右上角
+                PhysicalRailConfig{
+                    RailId::Rail3,
+                    PocketId::Pocket3,
+                    PocketId::Pocket4,
+                    Vector2D{-1.0, 0.0},
+                    35.0,
+                    35.0,
+                    0.0
+                },
+
+                // Rail4：P4 右上角 → P5 上中袋
+                PhysicalRailConfig{
+                    RailId::Rail4,
+                    PocketId::Pocket4,
+                    PocketId::Pocket5,
+                    Vector2D{0.0, -1.0},
+                    35.0,
+                    35.0,
+                    0.0
+                },
+
+                // Rail5：P5 上中袋 → P6 左上角
+                PhysicalRailConfig{
+                    RailId::Rail5,
+                    PocketId::Pocket5,
+                    PocketId::Pocket6,
+                    Vector2D{0.0, -1.0},
+                    35.0,
+                    35.0,
+                    0.0
+                },
+
+                // Rail6：P6 左上角 → P1 左下角
+                PhysicalRailConfig{
+                    RailId::Rail6,
+                    PocketId::Pocket6,
+                    PocketId::Pocket1,
+                    Vector2D{1.0, 0.0},
+                    35.0,
+                    35.0,
+                    0.0
+                }
+
+            }}
+        };
 
 // ============================================================
 // 7. 一次碰庫 Kick 幾何
@@ -289,7 +326,7 @@ const std::optional<KickGeometryConfig>
 //   Direct 對此項通常沒有 Kick 成本。
 //
 const ScoringWeights INITIAL_EXPERIMENTAL_SCORING_WEIGHTS = {
-    0.30,  // Kick penalty：偏好不碰庫的 Direct
+    0.35,  // Kick penalty：偏好不碰庫的 Direct
     0.30,  // Cutting angle：切球角成本
     0.20,  // Total distance：總路徑長度成本
     0.10,  // Clearance：障礙球安全淨空成本
