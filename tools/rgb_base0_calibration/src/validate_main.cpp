@@ -1,3 +1,9 @@
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#define WIN32_LEAN_AND_MEAN
+#include <Windows.h>
+
 #include "rgb_base0/calibration_io.h"
 #include "rgb_base0/geometry.h"
 #include "rgb_base0/orbbec_camera.h"
@@ -19,6 +25,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -292,6 +299,176 @@ void writeYoloProcessLog(const std::filesystem::path& path,
     }
 }
 
+class UniqueWindowsHandle final {
+public:
+    UniqueWindowsHandle() = default;
+    explicit UniqueWindowsHandle(const HANDLE handle) : handle_(handle) {}
+    ~UniqueWindowsHandle() {
+        reset();
+    }
+
+    UniqueWindowsHandle(const UniqueWindowsHandle&) = delete;
+    UniqueWindowsHandle& operator=(const UniqueWindowsHandle&) = delete;
+
+    UniqueWindowsHandle(UniqueWindowsHandle&& other) noexcept : handle_(other.release()) {}
+    UniqueWindowsHandle& operator=(UniqueWindowsHandle&& other) noexcept {
+        if(this != &other) {
+            reset(other.release());
+        }
+        return *this;
+    }
+
+    HANDLE get() const noexcept {
+        return handle_;
+    }
+
+    bool valid() const noexcept {
+        return handle_ != nullptr && handle_ != INVALID_HANDLE_VALUE;
+    }
+
+    HANDLE release() noexcept {
+        const HANDLE released = handle_;
+        handle_ = INVALID_HANDLE_VALUE;
+        return released;
+    }
+
+    void reset(const HANDLE replacement = INVALID_HANDLE_VALUE) noexcept {
+        if(valid()) {
+            CloseHandle(handle_);
+        }
+        handle_ = replacement;
+    }
+
+private:
+    HANDLE handle_ = INVALID_HANDLE_VALUE;
+};
+
+struct WindowsProcessResult {
+    bool started = false;
+    DWORD waitResult = WAIT_FAILED;
+    DWORD exitCode = 1;
+    DWORD launcherError = ERROR_SUCCESS;
+    std::string launcherDiagnostic;
+};
+
+std::wstring quoteWindowsCommandLineArgument(const std::wstring& value) {
+    std::wstring quoted = L"\"";
+    std::size_t backslashes = 0;
+    for(const wchar_t character : value) {
+        if(character == L'\\') {
+            ++backslashes;
+        }
+        else if(character == L'\"') {
+            quoted.append(backslashes * 2 + 1, L'\\');
+            quoted.push_back(L'\"');
+            backslashes = 0;
+        }
+        else {
+            quoted.append(backslashes, L'\\');
+            backslashes = 0;
+            quoted.push_back(character);
+        }
+    }
+    quoted.append(backslashes * 2, L'\\');
+    quoted.push_back(L'\"');
+    return quoted;
+}
+
+std::string windowsFailureDiagnostic(const std::string& operation, const DWORD error) {
+    const std::error_code code(static_cast<int>(error), std::system_category());
+    return operation + " failed with Win32 error " + std::to_string(error) + ": " + code.message();
+}
+
+WindowsProcessResult launchWindowsProcess(const std::filesystem::path& executable,
+                                          const std::vector<std::wstring>& arguments,
+                                          const std::filesystem::path& stdoutCapture,
+                                          const std::filesystem::path& stderrCapture) {
+    WindowsProcessResult result;
+    SECURITY_ATTRIBUTES securityAttributes{};
+    securityAttributes.nLength = sizeof(securityAttributes);
+    securityAttributes.bInheritHandle = TRUE;
+
+    UniqueWindowsHandle standardOutput(CreateFileW(
+        stdoutCapture.c_str(), GENERIC_WRITE, FILE_SHARE_READ, &securityAttributes,
+        CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr));
+    if(!standardOutput.valid()) {
+        result.launcherError = GetLastError();
+        result.launcherDiagnostic = windowsFailureDiagnostic("CreateFileW(stdout capture)", result.launcherError);
+        return result;
+    }
+    UniqueWindowsHandle standardError(CreateFileW(
+        stderrCapture.c_str(), GENERIC_WRITE, FILE_SHARE_READ, &securityAttributes,
+        CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr));
+    if(!standardError.valid()) {
+        result.launcherError = GetLastError();
+        result.launcherDiagnostic = windowsFailureDiagnostic("CreateFileW(stderr capture)", result.launcherError);
+        return result;
+    }
+    UniqueWindowsHandle standardInput(CreateFileW(
+        L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, &securityAttributes,
+        OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+    if(!standardInput.valid()) {
+        result.launcherError = GetLastError();
+        result.launcherDiagnostic = windowsFailureDiagnostic("CreateFileW(NUL stdin)", result.launcherError);
+        return result;
+    }
+
+    std::wstring commandLine;
+    for(std::size_t index = 0; index < arguments.size(); ++index) {
+        if(index != 0) {
+            commandLine.push_back(L' ');
+        }
+        commandLine += quoteWindowsCommandLineArgument(arguments[index]);
+    }
+    std::vector<wchar_t> mutableCommandLine(commandLine.begin(), commandLine.end());
+    mutableCommandLine.push_back(L'\0');
+
+    STARTUPINFOW startupInfo{};
+    startupInfo.cb = sizeof(startupInfo);
+    startupInfo.dwFlags = STARTF_USESTDHANDLES;
+    startupInfo.hStdInput = standardInput.get();
+    startupInfo.hStdOutput = standardOutput.get();
+    startupInfo.hStdError = standardError.get();
+    PROCESS_INFORMATION processInfo{};
+    const BOOL created = CreateProcessW(
+        executable.c_str(), mutableCommandLine.data(), nullptr, nullptr, TRUE, 0,
+        nullptr, nullptr, &startupInfo, &processInfo);
+    if(created == FALSE) {
+        result.launcherError = GetLastError();
+        result.launcherDiagnostic = windowsFailureDiagnostic("CreateProcessW", result.launcherError);
+        return result;
+    }
+    result.started = true;
+    UniqueWindowsHandle process(processInfo.hProcess);
+    UniqueWindowsHandle thread(processInfo.hThread);
+
+    result.waitResult = WaitForSingleObject(process.get(), INFINITE);
+    if(result.waitResult != WAIT_OBJECT_0) {
+        result.launcherError = GetLastError();
+        result.launcherDiagnostic = windowsFailureDiagnostic("WaitForSingleObject", result.launcherError);
+        TerminateProcess(process.get(), ERROR_GEN_FAILURE);
+        WaitForSingleObject(process.get(), 5000);
+        result.exitCode = ERROR_GEN_FAILURE;
+        return result;
+    }
+    if(GetExitCodeProcess(process.get(), &result.exitCode) == FALSE) {
+        result.launcherError = GetLastError();
+        result.launcherDiagnostic = windowsFailureDiagnostic("GetExitCodeProcess", result.launcherError);
+        result.exitCode = ERROR_GEN_FAILURE;
+    }
+    return result;
+}
+
+void appendLauncherDiagnostic(std::string& standardError, const std::string& diagnostic) {
+    if(diagnostic.empty()) {
+        return;
+    }
+    if(!standardError.empty() && standardError.back() != '\n') {
+        standardError.push_back('\n');
+    }
+    standardError += "[launcher diagnostic] " + diagnostic + '\n';
+}
+
 std::vector<PixelInput> runYolo(const Options& options,
                                 const std::filesystem::path& runDirectory,
                                 rgb_base0::Logger& logger) {
@@ -322,19 +499,41 @@ std::vector<PixelInput> runYolo(const Options& options,
     std::filesystem::remove(stderrCapture, removeError);
     std::ostringstream confidence;
     confidence << std::setprecision(17) << options.confidence;
-    const std::string command = rgb_base0::quoteWindowsArgument(options.pythonPath.string()) + " "
-                                + rgb_base0::quoteWindowsArgument(script.string()) + " --frames "
-                                + rgb_base0::quoteWindowsArgument((runDirectory / "raw_frames").string()) + " --output "
-                                + rgb_base0::quoteWindowsArgument(runDirectory.string()) + " --weights "
-                                 + rgb_base0::quoteWindowsArgument(options.weightsPath.string()) + " --confidence "
-                                 + confidence.str() + " --expected-frames 10 --log-file "
-                                 + rgb_base0::quoteWindowsArgument(yoloLog.string()) + " > "
-                                 + rgb_base0::quoteWindowsArgument(stdoutCapture.string()) + " 2> "
-                                 + rgb_base0::quoteWindowsArgument(stderrCapture.string());
+    const std::string confidenceText = confidence.str();
+    const std::filesystem::path framesDirectory = runDirectory / "raw_frames";
+    const std::vector<std::wstring> childArguments{
+        options.pythonPath.wstring(), script.wstring(), L"--frames", framesDirectory.wstring(),
+        L"--output", runDirectory.wstring(), L"--weights", options.weightsPath.wstring(),
+        L"--confidence", std::wstring(confidenceText.begin(), confidenceText.end()),
+        L"--expected-frames", L"10", L"--log-file", yoloLog.wstring()};
+    const std::string displayCommand = rgb_base0::quoteWindowsArgument(options.pythonPath.string()) + " "
+                                       + rgb_base0::quoteWindowsArgument(script.string()) + " --frames "
+                                       + rgb_base0::quoteWindowsArgument(framesDirectory.string()) + " --output "
+                                       + rgb_base0::quoteWindowsArgument(runDirectory.string()) + " --weights "
+                                       + rgb_base0::quoteWindowsArgument(options.weightsPath.string()) + " --confidence "
+                                       + confidenceText + " --expected-frames 10 --log-file "
+                                       + rgb_base0::quoteWindowsArgument(yoloLog.string());
     logger.line("[YOLO] invoking existing Ultralytics environment; C++ retains all camera geometry.");
-    const int exitCode = std::system(command.c_str());
+    logger.line("[YOLO DEBUG] launcher=CreateProcessW");
+    logger.line("[YOLO DEBUG] working_directory=" + std::filesystem::current_path().string());
+    logger.line("[YOLO DEBUG] python=" + options.pythonPath.string());
+    logger.line("[YOLO DEBUG] script=" + script.string());
+    logger.line("[YOLO DEBUG] frames=" + framesDirectory.string());
+    logger.line("[YOLO DEBUG] output=" + runDirectory.string());
+    logger.line("[YOLO DEBUG] weights=" + options.weightsPath.string());
+    logger.line("[YOLO DEBUG] yolo_log=" + yoloLog.string());
+    logger.line("[YOLO DEBUG] stdout_capture=" + stdoutCapture.string());
+    logger.line("[YOLO DEBUG] stderr_capture=" + stderrCapture.string());
+    logger.line("[YOLO DEBUG] command=" + displayCommand);
+    const WindowsProcessResult process = launchWindowsProcess(
+        options.pythonPath, childArguments, stdoutCapture, stderrCapture);
+    logger.line("[YOLO DEBUG] create_process_started=" + std::string(process.started ? "true" : "false"));
+    logger.line("[YOLO DEBUG] wait_result=" + std::to_string(process.waitResult));
+    logger.line("[YOLO DEBUG] launcher_error=" + std::to_string(process.launcherError));
+    logger.line("[YOLO DEBUG] child_exit_code=" + std::to_string(process.exitCode));
     const std::string standardOutput = readProcessCapture(stdoutCapture, "stdout");
-    const std::string standardError = readProcessCapture(stderrCapture, "stderr");
+    std::string standardError = readProcessCapture(stderrCapture, "stderr");
+    appendLauncherDiagnostic(standardError, process.launcherDiagnostic);
     writeYoloProcessLog(yoloLog, standardOutput, standardError);
     std::filesystem::remove(stdoutCapture, removeError);
     removeError.clear();
@@ -344,8 +543,11 @@ std::vector<PixelInput> runYolo(const Options& options,
     while(std::getline(yoloOutput, line)) {
         logger.line(line);
     }
-    if(exitCode != 0) {
-        throw std::runtime_error("YOLO sidecar failed with process exit code " + std::to_string(exitCode));
+    if(!process.started || !process.launcherDiagnostic.empty()) {
+        throw std::runtime_error("YOLO sidecar launcher failed: " + process.launcherDiagnostic);
+    }
+    if(process.exitCode != 0) {
+        throw std::runtime_error("YOLO sidecar failed with process exit code " + std::to_string(process.exitCode));
     }
 
     const auto rows = rgb_base0::readCsv(runDirectory / "stable_ball_pixels.csv");
