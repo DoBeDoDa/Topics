@@ -103,7 +103,7 @@ void printUsage() {
         << "  --weights <best.pt>     Existing YOLO weights\n"
         << "  --trend-limit <0..1>    Absolute Pearson residual/image correlation gate (default 0.7)\n"
         << "  --help                  Show this text without connecting to hardware\n\n"
-        << "The tool reads the stationary Tool2/Base0 pose and the Gemini 2 XL only. It never sends a\n"
+        << "The tool reads the stationary Tool3/Base0 pose and the Gemini 2 XL only. It never sends a\n"
         << "robot motion, motor, alarm-clear, or output command. Results are experimental diagnostics.\n";
 }
 
@@ -622,35 +622,42 @@ int main(const int argc, char** argv) {
                      + std::to_string(calibration.distortion.k6) + "," + std::to_string(calibration.distortion.p1) + ","
                      + std::to_string(calibration.distortion.p2) + "]");
         logger->line("[CAMERA FRAME] name=" + calibration.cameraFrameName + " axes=" + calibration.opticalAxes);
-        logger->line("[ROBOT] Tool2 raw " + poseText(calibration.robotPose) + " angle_unit="
-                     + calibration.tool2AngleUnit + " convention=" + calibration.rotationConvention);
-        logger->line("[EXTRINSICS] R_Base0_from_Tool2=" + matrixText(calibration.rBase0FromTool2));
-        logger->line("  R_Tool2_from_RGB=" + matrixText(calibration.rTool2FromRgb));
-        logger->line("  t_Tool2_to_RGB_mm=" + vectorText(calibration.tTool2ToRgb));
+        logger->line("[ROBOT] Tool3 raw " + poseText(calibration.robotPose) + " angle_unit="
+                     + calibration.tool3AngleUnit + " convention=" + calibration.rotationConvention);
+        logger->line("[EXTRINSICS] R_Base0_from_Tool3=" + matrixText(calibration.rBase0FromTool3));
+        logger->line("  R_Tool3_from_RGB=" + matrixText(calibration.rTool3FromRgb));
+        logger->line("  t_Tool3_to_RGB_mm=" + vectorText(calibration.tTool3ToRgb));
         logger->line("  R_Base0_from_RGB=" + matrixText(calibration.rBase0FromRgb));
         logger->line("  C_Base0_mm=" + vectorText(calibration.tBase0FromRgb));
-        logRotation(*logger, "R_Base0_from_Tool2", calibration.rBase0FromTool2);
-        logRotation(*logger, "R_Tool2_from_RGB", calibration.rTool2FromRgb);
+        logRotation(*logger, "R_Base0_from_Tool3", calibration.rBase0FromTool3);
+        logRotation(*logger, "R_Tool3_from_RGB", calibration.rTool3FromRgb);
         logRotation(*logger, "R_Base0_from_RGB", calibration.rBase0FromRgb);
         logger->line("[TABLE] Z_table_mm=" + std::to_string(calibration.zTableMm)
                      + " ball_diameter_mm=" + std::to_string(calibration.ballDiameterMm)
                      + " ball_radius_mm=" + std::to_string(calibration.ballRadiusMm)
                      + " Z_target_mm=" + std::to_string(calibration.zTableMm + calibration.ballRadiusMm)
                      + " table_plane_model=" + calibration.tablePlaneModel);
-        if(rgb_base0::norm(calibration.tTool2ToRgb) <= 1e-12) {
-            logger->line("[WARNING] Tool2 origin is currently assumed to coincide with RGB optical center; t_Tool2_to_RGB is zero.");
+        if(rgb_base0::norm(calibration.tTool3ToRgb) <= 1e-12) {
+            logger->line("[WARNING] Tool3 origin is currently assumed to coincide with RGB optical center; t_Tool3_to_RGB is zero.");
         }
-        if(isIdentity(calibration.rTool2FromRgb)) {
-            logger->line("[WARNING] R_Tool2_from_RGB is identity; Tool2 axes are assumed aligned with RGB optical axes.");
+        if(isIdentity(calibration.rTool3FromRgb)) {
+            logger->line("[WARNING] R_Tool3_from_RGB is identity; Tool3 axes are assumed aligned with RGB optical axes.");
         }
-        logger->line("[WARNING] Physical Tool2/RGB alignment and constant-Z table model require ground-truth validation.");
+        logger->line("[WARNING] Physical Tool3/RGB alignment and constant-Z table model require ground-truth validation.");
 
         robot = std::make_unique<rgb_base0::RobotPoseReader>(calibration.robotIp);
         logger->line("[ROBOT] connected, original Tool=" + std::to_string(robot->originalToolNumber())
-                     + " Base=" + std::to_string(robot->originalBaseNumber()) + "; Tool2/Base0 verified.");
+                     + " Base=" + std::to_string(robot->originalBaseNumber()) + "; Tool3/Base0 verified.");
+        const auto logBeforeSample = [&](const int index, const int motionStateRaw,
+                                         const rgb_base0::RobotPose& pose) {
+            logger->line("[ROBOT] before sample=" + std::to_string(index)
+                         + " get_motion_state_raw=" + std::to_string(motionStateRaw)
+                         + ' ' + poseText(pose));
+        };
         const rgb_base0::RobotPoseCapture before = robot->captureStablePose(
             calibration.robotPoseSampleCount, calibration.robotPoseSampleWindowMs,
-            calibration.xyzSpreadToleranceMm, calibration.abcSpreadToleranceDeg);
+            calibration.xyzSpreadToleranceMm, calibration.abcSpreadToleranceDeg,
+            logBeforeSample);
         requirePoseMatchesCalibration(*robot, before, calibration);
         logger->line("[ROBOT] live pre-capture pose stable and matches calibration: " + poseText(before.mean));
 
@@ -668,9 +675,16 @@ int main(const int argc, char** argv) {
                          + " index=" + std::to_string(frame.frameIndex)
                          + " device_timestamp_us=" + std::to_string(frame.deviceTimestampUs));
         }
+        const auto logAfterSample = [&](const int index, const int motionStateRaw,
+                                        const rgb_base0::RobotPose& pose) {
+            logger->line("[ROBOT] after sample=" + std::to_string(index)
+                         + " get_motion_state_raw=" + std::to_string(motionStateRaw)
+                         + ' ' + poseText(pose));
+        };
         const rgb_base0::RobotPoseCapture after = robot->captureStablePose(
             calibration.robotPoseSampleCount, calibration.robotPoseSampleWindowMs,
-            calibration.xyzSpreadToleranceMm, calibration.abcSpreadToleranceDeg);
+            calibration.xyzSpreadToleranceMm, calibration.abcSpreadToleranceDeg,
+            logAfterSample);
         robot->requireSamePose(before, after, calibration.xyzSpreadToleranceMm, calibration.abcSpreadToleranceDeg);
         requirePoseMatchesCalibration(*robot, after, calibration);
         logger->line("[ROBOT] post-capture pose stable, unchanged, and matches calibration: " + poseText(after.mean));

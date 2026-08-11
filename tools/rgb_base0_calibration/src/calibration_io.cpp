@@ -305,33 +305,33 @@ CalibrationData parseCalibration(RawGetter raw) {
     value.robotIp = unescapeQuoted(raw("robot_ip"));
     value.toolNumber = parseInt(raw("tool_number"));
     value.baseNumber = parseInt(raw("base_number"));
-    const std::vector<double> tool2Position = parseNumberArray(raw("tool2_position_base0_mm"), 3);
-    const std::vector<double> tool2Orientation = parseNumberArray(raw("tool2_orientation_raw_abc"), 3);
-    value.robotPose = {tool2Position[0], tool2Position[1], tool2Position[2],
-                       tool2Orientation[0], tool2Orientation[1], tool2Orientation[2]};
+    const std::vector<double> tool3Position = parseNumberArray(raw("tool3_position_base0_mm"), 3);
+    const std::vector<double> tool3Orientation = parseNumberArray(raw("tool3_orientation_raw_abc"), 3);
+    value.robotPose = {tool3Position[0], tool3Position[1], tool3Position[2],
+                       tool3Orientation[0], tool3Orientation[1], tool3Orientation[2]};
     value.xyzSpreadToleranceMm = parseDouble(raw("xyz_spread_tolerance_mm"));
     value.abcSpreadToleranceDeg = parseDouble(raw("abc_spread_tolerance_deg"));
     value.robotPoseSampleCount = parseInt(raw("robot_pose_sample_count"));
     value.robotPoseSampleWindowMs = parseInt(raw("robot_pose_sample_window_ms"));
     value.rotationConventionSource = unescapeQuoted(raw("rotation_convention_source"));
-    value.rotationConvention = unescapeQuoted(raw("tool2_rotation_convention"));
-    value.tool2AngleUnit = unescapeQuoted(raw("tool2_angle_unit"));
-    const std::vector<double> baseFromTool = parseNumberArray(raw("R_Base0_from_Tool2"), 9);
+    value.rotationConvention = unescapeQuoted(raw("tool3_rotation_convention"));
+    value.tool3AngleUnit = unescapeQuoted(raw("tool3_angle_unit"));
+    const std::vector<double> baseFromTool = parseNumberArray(raw("R_Base0_from_Tool3"), 9);
     std::size_t offset = 0;
-    for(auto& row : value.rBase0FromTool2) {
+    for(auto& row : value.rBase0FromTool3) {
         for(double& element : row) {
             element = baseFromTool[offset++];
         }
     }
-    const std::vector<double> toolFromRgb = parseNumberArray(raw("R_Tool2_from_RGB"), 9);
+    const std::vector<double> toolFromRgb = parseNumberArray(raw("R_Tool3_from_RGB"), 9);
     offset = 0;
-    for(auto& row : value.rTool2FromRgb) {
+    for(auto& row : value.rTool3FromRgb) {
         for(double& element : row) {
             element = toolFromRgb[offset++];
         }
     }
-    const std::vector<double> tool2Translation = parseNumberArray(raw("t_Tool2_to_RGB_mm"), 3);
-    value.tTool2ToRgb = {tool2Translation[0], tool2Translation[1], tool2Translation[2]};
+    const std::vector<double> tool3Translation = parseNumberArray(raw("t_Tool3_to_RGB_mm"), 3);
+    value.tTool3ToRgb = {tool3Translation[0], tool3Translation[1], tool3Translation[2]};
     const std::vector<double> rotation = parseNumberArray(raw("R_Base0_from_RGB"), 9);
     offset = 0;
     for(auto& row : value.rBase0FromRgb) {
@@ -423,9 +423,9 @@ void writeCalibrationJson(const CalibrationData& value, const std::filesystem::p
            << "    \"tool_number\": " << value.toolNumber << ",\n"
            << "    \"base_number\": " << value.baseNumber << ",\n"
            << "    \"base_frame_name\": \"" << escapeJson(value.baseFrameName) << "\",\n"
-           << "    \"tool2_position_base0_mm\": [" << value.robotPose.x << ", " << value.robotPose.y << ", "
+           << "    \"tool3_position_base0_mm\": [" << value.robotPose.x << ", " << value.robotPose.y << ", "
            << value.robotPose.z << "],\n"
-           << "    \"tool2_orientation_raw_abc\": [" << value.robotPose.a << ", " << value.robotPose.b << ", "
+           << "    \"tool3_orientation_raw_abc\": [" << value.robotPose.a << ", " << value.robotPose.b << ", "
            << value.robotPose.c << "],\n"
            << "    \"xyz_spread_tolerance_mm\": " << value.xyzSpreadToleranceMm << ",\n"
            << "    \"abc_spread_tolerance_deg\": " << value.abcSpreadToleranceDeg << ",\n"
@@ -434,20 +434,20 @@ void writeCalibrationJson(const CalibrationData& value, const std::filesystem::p
            << "  },\n"
            << "  \"extrinsic\": {\n"
            << "    \"rotation_convention_source\": \"" << escapeJson(value.rotationConventionSource) << "\",\n"
-           << "    \"tool2_rotation_convention\": \"" << escapeJson(value.rotationConvention) << "\",\n"
-           << "    \"tool2_angle_unit\": \"" << escapeJson(value.tool2AngleUnit) << "\",\n"
-           << "    \"R_Base0_from_Tool2\": [[" << value.rBase0FromTool2[0][0] << ", " << value.rBase0FromTool2[0][1]
-           << ", " << value.rBase0FromTool2[0][2] << "], [" << value.rBase0FromTool2[1][0] << ", "
-           << value.rBase0FromTool2[1][1] << ", " << value.rBase0FromTool2[1][2] << "], ["
-           << value.rBase0FromTool2[2][0] << ", " << value.rBase0FromTool2[2][1] << ", "
-           << value.rBase0FromTool2[2][2] << "]],\n"
-           << "    \"R_Tool2_from_RGB\": [[" << value.rTool2FromRgb[0][0] << ", " << value.rTool2FromRgb[0][1]
-           << ", " << value.rTool2FromRgb[0][2] << "], [" << value.rTool2FromRgb[1][0] << ", "
-           << value.rTool2FromRgb[1][1] << ", " << value.rTool2FromRgb[1][2] << "], ["
-           << value.rTool2FromRgb[2][0] << ", " << value.rTool2FromRgb[2][1] << ", "
-           << value.rTool2FromRgb[2][2] << "]],\n"
-           << "    \"t_Tool2_to_RGB_mm\": [" << value.tTool2ToRgb.x << ", " << value.tTool2ToRgb.y << ", "
-           << value.tTool2ToRgb.z << "],\n"
+           << "    \"tool3_rotation_convention\": \"" << escapeJson(value.rotationConvention) << "\",\n"
+           << "    \"tool3_angle_unit\": \"" << escapeJson(value.tool3AngleUnit) << "\",\n"
+           << "    \"R_Base0_from_Tool3\": [[" << value.rBase0FromTool3[0][0] << ", " << value.rBase0FromTool3[0][1]
+           << ", " << value.rBase0FromTool3[0][2] << "], [" << value.rBase0FromTool3[1][0] << ", "
+           << value.rBase0FromTool3[1][1] << ", " << value.rBase0FromTool3[1][2] << "], ["
+           << value.rBase0FromTool3[2][0] << ", " << value.rBase0FromTool3[2][1] << ", "
+           << value.rBase0FromTool3[2][2] << "]],\n"
+           << "    \"R_Tool3_from_RGB\": [[" << value.rTool3FromRgb[0][0] << ", " << value.rTool3FromRgb[0][1]
+           << ", " << value.rTool3FromRgb[0][2] << "], [" << value.rTool3FromRgb[1][0] << ", "
+           << value.rTool3FromRgb[1][1] << ", " << value.rTool3FromRgb[1][2] << "], ["
+           << value.rTool3FromRgb[2][0] << ", " << value.rTool3FromRgb[2][1] << ", "
+           << value.rTool3FromRgb[2][2] << "]],\n"
+           << "    \"t_Tool3_to_RGB_mm\": [" << value.tTool3ToRgb.x << ", " << value.tTool3ToRgb.y << ", "
+           << value.tTool3ToRgb.z << "],\n"
            << "    \"R_Base0_from_RGB\": [[" << value.rBase0FromRgb[0][0] << ", " << value.rBase0FromRgb[0][1]
            << ", " << value.rBase0FromRgb[0][2] << "], [" << value.rBase0FromRgb[1][0] << ", "
            << value.rBase0FromRgb[1][1] << ", " << value.rBase0FromRgb[1][2] << "], ["
@@ -521,9 +521,9 @@ void writeCalibrationYaml(const CalibrationData& value, const std::filesystem::p
            << "  tool_number: " << value.toolNumber << "\n"
            << "  base_number: " << value.baseNumber << "\n"
            << "  base_frame_name: " << quoteYaml(value.baseFrameName) << "\n"
-           << "  tool2_position_base0_mm: [" << value.robotPose.x << ", " << value.robotPose.y << ", "
+           << "  tool3_position_base0_mm: [" << value.robotPose.x << ", " << value.robotPose.y << ", "
            << value.robotPose.z << "]\n"
-           << "  tool2_orientation_raw_abc: [" << value.robotPose.a << ", " << value.robotPose.b << ", "
+           << "  tool3_orientation_raw_abc: [" << value.robotPose.a << ", " << value.robotPose.b << ", "
            << value.robotPose.c << "]\n"
            << "  xyz_spread_tolerance_mm: " << value.xyzSpreadToleranceMm << "\n"
            << "  abc_spread_tolerance_deg: " << value.abcSpreadToleranceDeg << "\n"
@@ -531,20 +531,20 @@ void writeCalibrationYaml(const CalibrationData& value, const std::filesystem::p
            << "  robot_pose_sample_window_ms: " << value.robotPoseSampleWindowMs << "\n"
            << "extrinsic:\n"
            << "  rotation_convention_source: " << quoteYaml(value.rotationConventionSource) << "\n"
-           << "  tool2_rotation_convention: " << quoteYaml(value.rotationConvention) << "\n"
-           << "  tool2_angle_unit: " << quoteYaml(value.tool2AngleUnit) << "\n"
-           << "  R_Base0_from_Tool2: [[" << value.rBase0FromTool2[0][0] << ", " << value.rBase0FromTool2[0][1]
-           << ", " << value.rBase0FromTool2[0][2] << "], [" << value.rBase0FromTool2[1][0] << ", "
-           << value.rBase0FromTool2[1][1] << ", " << value.rBase0FromTool2[1][2] << "], ["
-           << value.rBase0FromTool2[2][0] << ", " << value.rBase0FromTool2[2][1] << ", "
-           << value.rBase0FromTool2[2][2] << "]]\n"
-           << "  R_Tool2_from_RGB: [[" << value.rTool2FromRgb[0][0] << ", " << value.rTool2FromRgb[0][1]
-           << ", " << value.rTool2FromRgb[0][2] << "], [" << value.rTool2FromRgb[1][0] << ", "
-           << value.rTool2FromRgb[1][1] << ", " << value.rTool2FromRgb[1][2] << "], ["
-           << value.rTool2FromRgb[2][0] << ", " << value.rTool2FromRgb[2][1] << ", "
-           << value.rTool2FromRgb[2][2] << "]]\n"
-           << "  t_Tool2_to_RGB_mm: [" << value.tTool2ToRgb.x << ", " << value.tTool2ToRgb.y << ", "
-           << value.tTool2ToRgb.z << "]\n"
+           << "  tool3_rotation_convention: " << quoteYaml(value.rotationConvention) << "\n"
+           << "  tool3_angle_unit: " << quoteYaml(value.tool3AngleUnit) << "\n"
+           << "  R_Base0_from_Tool3: [[" << value.rBase0FromTool3[0][0] << ", " << value.rBase0FromTool3[0][1]
+           << ", " << value.rBase0FromTool3[0][2] << "], [" << value.rBase0FromTool3[1][0] << ", "
+           << value.rBase0FromTool3[1][1] << ", " << value.rBase0FromTool3[1][2] << "], ["
+           << value.rBase0FromTool3[2][0] << ", " << value.rBase0FromTool3[2][1] << ", "
+           << value.rBase0FromTool3[2][2] << "]]\n"
+           << "  R_Tool3_from_RGB: [[" << value.rTool3FromRgb[0][0] << ", " << value.rTool3FromRgb[0][1]
+           << ", " << value.rTool3FromRgb[0][2] << "], [" << value.rTool3FromRgb[1][0] << ", "
+           << value.rTool3FromRgb[1][1] << ", " << value.rTool3FromRgb[1][2] << "], ["
+           << value.rTool3FromRgb[2][0] << ", " << value.rTool3FromRgb[2][1] << ", "
+           << value.rTool3FromRgb[2][2] << "]]\n"
+           << "  t_Tool3_to_RGB_mm: [" << value.tTool3ToRgb.x << ", " << value.tTool3ToRgb.y << ", "
+           << value.tTool3ToRgb.z << "]\n"
            << "  R_Base0_from_RGB: [[" << value.rBase0FromRgb[0][0] << ", " << value.rBase0FromRgb[0][1]
            << ", " << value.rBase0FromRgb[0][2] << "], [" << value.rBase0FromRgb[1][0] << ", "
            << value.rBase0FromRgb[1][1] << ", " << value.rBase0FromRgb[1][2] << "], ["
@@ -596,7 +596,7 @@ bool equivalentCalibration(const CalibrationData& left, const CalibrationData& r
        || left.baseNumber != right.baseNumber || left.robotPoseSampleCount != right.robotPoseSampleCount
        || left.robotPoseSampleWindowMs != right.robotPoseSampleWindowMs
        || left.rotationConventionSource != right.rotationConventionSource
-       || left.rotationConvention != right.rotationConvention || left.tool2AngleUnit != right.tool2AngleUnit
+       || left.rotationConvention != right.rotationConvention || left.tool3AngleUnit != right.tool3AngleUnit
        || left.cameraFrameName != right.cameraFrameName || left.baseFrameName != right.baseFrameName
        || left.tablePlaneModel != right.tablePlaneModel || left.translationUnit != right.translationUnit) {
         return false;
@@ -608,7 +608,7 @@ bool equivalentCalibration(const CalibrationData& left, const CalibrationData& r
         left.inverseConvergenceTolerance, left.inverseReprojectionTolerancePx,
         left.robotPose.x, left.robotPose.y, left.robotPose.z, left.robotPose.a, left.robotPose.b, left.robotPose.c,
         left.xyzSpreadToleranceMm, left.abcSpreadToleranceDeg,
-        left.tTool2ToRgb.x, left.tTool2ToRgb.y, left.tTool2ToRgb.z,
+        left.tTool3ToRgb.x, left.tTool3ToRgb.y, left.tTool3ToRgb.z,
         left.tBase0FromRgb.x, left.tBase0FromRgb.y, left.tBase0FromRgb.z,
         left.zTableMm, left.ballDiameterMm, left.ballRadiusMm,
     };
@@ -619,7 +619,7 @@ bool equivalentCalibration(const CalibrationData& left, const CalibrationData& r
         right.inverseConvergenceTolerance, right.inverseReprojectionTolerancePx,
         right.robotPose.x, right.robotPose.y, right.robotPose.z, right.robotPose.a, right.robotPose.b, right.robotPose.c,
         right.xyzSpreadToleranceMm, right.abcSpreadToleranceDeg,
-        right.tTool2ToRgb.x, right.tTool2ToRgb.y, right.tTool2ToRgb.z,
+        right.tTool3ToRgb.x, right.tTool3ToRgb.y, right.tTool3ToRgb.z,
         right.tBase0FromRgb.x, right.tBase0FromRgb.y, right.tBase0FromRgb.z,
         right.zTableMm, right.ballDiameterMm, right.ballRadiusMm,
     };
@@ -630,8 +630,8 @@ bool equivalentCalibration(const CalibrationData& left, const CalibrationData& r
     }
     for(std::size_t row = 0; row < 3; ++row) {
         for(std::size_t column = 0; column < 3; ++column) {
-            if(!near(left.rBase0FromTool2[row][column], right.rBase0FromTool2[row][column], tolerance)
-               || !near(left.rTool2FromRgb[row][column], right.rTool2FromRgb[row][column], tolerance)
+            if(!near(left.rBase0FromTool3[row][column], right.rBase0FromTool3[row][column], tolerance)
+               || !near(left.rTool3FromRgb[row][column], right.rTool3FromRgb[row][column], tolerance)
                || !near(left.rBase0FromRgb[row][column], right.rBase0FromRgb[row][column], tolerance)) {
                 return false;
             }

@@ -10,7 +10,7 @@ double norm(const Vec3& value);
 Vec3 normalize(const Vec3& value);
 Vec3 multiply(const Mat3& matrix, const Vec3& value);
 Mat3 multiply(const Mat3& left, const Mat3& right);
-Mat3 rotationBase0FromTool2Zyx(double aDegrees, double bDegrees, double cDegrees);
+Mat3 rotationBase0FromTool3Zyx(double aDegrees, double bDegrees, double cDegrees);
 Mat3 transpose(const Mat3& matrix);
 RotationDiagnostics rotationDiagnostics(const Mat3& matrix);
 void validateRotationMatrix(const Mat3& matrix, const std::string& label, double tolerance = 1e-9);

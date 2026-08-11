@@ -72,19 +72,19 @@ bool calibrationReadRejected(const std::filesystem::path& path) {
 
 int main() {
     try {
-        const rgb_base0::Mat3 identity = rgb_base0::rotationBase0FromTool2Zyx(0.0, 0.0, 0.0);
+        const rgb_base0::Mat3 identity = rgb_base0::rotationBase0FromTool3Zyx(0.0, 0.0, 0.0);
         const rgb_base0::Vec3 value = rgb_base0::multiply(identity, rgb_base0::Vec3{1.0, 2.0, 3.0});
         requireNear(value.x, 1.0, 1e-12, "identity x");
         requireNear(value.y, 2.0, 1e-12, "identity y");
         requireNear(value.z, 3.0, 1e-12, "identity z");
 
         const rgb_base0::Vec3 yaw90 = rgb_base0::multiply(
-            rgb_base0::rotationBase0FromTool2Zyx(0.0, 0.0, 90.0), rgb_base0::Vec3{1.0, 0.0, 0.0});
+            rgb_base0::rotationBase0FromTool3Zyx(0.0, 0.0, 90.0), rgb_base0::Vec3{1.0, 0.0, 0.0});
         requireNear(yaw90.x, 0.0, 1e-12, "yaw x");
         requireNear(yaw90.y, 1.0, 1e-12, "yaw y");
 
         const rgb_base0::Vec3 pitch90 = rgb_base0::multiply(
-            rgb_base0::rotationBase0FromTool2Zyx(0.0, 90.0, 0.0), rgb_base0::Vec3{0.0, 0.0, 1.0});
+            rgb_base0::rotationBase0FromTool3Zyx(0.0, 90.0, 0.0), rgb_base0::Vec3{0.0, 0.0, 1.0});
         requireNear(pitch90.x, 1.0, 1e-12, "pitch x");
         requireNear(pitch90.z, 0.0, 1e-12, "pitch z");
 
@@ -267,14 +267,14 @@ int main() {
         calibration.serialNumber = "UNIT-TEST-SERIAL";
         calibration.firmwareVersion = "test";
         calibration.profile = {1280, 720, 20, "MJPG"};
-        calibration.intrinsic = {900.1, 901.2, 640.3, 360.4};
+        calibration.intrinsic = {900.1, 901.3, 640.3, 360.4};
         calibration.distortion = {0.1, -0.2, 0.003, 0.004, 0.005, 0.006, 0.007, -0.008};
         calibration.robotPose = mean;
-        calibration.rBase0FromTool2 = rgb_base0::rotationBase0FromTool2Zyx(mean.a, mean.b, mean.c);
-        calibration.rTool2FromRgb = rgb_base0::rotationBase0FromTool2Zyx(0.0, 0.0, 1.0);
-        calibration.rBase0FromRgb = rgb_base0::multiply(calibration.rBase0FromTool2, calibration.rTool2FromRgb);
-        calibration.tTool2ToRgb = {1.0, 2.0, 3.0};
-        const rgb_base0::Vec3 testOffset = rgb_base0::multiply(calibration.rBase0FromTool2, calibration.tTool2ToRgb);
+        calibration.rBase0FromTool3 = rgb_base0::rotationBase0FromTool3Zyx(mean.a, mean.b, mean.c);
+        calibration.rTool3FromRgb = rgb_base0::rotationBase0FromTool3Zyx(0.0, 0.0, 1.0);
+        calibration.rBase0FromRgb = rgb_base0::multiply(calibration.rBase0FromTool3, calibration.rTool3FromRgb);
+        calibration.tTool3ToRgb = {1.0, 2.0, 3.0};
+        const rgb_base0::Vec3 testOffset = rgb_base0::multiply(calibration.rBase0FromTool3, calibration.tTool3ToRgb);
         calibration.tBase0FromRgb = {mean.x + testOffset.x, mean.y + testOffset.y, mean.z + testOffset.z};
         calibration.zTableMm = 12.34;
         const std::filesystem::path jsonPath = "calibration_roundtrip_test.json";
@@ -289,7 +289,7 @@ int main() {
 
         const std::string validJson = readText(jsonPath);
         const std::filesystem::path malformedPath = "calibration_malformed_test.json";
-        const std::string schemaField = "\"schema_version\": \"1.2\",";
+        const std::string schemaField = "\"schema_version\": \"1.3\",";
         const std::size_t schemaPosition = validJson.find(schemaField);
         require(schemaPosition != std::string::npos, "schema field missing from generated JSON");
         std::string duplicateJson = validJson;

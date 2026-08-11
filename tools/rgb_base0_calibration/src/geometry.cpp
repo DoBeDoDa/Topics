@@ -67,7 +67,7 @@ Mat3 multiply(const Mat3& left, const Mat3& right) {
     return result;
 }
 
-Mat3 rotationBase0FromTool2Zyx(const double aDegrees,
+Mat3 rotationBase0FromTool3Zyx(const double aDegrees,
                                const double bDegrees,
                                const double cDegrees) {
     const double a = radians(aDegrees);
@@ -265,7 +265,7 @@ PlaneIntersection intersectRayWithHorizontalPlane(const Vec3& originBase0,
 }
 
 void validateCalibration(const CalibrationData& calibration) {
-    if(calibration.schemaVersion != "1.2") {
+    if(calibration.schemaVersion != "1.3") {
         throw std::runtime_error("Unsupported calibration schema_version: " + calibration.schemaVersion);
     }
     if(calibration.createdUtc.empty()) {
@@ -329,8 +329,8 @@ void validateCalibration(const CalibrationData& calibration) {
        || calibration.baseFrameName != "Base0") {
         throw std::runtime_error("Calibration frame name is unsupported");
     }
-    if(calibration.toolNumber != 2 || calibration.baseNumber != 0) {
-        throw std::runtime_error("Calibration must have been captured using Tool2 and Base0");
+    if(calibration.toolNumber != 3 || calibration.baseNumber != 0) {
+        throw std::runtime_error("Calibration must have been captured using Tool3 and Base0");
     }
     if(calibration.robotModel != "HIWIN RA605-GC" || calibration.robotIp.empty()
        || calibration.robotPoseSampleCount < 2 || calibration.robotPoseSampleWindowMs < 0
@@ -345,8 +345,8 @@ void validateCalibration(const CalibrationData& calibration) {
     if(calibration.rotationConvention != expectedConvention) {
         throw std::runtime_error("Unexpected temporary rotation convention declaration");
     }
-    if(calibration.tool2AngleUnit != "degree") {
-        throw std::runtime_error("Tool2 angle unit must be degree");
+    if(calibration.tool3AngleUnit != "degree") {
+        throw std::runtime_error("Tool3 angle unit must be degree");
     }
     const std::array<double, 6> pose{
         calibration.robotPose.x, calibration.robotPose.y, calibration.robotPose.z,
@@ -362,39 +362,39 @@ void validateCalibration(const CalibrationData& calibration) {
        || std::abs(calibration.ballDiameterMm - 2.0 * calibration.ballRadiusMm) > 1e-9) {
         throw std::runtime_error("Table or ball geometry is invalid");
     }
-    validateRotationMatrix(calibration.rBase0FromTool2, "R_Base0_from_Tool2");
-    validateRotationMatrix(calibration.rTool2FromRgb, "R_Tool2_from_RGB");
+    validateRotationMatrix(calibration.rBase0FromTool3, "R_Base0_from_Tool3");
+    validateRotationMatrix(calibration.rTool3FromRgb, "R_Tool3_from_RGB");
     validateRotationMatrix(calibration.rBase0FromRgb, "R_Base0_from_RGB");
     if(!finite(calibration.tBase0FromRgb.x) || !finite(calibration.tBase0FromRgb.y)
        || !finite(calibration.tBase0FromRgb.z)) {
         throw std::runtime_error("Translation contains a non-finite value");
     }
-    const Mat3 expectedRotation = rotationBase0FromTool2Zyx(
+    const Mat3 expectedRotation = rotationBase0FromTool3Zyx(
         calibration.robotPose.a, calibration.robotPose.b, calibration.robotPose.c);
     for(std::size_t row = 0; row < 3; ++row) {
         for(std::size_t column = 0; column < 3; ++column) {
-            if(std::abs(calibration.rBase0FromTool2[row][column] - expectedRotation[row][column]) > 1e-9) {
-                throw std::runtime_error("R_Base0_from_Tool2 does not match the declared temporary Z-Y-X rule");
+            if(std::abs(calibration.rBase0FromTool3[row][column] - expectedRotation[row][column]) > 1e-9) {
+                throw std::runtime_error("R_Base0_from_Tool3 does not match the declared temporary Z-Y-X rule");
             }
         }
     }
-    const Mat3 expectedFinalRotation = multiply(calibration.rBase0FromTool2, calibration.rTool2FromRgb);
+    const Mat3 expectedFinalRotation = multiply(calibration.rBase0FromTool3, calibration.rTool3FromRgb);
     for(std::size_t row = 0; row < 3; ++row) {
         for(std::size_t column = 0; column < 3; ++column) {
             if(std::abs(calibration.rBase0FromRgb[row][column] - expectedFinalRotation[row][column]) > 1e-9) {
-                throw std::runtime_error("R_Base0_from_RGB does not equal R_Base0_from_Tool2 * R_Tool2_from_RGB");
+                throw std::runtime_error("R_Base0_from_RGB does not equal R_Base0_from_Tool3 * R_Tool3_from_RGB");
             }
         }
     }
-    if(!finite(calibration.tTool2ToRgb.x) || !finite(calibration.tTool2ToRgb.y)
-       || !finite(calibration.tTool2ToRgb.z)) {
-        throw std::runtime_error("t_Tool2_to_RGB contains a non-finite value");
+    if(!finite(calibration.tTool3ToRgb.x) || !finite(calibration.tTool3ToRgb.y)
+       || !finite(calibration.tTool3ToRgb.z)) {
+        throw std::runtime_error("t_Tool3_to_RGB contains a non-finite value");
     }
-    const Vec3 baseOffset = multiply(calibration.rBase0FromTool2, calibration.tTool2ToRgb);
+    const Vec3 baseOffset = multiply(calibration.rBase0FromTool3, calibration.tTool3ToRgb);
     if(std::abs(calibration.tBase0FromRgb.x - (calibration.robotPose.x + baseOffset.x)) > 1e-9
        || std::abs(calibration.tBase0FromRgb.y - (calibration.robotPose.y + baseOffset.y)) > 1e-9
        || std::abs(calibration.tBase0FromRgb.z - (calibration.robotPose.z + baseOffset.z)) > 1e-9) {
-        throw std::runtime_error("C_Base0 is inconsistent with Tool2 pose and t_Tool2_to_RGB");
+        throw std::runtime_error("C_Base0 is inconsistent with Tool3 pose and t_Tool3_to_RGB");
     }
     if(calibration.tablePlaneModel != "constant_z" || calibration.translationUnit != "mm") {
         throw std::runtime_error("Only constant_z table plane with millimeter translation is supported");

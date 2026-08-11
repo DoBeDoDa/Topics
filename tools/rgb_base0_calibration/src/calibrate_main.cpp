@@ -23,8 +23,8 @@ struct Options {
     bool hasZTable = false;
     std::string robotIp = "192.168.0.1";
     std::filesystem::path outputDirectory;
-    rgb_base0::Vec3 tTool2ToRgb;
-    rgb_base0::Mat3 rTool2FromRgb{{{{1.0, 0.0, 0.0}}, {{0.0, 1.0, 0.0}}, {{0.0, 0.0, 1.0}}}};
+    rgb_base0::Vec3 tTool3ToRgb;
+    rgb_base0::Mat3 rTool3FromRgb{{{{1.0, 0.0, 0.0}}, {{0.0, 1.0, 0.0}}, {{0.0, 0.0, 1.0}}}};
 };
 
 void printUsage() {
@@ -35,10 +35,10 @@ void printUsage() {
         << "Options:\n"
         << "  --robot-ip <ip>   Controller address (default 192.168.0.1)\n"
         << "  --output <dir>     Output directory (default output/rgb_base0_calibration/<timestamp>)\n"
-        << "  --tool2-to-rgb-mm <x,y,z>        RGB-center offset expressed in Tool2 (default 0,0,0)\n"
-        << "  --r-tool2-from-rgb <9 values>     Row-major RGB-to-Tool2 rotation (default identity)\n"
+        << "  --tool3-to-rgb-mm <x,y,z>        RGB-center offset expressed in Tool3 (default 0,0,0)\n"
+        << "  --r-tool3-from-rgb <9 values>     Row-major RGB-to-Tool3 rotation (default identity)\n"
         << "  --help             Show this text without connecting to hardware\n\n"
-        << "Safety: this program sets Tool2/Base0 temporarily and reads pose only. It sends no motion,\n"
+        << "Safety: this program sets Tool3/Base0 temporarily and reads pose only. It sends no motion,\n"
         << "motor, alarm-clear, or digital-output command. The robot must already be completely stopped.\n";
 }
 
@@ -67,35 +67,35 @@ Options parseOptions(const int argc, char** argv) {
         else if(argument == "--output") {
             options.outputDirectory = value;
         }
-        else if(argument == "--tool2-to-rgb-mm") {
+        else if(argument == "--tool3-to-rgb-mm") {
             std::istringstream input(value);
             std::string part;
             std::vector<double> numbers;
             while(std::getline(input, part, ',')) {
-                numbers.push_back(rgb_base0::parseFiniteDouble(part, "--tool2-to-rgb-mm"));
+                numbers.push_back(rgb_base0::parseFiniteDouble(part, "--tool3-to-rgb-mm"));
             }
             if(numbers.size() != 3) {
-                throw std::runtime_error("--tool2-to-rgb-mm requires exactly x,y,z");
+                throw std::runtime_error("--tool3-to-rgb-mm requires exactly x,y,z");
             }
-            options.tTool2ToRgb = {numbers[0], numbers[1], numbers[2]};
+            options.tTool3ToRgb = {numbers[0], numbers[1], numbers[2]};
         }
-        else if(argument == "--r-tool2-from-rgb") {
+        else if(argument == "--r-tool3-from-rgb") {
             std::istringstream input(value);
             std::string part;
             std::vector<double> numbers;
             while(std::getline(input, part, ',')) {
-                numbers.push_back(rgb_base0::parseFiniteDouble(part, "--r-tool2-from-rgb"));
+                numbers.push_back(rgb_base0::parseFiniteDouble(part, "--r-tool3-from-rgb"));
             }
             if(numbers.size() != 9) {
-                throw std::runtime_error("--r-tool2-from-rgb requires exactly 9 row-major values");
+                throw std::runtime_error("--r-tool3-from-rgb requires exactly 9 row-major values");
             }
             std::size_t offset = 0;
-            for(auto& row : options.rTool2FromRgb) {
+            for(auto& row : options.rTool3FromRgb) {
                 for(double& element : row) {
                     element = numbers[offset++];
                 }
             }
-            rgb_base0::validateRotationMatrix(options.rTool2FromRgb, "--r-tool2-from-rgb");
+            rgb_base0::validateRotationMatrix(options.rTool3FromRgb, "--r-tool3-from-rgb");
         }
         else {
             throw std::runtime_error("Unknown argument: " + argument);
@@ -176,7 +176,7 @@ int main(const int argc, char** argv) {
         logger->line("[SAFETY] Read-only pose capture: no robot motion/motor/alarm/DO command is implemented.");
         logger->line("[WARNING] rotation_convention_source=user_approved_temporary");
         logger->line("[WARNING] HIWIN's public documents do not verify the full ABC-to-matrix convention.");
-        logger->line("[INPUT] robot_ip=" + options.robotIp + " Tool2 Base0 z_table_mm="
+        logger->line("[INPUT] robot_ip=" + options.robotIp + " Tool3 Base0 z_table_mm="
                      + std::to_string(options.zTableMm) + " ball_diameter_mm="
                      + std::to_string(rgb_base0::kBallDiameterMm) + " ball_radius_mm="
                      + std::to_string(rgb_base0::kBallRadiusMm));
@@ -185,27 +185,33 @@ int main(const int argc, char** argv) {
         calibration.createdUtc = rgb_base0::utcIsoTimestamp();
         calibration.robotIp = options.robotIp;
         calibration.zTableMm = options.zTableMm;
-        calibration.tTool2ToRgb = options.tTool2ToRgb;
-        calibration.rTool2FromRgb = options.rTool2FromRgb;
-        if(rgb_base0::norm(options.tTool2ToRgb) <= 1e-12) {
-            logger->line("[WARNING] Tool2 origin is currently assumed to coincide with RGB optical center.");
-            logger->line("[WARNING] t_Tool2_to_RGB is currently zero: " + vectorText(options.tTool2ToRgb));
+        calibration.tTool3ToRgb = options.tTool3ToRgb;
+        calibration.rTool3FromRgb = options.rTool3FromRgb;
+        if(rgb_base0::norm(options.tTool3ToRgb) <= 1e-12) {
+            logger->line("[WARNING] Tool3 origin is currently assumed to coincide with RGB optical center.");
+            logger->line("[WARNING] t_Tool3_to_RGB is currently zero: " + vectorText(options.tTool3ToRgb));
         }
-        if(isIdentity(options.rTool2FromRgb)) {
-            logger->line("[WARNING] R_Tool2_from_RGB is currently identity: " + matrixText(options.rTool2FromRgb));
+        if(isIdentity(options.rTool3FromRgb)) {
+            logger->line("[WARNING] R_Tool3_from_RGB is currently identity: " + matrixText(options.rTool3FromRgb));
         }
-        logger->line("[WARNING] Physical Tool2/RGB axis alignment still requires validation.");
+        logger->line("[WARNING] Physical Tool3/RGB axis alignment still requires validation.");
         logger->line("[WARNING] Table is currently modeled as constant Base0 Z.");
 
         robot = std::make_unique<rgb_base0::RobotPoseReader>(options.robotIp);
         logger->line("[ROBOT] connected; original Tool=" + std::to_string(robot->originalToolNumber())
                      + " Base=" + std::to_string(robot->originalBaseNumber()));
-        logger->line("[ROBOT] Tool2/Base0 set and verified; get_motion_state=1 required.");
-        const rgb_base0::RobotPoseCapture before = robot->captureStablePose();
+        logger->line("[ROBOT] Tool3/Base0 set and verified.");
+        const auto logBeforeSample = [&](const int index, const int motionStateRaw,
+                                         const rgb_base0::RobotPose& pose) {
+            logger->line("[ROBOT] before sample=" + std::to_string(index)
+                         + " get_motion_state_raw=" + std::to_string(motionStateRaw)
+                         + ' ' + poseText(pose));
+        };
+        const rgb_base0::RobotPoseCapture before = robot->captureStablePose(
+            calibration.robotPoseSampleCount, calibration.robotPoseSampleWindowMs,
+            calibration.xyzSpreadToleranceMm, calibration.abcSpreadToleranceDeg,
+            logBeforeSample);
         logger->line("[ROBOT] before-camera stable mean " + poseText(before.mean));
-        for(std::size_t index = 0; index < before.samples.size(); ++index) {
-            logger->line("  sample_before_" + std::to_string(index) + ' ' + poseText(before.samples[index]));
-        }
 
         {
             rgb_base0::OrbbecCamera camera;
@@ -218,20 +224,26 @@ int main(const int argc, char** argv) {
             logger->line("[CAMERA] saved unmodified raw MJPG " + frames.front().path.string()
                          + " frame_index=" + std::to_string(frames.front().frameIndex));
 
-            const rgb_base0::RobotPoseCapture after = robot->captureStablePose();
+            const auto logAfterSample = [&](const int index, const int motionStateRaw,
+                                            const rgb_base0::RobotPose& pose) {
+                logger->line("[ROBOT] after sample=" + std::to_string(index)
+                             + " get_motion_state_raw=" + std::to_string(motionStateRaw)
+                             + ' ' + poseText(pose));
+            };
+            const rgb_base0::RobotPoseCapture after = robot->captureStablePose(
+                calibration.robotPoseSampleCount, calibration.robotPoseSampleWindowMs,
+                calibration.xyzSpreadToleranceMm, calibration.abcSpreadToleranceDeg,
+                logAfterSample);
             logger->line("[ROBOT] after-camera stable mean " + poseText(after.mean));
-            for(std::size_t index = 0; index < after.samples.size(); ++index) {
-                logger->line("  sample_after_" + std::to_string(index) + ' ' + poseText(after.samples[index]));
-            }
             robot->requireSamePose(before, after);
             logger->line("[ROBOT] before/after pose agreement passed (XYZ <=0.1 mm, wrapped ABC <=0.05 deg).");
         }
 
         calibration.robotPose = before.mean;
-        calibration.rBase0FromTool2 = rgb_base0::rotationBase0FromTool2Zyx(
+        calibration.rBase0FromTool3 = rgb_base0::rotationBase0FromTool3Zyx(
             before.mean.a, before.mean.b, before.mean.c);
-        calibration.rBase0FromRgb = rgb_base0::multiply(calibration.rBase0FromTool2, calibration.rTool2FromRgb);
-        const rgb_base0::Vec3 baseOffset = rgb_base0::multiply(calibration.rBase0FromTool2, calibration.tTool2ToRgb);
+        calibration.rBase0FromRgb = rgb_base0::multiply(calibration.rBase0FromTool3, calibration.rTool3FromRgb);
+        const rgb_base0::Vec3 baseOffset = rgb_base0::multiply(calibration.rBase0FromTool3, calibration.tTool3ToRgb);
         calibration.tBase0FromRgb = {before.mean.x + baseOffset.x,
                                      before.mean.y + baseOffset.y,
                                      before.mean.z + baseOffset.z};
@@ -263,16 +275,16 @@ int main(const int argc, char** argv) {
                      + std::to_string(calibration.distortion.k6) + "," + std::to_string(calibration.distortion.p1) + ","
                      + std::to_string(calibration.distortion.p2) + "]");
         logger->line("[CAMERA FRAME] name=" + calibration.cameraFrameName + " axes=" + calibration.opticalAxes);
-        logger->line("[ROBOT] Tool2 " + poseText(calibration.robotPose));
+        logger->line("[ROBOT] Tool3 " + poseText(calibration.robotPose));
         logger->line("  convention=" + calibration.rotationConvention + " source="
-                     + calibration.rotationConventionSource + " angle_unit=" + calibration.tool2AngleUnit);
-        logger->line("[EXTRINSICS] R_Base0_from_Tool2=" + matrixText(calibration.rBase0FromTool2));
-        logger->line("  R_Tool2_from_RGB=" + matrixText(calibration.rTool2FromRgb));
-        logger->line("  t_Tool2_to_RGB_mm=" + vectorText(calibration.tTool2ToRgb));
+                     + calibration.rotationConventionSource + " angle_unit=" + calibration.tool3AngleUnit);
+        logger->line("[EXTRINSICS] R_Base0_from_Tool3=" + matrixText(calibration.rBase0FromTool3));
+        logger->line("  R_Tool3_from_RGB=" + matrixText(calibration.rTool3FromRgb));
+        logger->line("  t_Tool3_to_RGB_mm=" + vectorText(calibration.tTool3ToRgb));
         logger->line("  R_Base0_from_RGB=" + matrixText(calibration.rBase0FromRgb));
         logger->line("  C_Base0_mm=" + vectorText(calibration.tBase0FromRgb));
-        logRotation(*logger, "R_Base0_from_Tool2", calibration.rBase0FromTool2);
-        logRotation(*logger, "R_Tool2_from_RGB", calibration.rTool2FromRgb);
+        logRotation(*logger, "R_Base0_from_Tool3", calibration.rBase0FromTool3);
+        logRotation(*logger, "R_Tool3_from_RGB", calibration.rTool3FromRgb);
         logRotation(*logger, "R_Base0_from_RGB", calibration.rBase0FromRgb);
         logger->line("[TABLE] Z_table_mm=" + std::to_string(calibration.zTableMm)
                      + " ball_diameter_mm=" + std::to_string(calibration.ballDiameterMm)
