@@ -60,7 +60,7 @@ struct CameraDistortionData {
 };
 
 struct CalibrationData {
-    std::string schemaVersion = "1.2";
+    std::string schemaVersion = "1.3";
     std::string createdUtc;
     bool experimental = true;
     bool authorizedForRobotMotion = false;
@@ -90,7 +90,7 @@ struct CalibrationData {
 
     std::string robotModel = "HIWIN RA605-GC";
     std::string robotIp = "192.168.0.1";
-    int toolNumber = 2;
+    int toolNumber = 3;
     int baseNumber = 0;
     RobotPose robotPose;
     double xyzSpreadToleranceMm = 0.1;
@@ -101,10 +101,10 @@ struct CalibrationData {
     std::string rotationConventionSource = "user_approved_temporary";
     std::string rotationConvention =
         "degrees; active column-vector rotation; A=X roll, B=Y pitch, C=Z yaw; R=Rz(C)*Ry(B)*Rx(A)";
-    std::string tool2AngleUnit = "degree";
-    Mat3 rBase0FromTool2{{{{1.0, 0.0, 0.0}}, {{0.0, 1.0, 0.0}}, {{0.0, 0.0, 1.0}}}};
-    Mat3 rTool2FromRgb{{{{1.0, 0.0, 0.0}}, {{0.0, 1.0, 0.0}}, {{0.0, 0.0, 1.0}}}};
-    Vec3 tTool2ToRgb;
+    std::string tool3AngleUnit = "degree";
+    Mat3 rBase0FromTool3{{{{1.0, 0.0, 0.0}}, {{0.0, 1.0, 0.0}}, {{0.0, 0.0, 1.0}}}};
+    Mat3 rTool3FromRgb{{{{1.0, 0.0, 0.0}}, {{0.0, 1.0, 0.0}}, {{0.0, 0.0, 1.0}}}};
+    Vec3 tTool3ToRgb;
     Mat3 rBase0FromRgb{{{{1.0, 0.0, 0.0}}, {{0.0, 1.0, 0.0}}, {{0.0, 0.0, 1.0}}}};
     Vec3 tBase0FromRgb;
 

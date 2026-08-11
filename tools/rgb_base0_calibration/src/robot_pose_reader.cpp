@@ -37,13 +37,10 @@ RobotPoseReader::RobotPoseReader(std::string ipAddress) : ipAddress_(std::move(i
         if(originalToolNumber_ < 0 || originalBaseNumber_ < 0) {
             throw std::runtime_error("Failed to read original Tool/Base numbers");
         }
-        if(get_motion_state(handle_) != 1) {
-            throw std::runtime_error("Robot is not completely stopped (get_motion_state must equal 1)");
-        }
-        requireSdkSuccess(set_tool_number(handle_, 2), "set_tool_number(2)");
+        requireSdkSuccess(set_tool_number(handle_, 3), "set_tool_number(3)");
         requireSdkSuccess(set_base_number(handle_, 0), "set_base_number(0)");
-        if(get_tool_number(handle_) != 2 || get_base_number(handle_) != 0) {
-            throw std::runtime_error("Controller did not confirm Tool2/Base0 after setting them");
+        if(get_tool_number(handle_) != 3 || get_base_number(handle_) != 0) {
+            throw std::runtime_error("Controller did not confirm Tool3/Base0 after setting them");
         }
     }
     catch(...) {
@@ -66,32 +63,33 @@ RobotPoseReader::~RobotPoseReader() noexcept {
 RobotPoseCapture RobotPoseReader::captureStablePose(const int sampleCount,
                                                     const int sampleWindowMs,
                                                     const double xyzToleranceMm,
-                                                    const double abcToleranceDeg) {
+                                                    const double abcToleranceDeg,
+                                                    const PoseSampleObserver& sampleObserver) {
     if(handle_ < 0) {
         throw std::runtime_error("Robot pose reader is closed");
     }
     if(sampleCount < 2 || sampleWindowMs < 0) {
         throw std::invalid_argument("Robot sampling requires at least 2 samples and a non-negative window");
     }
-    if(get_tool_number(handle_) != 2 || get_base_number(handle_) != 0) {
-        throw std::runtime_error("Tool/Base changed during capture; expected Tool2/Base0");
+    if(get_tool_number(handle_) != 3 || get_base_number(handle_) != 0) {
+        throw std::runtime_error("Tool/Base changed during capture; expected Tool3/Base0");
     }
     RobotPoseCapture capture;
     capture.samples.reserve(static_cast<std::size_t>(sampleCount));
+    capture.motionStateRaw.reserve(static_cast<std::size_t>(sampleCount));
     const auto delay = std::chrono::milliseconds(sampleWindowMs / (sampleCount - 1));
     for(int index = 0; index < sampleCount; ++index) {
-        if(get_motion_state(handle_) != 1) {
-            throw std::runtime_error("Robot moved during pose sampling; get_motion_state is not 1");
-        }
+        const int motionStateRaw = get_motion_state(handle_);
         std::array<double, 6> pose{};
         requireSdkSuccess(get_current_position(handle_, pose.data()), "get_current_position");
         capture.samples.push_back({pose[0], pose[1], pose[2], pose[3], pose[4], pose[5]});
+        capture.motionStateRaw.push_back(motionStateRaw);
+        if(sampleObserver) {
+            sampleObserver(index, motionStateRaw, capture.samples.back());
+        }
         if(index + 1 < sampleCount) {
             std::this_thread::sleep_for(delay);
         }
-    }
-    if(get_motion_state(handle_) != 1) {
-        throw std::runtime_error("Robot was no longer stopped after pose sampling");
     }
     std::string reason;
     if(!robotPoseStable(capture.samples, xyzToleranceMm, abcToleranceDeg, &reason)) {

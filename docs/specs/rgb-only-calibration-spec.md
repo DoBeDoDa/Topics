@@ -13,7 +13,7 @@
 
 ## 1. 目標
 
-使用 Gemini 2 XL 的原始 RGB 像素、該 RGB profile 的原廠內參／畸變、已靜止的 HIWIN Tool2/Base0 pose 與球心平面，計算球心在 Base0 的三維座標。整個流程不取得 Depth profile、不啟用 Depth stream，也不以量測深度決定射線尺度。
+使用 Gemini 2 XL 的原始 RGB 像素、該 RGB profile 的原廠內參／畸變、已靜止的 HIWIN Tool3/Base0 pose 與球心平面，計算球心在 Base0 的三維座標。整個流程不取得 Depth profile、不啟用 Depth stream，也不以量測深度決定射線尺度。
 
 目標流程：
 
@@ -21,7 +21,7 @@
 YOLO bbox center (u,v)
 → RGB Brown 反畸變
 → RGB optical unit ray
-→ Tool2 / Base0 rotation
+→ Tool3 / Base0 rotation
 → 與 Base0 球心平面相交
 → ball center (X,Y,Z) in Base0
 ```
@@ -35,10 +35,10 @@ YOLO bbox center (u,v)
 | RGB optical axes | `+X` 影像右、`+Y` 影像下、`+Z` 朝前 |
 | Orbbec SDK | `1.10.18`，預設 `C:\Program Files\OrbbecSDK 1.10.18\SDK` |
 | Robot | HIWIN RA605-GC，控制器預設 `192.168.0.1` |
-| 校正 Tool/Base | Tool2 / Base0 |
-| Tool2→RGB translation | `[0,0,0] mm`，依使用者目前實體設定 |
-| RGB→Tool2 rotation | identity，依使用者目前實體軸對齊設定 |
-| Tool2 ABC 暫定轉換 | degree；active column vector；`R=Rz(C)Ry(B)Rx(A)` |
+| 校正 Tool/Base | Tool3 / Base0 |
+| Tool3→RGB translation | `[0,0,0] mm`，依使用者目前實體設定 |
+| RGB→Tool3 rotation | identity，依使用者目前實體軸對齊設定 |
+| Tool3 ABC 暫定轉換 | degree；active column vector；`R=Rz(C)Ry(B)Rx(A)` |
 | 桌布平面 | `Z_table=-233.51 mm` |
 | 球直徑／半徑 | `44.5 mm`／`22.25 mm` |
 | 球心平面 | `Z_target=-211.26 mm` |
@@ -59,7 +59,7 @@ HIWIN ABC 公式是使用者核准的暫定 Z-Y-X 規則，不是目前公開 HI
 - 接受 RGB K/D 前，確認 `fx/fy` 有限且為正、`cx/cy` 有限且在 live `1280x720` 影像合理範圍內、intrinsic 尺寸與 live frame 相同，且八個畸變係數全部有限；任一不符即 fail closed。
 - 啟用並擷取 Color stream，保存未 resize、crop、flip、rotate 或 letterbox 的原始 MJPG frame。
 - 保存已由 live frame 驗證的實際 Color profile、serial number、firmware、SDK version、K、D 與座標軸定義。
-- 讀取完全靜止的 Tool2/Base0 pose，前後取樣並確認姿態不變。
+- 讀取完全靜止的 Tool3/Base0 pose，前後取樣並確認姿態不變。
 - YOLO 僅提供原始影像上的 bbox center `(u,v)`；幾何計算維持在 C++。
 
 ### 3.2 必須移除
@@ -74,7 +74,7 @@ HIWIN ABC 公式是使用者核准的暫定 Z-Y-X 規則，不是目前公開 HI
 - `CoordinateTransformHelper::calibration2dTo3dUndistortion`、`calibration3dTo2d` 與 `transformationInitXYTables`。
 - depth=1／1000 的 SDK helper 比例檢查，以及任何 Depth extrinsic、Depth frame 或深度單位。
 
-移除上述項目不表示刪除相機內參、畸變、Tool2 pose、RGB→Base0 外參或平面交點；這些仍是 RGB-only 幾何的必要資料。
+移除上述項目不表示刪除相機內參、畸變、Tool3 pose、RGB→Base0 外參或平面交點；這些仍是 RGB-only 幾何的必要資料。
 
 ## 4. 校正資料契約
 
@@ -99,12 +99,12 @@ HIWIN ABC 公式是使用者核准的暫定 Z-Y-X 規則，不是目前公開 HI
 
 ### 4.3 Robot 與外參
 
-- robot model/IP、Tool2、Base0
-- Tool2 的原始 X、Y、Z、A、B、C 與角度單位
+- robot model/IP、Tool3、Base0
+- Tool3 的原始 X、Y、Z、A、B、C 與角度單位
 - 姿態取樣數、取樣窗口、XYZ/ABC spread 門檻
 - 暫定旋轉公式及其來源標記
-- `R_Base0_from_Tool2`、`R_Tool2_from_RGB`、`R_Base0_from_RGB`
-- `t_Tool2_to_RGB` 與 `C_Base0`
+- `R_Base0_from_Tool3`、`R_Tool3_from_RGB`、`R_Base0_from_RGB`
+- `t_Tool3_to_RGB` 與 `C_Base0`
 - 每個 rotation matrix 的正交誤差與 determinant 檢查結果
 
 ### 4.4 桌面與球
@@ -179,13 +179,13 @@ P_Base0 = C_Base0 + lambda * d_Base0
 - XY RMS error ≤3 mm。
 - 每點 XY error ≤5 mm。
 - `error_x/error_y` 對 `u/v` 的四個 Pearson correlation 絕對值皆 <0.7。
-- Tool2/RGB 原點與軸對齊、暫定 Z-Y-X 旋轉的正負方向必須由實體點位共同驗證。
+- Tool3/RGB 原點與軸對齊、暫定 Z-Y-X 旋轉的正負方向必須由實體點位共同驗證。
 
 `0.25 px`、3 mm、5 mm 與 0.7 是本專案核准的工程門檻，不是 Orbbec 或 HIWIN 官方規格。未通過時仍輸出完整診斷，但不得標示成功、不得整合主程式。
 
 ## 8. 安全與錯誤處理
 
-- 校正與驗證程式只允許 `set_tool_number(2)`、`set_base_number(0)`、讀取 motion state/pose，並在結束時復原原 Tool/Base。
+- 校正與驗證程式只允許 `set_tool_number(3)`、`set_base_number(0)`、讀取 motion state/pose，並在結束時復原原 Tool/Base。
 - 不得包含 motion、motor、alarm-clear 或 DO 命令。
 - 手臂必須先由操作者移到拍照姿態並完全靜止。
 - 連線、相機、檔案或驗證失敗時必須嘗試安全清理；清理失敗要合併回報，不得把失敗描述成成功。

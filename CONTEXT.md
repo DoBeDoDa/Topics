@@ -14,7 +14,7 @@ _Avoid_: Robot frame、世界座標、桌面座標
 正式擊球使用的工具座標系，其原點應是球桿尖端 TCP。
 _Avoid_: 球桿座標、Cue tool
 
-**Tool2**:
+**Tool3**:
 獨立 RGB→Base0 校正實驗使用的工具座標系；目前約定其原點與 RGB optical center 重合、軸向與 RGB optical frame 對齊。
 _Avoid_: 相機工具、Camera TCP
 

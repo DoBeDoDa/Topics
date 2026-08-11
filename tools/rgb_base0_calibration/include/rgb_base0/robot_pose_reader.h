@@ -2,6 +2,7 @@
 
 #include "rgb_base0/types.h"
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -9,8 +10,11 @@ namespace rgb_base0 {
 
 struct RobotPoseCapture {
     std::vector<RobotPose> samples;
+    std::vector<int> motionStateRaw;
     RobotPose mean;
 };
+
+using PoseSampleObserver = std::function<void(int, int, const RobotPose&)>;
 
 class RobotPoseReader final {
 public:
@@ -23,7 +27,8 @@ public:
     RobotPoseCapture captureStablePose(int sampleCount = 3,
                                        int sampleWindowMs = 500,
                                        double xyzToleranceMm = 0.1,
-                                       double abcToleranceDeg = 0.05);
+                                       double abcToleranceDeg = 0.05,
+                                       const PoseSampleObserver& sampleObserver = {});
     void requireSamePose(const RobotPoseCapture& before,
                          const RobotPoseCapture& after,
                          double xyzToleranceMm = 0.1,
