@@ -247,35 +247,102 @@ std::string readText(const std::filesystem::path& path) {
     return value.str();
 }
 
+void writeYoloPreflightLog(const std::filesystem::path& path,
+                           const std::string& diagnostic) {
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    if(!output) {
+        throw std::runtime_error("Cannot create YOLO terminal log: " + path.string());
+    }
+    output << "[launcher]\n" << diagnostic << '\n';
+    output.flush();
+    output.close();
+    if(!output) {
+        throw std::runtime_error("Failed writing YOLO terminal log: " + path.string());
+    }
+}
+
+std::string readProcessCapture(const std::filesystem::path& path,
+                               const std::string& streamName) {
+    if(!std::filesystem::is_regular_file(path)) {
+        return "[launcher diagnostic] " + streamName
+               + " capture file was not created: " + path.string() + '\n';
+    }
+    return readText(path);
+}
+
+void writeYoloProcessLog(const std::filesystem::path& path,
+                         const std::string& standardOutput,
+                         const std::string& standardError) {
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    if(!output) {
+        throw std::runtime_error("Cannot create YOLO terminal log: " + path.string());
+    }
+    output << "[stdout]\n" << standardOutput;
+    if(!standardOutput.empty() && standardOutput.back() != '\n') {
+        output << '\n';
+    }
+    output << "\n[stderr]\n" << standardError;
+    if(!standardError.empty() && standardError.back() != '\n') {
+        output << '\n';
+    }
+    output.flush();
+    output.close();
+    if(!output) {
+        throw std::runtime_error("Failed writing YOLO terminal log: " + path.string());
+    }
+}
+
 std::vector<PixelInput> runYolo(const Options& options,
                                 const std::filesystem::path& runDirectory,
                                 rgb_base0::Logger& logger) {
     const std::filesystem::path script = std::filesystem::path(RGB_BASE0_REPO_ROOT)
                                          / "tools" / "rgb_base0_calibration" / "scripts" / "yolo_detect.py";
     const std::filesystem::path yoloLog = runDirectory / "yolo_terminal_log.txt";
+    const std::filesystem::path stdoutCapture = runDirectory / "yolo_stdout.tmp";
+    const std::filesystem::path stderrCapture = runDirectory / "yolo_stderr.tmp";
+    writeYoloPreflightLog(yoloLog, "Preparing to launch the YOLO sidecar.");
     if(!std::filesystem::is_regular_file(options.pythonPath)) {
-        throw std::runtime_error("Python executable not found: " + options.pythonPath.string());
+        const std::string diagnostic = "Python executable not found: " + options.pythonPath.string();
+        writeYoloPreflightLog(yoloLog, diagnostic);
+        throw std::runtime_error(diagnostic);
     }
-    if(!std::filesystem::is_regular_file(options.weightsPath) || !std::filesystem::is_regular_file(script)) {
-        throw std::runtime_error("YOLO weights or sidecar script is missing");
+    if(!std::filesystem::is_regular_file(script)) {
+        const std::string diagnostic = "YOLO sidecar script not found: " + script.string();
+        writeYoloPreflightLog(yoloLog, diagnostic);
+        throw std::runtime_error(diagnostic);
     }
+    if(!std::filesystem::is_regular_file(options.weightsPath)) {
+        const std::string diagnostic = "YOLO weights not found: " + options.weightsPath.string();
+        writeYoloPreflightLog(yoloLog, diagnostic);
+        throw std::runtime_error(diagnostic);
+    }
+    std::error_code removeError;
+    std::filesystem::remove(stdoutCapture, removeError);
+    removeError.clear();
+    std::filesystem::remove(stderrCapture, removeError);
     std::ostringstream confidence;
     confidence << std::setprecision(17) << options.confidence;
     const std::string command = rgb_base0::quoteWindowsArgument(options.pythonPath.string()) + " "
                                 + rgb_base0::quoteWindowsArgument(script.string()) + " --frames "
                                 + rgb_base0::quoteWindowsArgument((runDirectory / "raw_frames").string()) + " --output "
                                 + rgb_base0::quoteWindowsArgument(runDirectory.string()) + " --weights "
-                                + rgb_base0::quoteWindowsArgument(options.weightsPath.string()) + " --confidence "
-                                + confidence.str() + " --expected-frames 10 --log-file "
-                                + rgb_base0::quoteWindowsArgument(yoloLog.string()) + " > NUL 2>&1";
+                                 + rgb_base0::quoteWindowsArgument(options.weightsPath.string()) + " --confidence "
+                                 + confidence.str() + " --expected-frames 10 --log-file "
+                                 + rgb_base0::quoteWindowsArgument(yoloLog.string()) + " > "
+                                 + rgb_base0::quoteWindowsArgument(stdoutCapture.string()) + " 2> "
+                                 + rgb_base0::quoteWindowsArgument(stderrCapture.string());
     logger.line("[YOLO] invoking existing Ultralytics environment; C++ retains all camera geometry.");
     const int exitCode = std::system(command.c_str());
-    if(std::filesystem::exists(yoloLog)) {
-        std::istringstream yoloOutput(readText(yoloLog));
-        std::string line;
-        while(std::getline(yoloOutput, line)) {
-            logger.line(line);
-        }
+    const std::string standardOutput = readProcessCapture(stdoutCapture, "stdout");
+    const std::string standardError = readProcessCapture(stderrCapture, "stderr");
+    writeYoloProcessLog(yoloLog, standardOutput, standardError);
+    std::filesystem::remove(stdoutCapture, removeError);
+    removeError.clear();
+    std::filesystem::remove(stderrCapture, removeError);
+    std::istringstream yoloOutput(readText(yoloLog));
+    std::string line;
+    while(std::getline(yoloOutput, line)) {
+        logger.line(line);
     }
     if(exitCode != 0) {
         throw std::runtime_error("YOLO sidecar failed with process exit code " + std::to_string(exitCode));

@@ -133,6 +133,9 @@ output/rgb_base0_validation/<timestamp>/
   yolo_terminal_log.txt
 ```
 
+`yolo_terminal_log.txt` 會在啟動 YOLO sidecar 前建立，並在成功或失敗時保留；內容以
+`[stdout]`、`[stderr]` 區段保存 Python 訊息與 traceback，供失敗診斷使用。
+
 ## 3. 手動像素驗證
 
 不執行 YOLO，直接輸入原始影像像素；參數可重複：
