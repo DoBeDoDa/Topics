@@ -54,21 +54,9 @@ enum class ExecutionPolicyDecision {
     LegalContactProductionFallbackAccepted
 };
 
-enum class ExecutionToolMode {
-    Primary,
-    Opposite
-};
-
-struct ExecutionToolSelection {
-    int toolNumber;
-    ExecutionToolMode mode;
-    std::string controllerCalibrationRevision;
-    bool rankedPotCandidatesExhausted = false;
-
-    [[nodiscard]] bool isValid() const noexcept
-    {
-        return toolNumber >= 0 && !controllerCalibrationRevision.empty();
-    }
+enum class StrikeMode {
+    Push,
+    Pull
 };
 
 struct FixedForceEnvelopeEvaluation {
@@ -142,11 +130,18 @@ struct ExecutionPlan {
     std::string cueForwardAxisCalibrationRevision;
     Point cueBallCenterBase0Mm;
     Vector2D shotDirectionXY;
+    StrikeMode strikeMode;
+    AxisAlignedBounds2D physicalPlayingSurfaceBase0Mm;
+    Vector2D tableDownDirectionBase0XY;
+    double pullModeMinBottomDistanceMm;
+    double bottomDistanceMm;
+    double tableDownDirectionDot;
+    double strikePositionBiasMm;
     double ballRadiusMm;
     double readyGapMm;
     double directionUnitTolerance;
     double cToolOffsetDeg;
-    Vector2D validatedCueForwardAxisXY;
+    Vector2D validatedStrikeDirectionXY;
     double cueDirectionErrorDeg;
     double maxCueDirectionErrorDeg;
     RobotPoseABC safeApproachPose;
@@ -166,9 +161,8 @@ struct ExecutionPlan {
     std::string executionPolicyRevision;
     BilliardConfig::ExecutionPolicyMode policyMode;
     ExecutionPolicyDecision policyDecision;
-    int selectedToolNumber = BilliardConfig::TOOL_NUMBER;
-    ExecutionToolMode selectedToolMode = ExecutionToolMode::Primary;
-    std::string selectedToolCalibrationRevision;
+    int tool1Number = BilliardConfig::TOOL_NUMBER;
+    std::string tool1ControllerCalibrationRevision;
     bool rankedPotCandidatesExhausted = false;
 
     [[nodiscard]] bool isValid() const noexcept;
@@ -186,8 +180,11 @@ enum class ExecutionPlanStatus {
 enum class ExecutionPlanFailureReason {
     None,
     MissingMotionCalibration,
+    MissingTableGeometry,
     MissingValidationSeam,
     CalibrationRevisionMismatch,
+    TableGeometryRevisionMismatch,
+    InvalidTableGeometry,
     InvalidMotionCalibration,
     InputIsNotShotPlan,
     InvalidShotPlanContract,
@@ -242,10 +239,10 @@ class MotionPlanner {
 public:
     [[nodiscard]] ExecutionPlanResult createExecutionPlan(
         const PlanningResult& planningResult,
+        const std::optional<BilliardConfig::TableGeometryConfig>& tableGeometry,
         const std::optional<BilliardConfig::MotionPlanningConfig>& config,
         const MotionPlanningChecks& checks,
-        const std::optional<ExecutionToolSelection>& toolSelection =
-            std::nullopt) const;
+        bool rankedPotCandidatesExhausted = false) const;
 
 #ifdef BILLIARDS_P2_01_TEST_SEAM
     [[nodiscard]] static std::optional<double> directionToCDegForTest(

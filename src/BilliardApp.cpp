@@ -55,14 +55,22 @@ MotionPlanningChecks offlineMotionPlanningChecksFor(
         [config](const RobotPoseABC& pose,
             const std::array<double, 3>& axis) -> std::optional<Vector2D> {
             if (!config || !config->cueForwardAxisTool ||
-                !config->cToolOffsetDeg || !pose.isFinite() ||
-                axis != *config->cueForwardAxisTool) {
+                !config->cToolOffsetDeg || !pose.isFinite()) {
                 return std::nullopt;
             }
+            const auto& pushAxis = *config->cueForwardAxisTool;
+            const std::array<double, 3> pullAxis{
+                -pushAxis[0], -pushAxis[1], -pushAxis[2]};
+            const double axisSign = axis == pushAxis
+                ? 1.0
+                : (axis == pullAxis ? -1.0 : 0.0);
+            if (axisSign == 0.0) return std::nullopt;
             const double radians =
                 (pose.c - *config->cToolOffsetDeg) *
                 BilliardMath::PI / 180.0;
-            const Vector2D projected{std::cos(radians), std::sin(radians)};
+            const Vector2D projected{
+                axisSign * std::cos(radians),
+                axisSign * std::sin(radians)};
             return BilliardMath::isFinite(projected)
                 ? std::optional<Vector2D>{projected}
                 : std::nullopt;
@@ -121,7 +129,7 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
                 runtime.state}};
     }
     bool rankedSelectionAvailable =
-        services.currentPlanningResult && services.buildExecutionPlanForTool;
+        services.currentPlanningResult && services.buildExecutionPlanForShot;
 #ifdef BILLIARDS_P2_03_TEST_SEAM
     const bool testOnlyLegacySelection =
         services.testOnlyAllowSinglePlanCompatibility &&
@@ -175,9 +183,9 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
     }
     std::optional<ExecutionPlan> activePlan;
     std::optional<RobotPoseABC> postStrikeActual;
-    bool oppositeToolPrepared = false;
-    bool oppositeToolRetracted = false;
-    bool oppositePreparationUnknownUnsafe = false;
+    bool pullExtendCommandCompleted = false;
+    bool pullRetractCommandCompleted = false;
+    bool pullPreparationUnknownUnsafe = false;
     const auto step = [](const RobotAdapterResult& result) {
         return OfflineStepResult{result.succeeded()
             ? OfflineStepStatus::Success
@@ -199,7 +207,7 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
     seam.runPhase1 = services.runPhase1;
     seam.buildExecutionPlan = [&] {
         if (services.currentPlanningResult &&
-            services.buildExecutionPlanForTool) {
+            services.buildExecutionPlanForShot) {
             const PlanningResult* phase1 = services.currentPlanningResult();
             if (!phase1 || !phase1->isValid()) {
                 activePlan.reset();
@@ -212,51 +220,40 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
             const auto tryCandidates = [&](const std::vector<ShotPlan>& plans,
                                            bool potsExhausted)
                 -> std::optional<ExecutionPlanResult> {
-                const std::array<ExecutionToolSelection, 2> tools{{
-                    {config->primaryToolNumber, ExecutionToolMode::Primary,
-                     *config->requiredPrimaryToolCalibrationRevision,
-                     potsExhausted},
-                    {config->oppositeToolNumber, ExecutionToolMode::Opposite,
-                     *config->requiredOppositeToolCalibrationRevision,
-                     potsExhausted}}};
                 for (const ShotPlan& shot : plans) {
-                    bool candidateRejected = false;
-                    for (const ExecutionToolSelection& tool : tools) {
-                        const ExecutionPlanResult planned =
-                            services.buildExecutionPlanForTool(shot, tool);
-                        if (!planned.isValid()) return planned;
-                        if (planned.status() != ExecutionPlanStatus::Success ||
-                            !planned.value()) {
-                            const auto reason = planned.diagnostic()
-                                ? planned.diagnostic()->reason
-                                : ExecutionPlanFailureReason::
-                                      InvalidExecutionPlanValue;
-                            if (reason == ExecutionPlanFailureReason::
-                                    FixedForceEnvelopeRejected ||
-                                reason == ExecutionPlanFailureReason::
-                                    NoAcceptedPoseCandidate) {
-                                candidateRejected = true;
-                                break;
-                            }
-                            return planned;
-                        }
-                        const RobotAdapterResult preflight =
-                            robotController.preflightExecution(
-                                *planned.value(), config);
-                        if (preflight.status ==
-                            RobotAdapterStatus::NotReachable) {
+                    const ExecutionPlanResult planned =
+                        services.buildExecutionPlanForShot(
+                            shot, potsExhausted);
+                    if (!planned.isValid()) return planned;
+                    if (planned.status() != ExecutionPlanStatus::Success ||
+                        !planned.value()) {
+                        const ExecutionPlanFailureReason reason =
+                            planned.diagnostic()
+                            ? planned.diagnostic()->reason
+                            : ExecutionPlanFailureReason::
+                                  InvalidExecutionPlanValue;
+                        if (reason == ExecutionPlanFailureReason::
+                                FixedForceEnvelopeRejected ||
+                            reason == ExecutionPlanFailureReason::
+                                NoAcceptedPoseCandidate) {
                             continue;
                         }
-                        if (!preflight.succeeded()) {
-                            return ExecutionPlanResult::rejected(
-                                ExecutionPlanStatus::InvalidExecutionPlan,
-                                ExecutionPlanFailureReason::
-                                    InvalidExecutionPlanValue);
-                        }
-                        activePlan = *planned.value();
                         return planned;
                     }
-                    if (candidateRejected) continue;
+                    const RobotAdapterResult preflight =
+                        robotController.preflightExecution(
+                            *planned.value(), config);
+                    if (preflight.status == RobotAdapterStatus::NotReachable) {
+                        continue;
+                    }
+                    if (!preflight.succeeded()) {
+                        return ExecutionPlanResult::rejected(
+                            ExecutionPlanStatus::InvalidExecutionPlan,
+                            ExecutionPlanFailureReason::
+                                InvalidExecutionPlanValue);
+                    }
+                    activePlan = *planned.value();
+                    return planned;
                 }
                 return std::nullopt;
             };
@@ -304,21 +301,29 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
         const RobotAdapterResult activated =
             robotController.activateConfiguredToolAndBase(plan, config);
         if (!activated.succeeded()) return step(activated);
-        if (plan.selectedToolMode != ExecutionToolMode::Opposite) {
+        if (plan.strikeMode != StrikeMode::Pull) {
             return OfflineStepResult{OfflineStepStatus::Success};
         }
         const RobotAdapterResult stopped = robotController.confirmStopped();
         if (!stopped.succeeded()) return step(stopped);
+        const RobotAdapterResult outputsKnown =
+            robotController.establishSafeOutputsOff(config);
+        if (!outputsKnown.succeeded()) {
+            if (outputsKnown.status == RobotAdapterStatus::UnknownUnsafe) {
+                pullPreparationUnknownUnsafe = true;
+            }
+            return step(outputsKnown);
+        }
         const RealPneumaticResult prepared =
             robotController.pulseExtend(plan, config);
         if (prepared.status == RealPneumaticStatus::UnknownUnsafe) {
-            oppositePreparationUnknownUnsafe = true;
+            pullPreparationUnknownUnsafe = true;
             return OfflineStepResult{OfflineStepStatus::Failure};
         }
         if (prepared.status != RealPneumaticStatus::Completed) {
             return OfflineStepResult{OfflineStepStatus::Failure};
         }
-        oppositeToolPrepared = true;
+        pullExtendCommandCompleted = true;
         return step(robotController.waitDirectionChangeDelay(plan, config));
     };
     seam.moveToStrikeReady = [&](const ExecutionPlan& plan) {
@@ -341,12 +346,12 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
         return step(robotController.confirmStopped());
     };
     seam.runPneumatic = [&](const ExecutionPlan& plan) {
-        if (plan.selectedToolMode == ExecutionToolMode::Opposite) {
+        if (plan.strikeMode == StrikeMode::Pull) {
             const RealPneumaticResult retracted =
                 robotController.pulseRetract(plan, config);
-            oppositeToolRetracted =
+            pullRetractCommandCompleted =
                 retracted.status == RealPneumaticStatus::Completed;
-            if (!oppositeToolRetracted) {
+            if (!pullRetractCommandCompleted) {
                 return mapRealPneumaticResult(retracted);
             }
             const RobotAdapterResult wait =
@@ -419,14 +424,14 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
         return step(robotController.confirmStopped());
     };
     ExecutionCycleResult result = runOfflineSingleCycle(runtime, seam);
-    if (oppositePreparationUnknownUnsafe) {
+    if (pullPreparationUnknownUnsafe) {
         runtime.state = ExecutionCycleState::UnknownUnsafe;
         return {ExecutionCycleStatus::UnknownUnsafe, std::nullopt,
             ExecutionCycleDiagnostic{
                 ExecutionCycleFailureReason::PneumaticStateUnknown,
                 ExecutionCycleState::UnknownUnsafe}};
     }
-    if (oppositeToolPrepared && !oppositeToolRetracted &&
+    if (pullExtendCommandCompleted && !pullRetractCommandCompleted &&
         result.status != ExecutionCycleStatus::UnknownUnsafe) {
         runtime.state = ExecutionCycleState::ManualRecoveryRequired;
         result = {ExecutionCycleStatus::SafeFailure, std::nullopt,
@@ -483,6 +488,8 @@ void BilliardApp::run()
     std::optional<BilliardConfig::ExecutionPolicyMode> motionPlanningPolicyMode;
     std::optional<BilliardConfig::MotionPlanningConfig> motionPlanningConfig =
         BilliardConfig::MOTION_PLANNING_CONFIG;
+    std::optional<BilliardConfig::TableGeometryConfig> tableGeometryConfig =
+        BilliardConfig::TABLE_GEOMETRY;
     std::optional<BilliardConfig::RealHardwareExecutionConfig> realConfig =
         BilliardConfig::REAL_HARDWARE_EXECUTION_CONFIG;
     RobotController* cycleRobot = &robot;
@@ -512,6 +519,9 @@ void BilliardApp::run()
         realServices = runTestSeam->realServices;
         if (runTestSeam->motionPlanningConfig) {
             motionPlanningConfig = runTestSeam->motionPlanningConfig;
+        }
+        if (runTestSeam->tableGeometryConfig) {
+            tableGeometryConfig = runTestSeam->tableGeometryConfig;
         }
         motionPlanningPolicyMode = runTestSeam->motionPlanningPolicyMode;
     }
@@ -670,16 +680,16 @@ void BilliardApp::run()
                 return pendingPlanningResult ? &*pendingPlanningResult : nullptr;
             };
         }
-        if (!services.buildExecutionPlanForTool && !injectedServices) {
-            services.buildExecutionPlanForTool =
-                [&](const ShotPlan& shot,
-                    const ExecutionToolSelection& tool) {
+        if (!services.buildExecutionPlanForShot && !injectedServices) {
+            services.buildExecutionPlanForShot =
+                [&](const ShotPlan& shot, bool potsExhausted) {
                 return motionPlanner.createExecutionPlan(
                     PlanningResult::shotPlan(shot),
+                    tableGeometryConfig,
                     motionPlanningConfig,
                     offlineMotionPlanningChecks.value_or(
                         MotionPlanningChecks{}),
-                    tool);
+                    potsExhausted);
             };
         }
         if (!services.buildExecutionPlan) {
@@ -705,22 +715,13 @@ void BilliardApp::run()
                 const bool potCandidatesExhausted =
                     candidates.rankedPotPlans.empty() &&
                     !candidates.legalContactPlans.empty();
-                const ExecutionToolSelection primaryTool{
-                    BilliardConfig::TOOL_NUMBER,
-                    ExecutionToolMode::Primary,
-                    motionPlanningConfig &&
-                            motionPlanningConfig
-                                ->primaryToolControllerCalibrationRevision
-                        ? *motionPlanningConfig
-                              ->primaryToolControllerCalibrationRevision
-                        : std::string{},
-                    potCandidatesExhausted};
                 return motionPlanner.createExecutionPlan(
                     PlanningResult::shotPlan(*selected),
+                    tableGeometryConfig,
                     motionPlanningConfig,
                     offlineMotionPlanningChecks.value_or(
                         MotionPlanningChecks{}),
-                    primaryTool);
+                    potCandidatesExhausted);
             };
         }
         return services;

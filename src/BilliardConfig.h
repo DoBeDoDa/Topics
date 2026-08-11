@@ -147,6 +147,13 @@ struct MotionPlanningConfig {
     std::optional<double> strikeZMm;  // 人工核准的擊球Z。
     std::optional<double> safeApproachZMm;  // 人工核准的接近Z。
     std::optional<double> readyGapMm;  // 縮回桿尖至母球表面的間距。
+    // 從nominal strike XY沿擊球方向微調；Push為+b*d，Pull為-b*d。
+    std::optional<double> strikePositionBiasMm;
+    // 人工可調／實驗門檻：母球中心距physicalPlayingSurface下沿超過此值
+    // 且擊球方向朝tableDownDirectionBase0XY時選Pull。
+    std::optional<double> pullModeMinBottomDistanceMm = 300.0;
+    // 已確認Robot正對球桌長邊且無平面旋轉偏移，球桌往下即Base0 Y-。
+    std::optional<Vector2D> tableDownDirectionBase0XY = Vector2D{0.0, -1.0};
     std::optional<double> safeLiftHeightMm;  // 從runtime actual pose垂直上升量。
     std::optional<double> a0Deg;  // 人工核准A基準。
     std::optional<double> b0Deg;  // 人工核准B基準。
@@ -158,7 +165,8 @@ struct MotionPlanningConfig {
     std::optional<AxisOffsetOrder> axisOffsetOrder;
     std::optional<PoseTieBreak> tieBreak;
     std::optional<double> cToolOffsetDeg;  // 擊球方向到C的人工校正offset。
-    std::optional<std::array<double, 3>> cueForwardAxisTool;  // Tool-local球桿forward axis。
+    // 唯一Tool1的Push擊球方向；已確認為Tool1 local +X。Pull使用其反向local -X。
+    std::optional<std::array<double, 3>> cueForwardAxisTool;
     std::optional<double> maxCueDirectionErrorDeg;  // Base0 XY投影允許方向誤差。
     std::optional<double> directionUnitTolerance;  // ShotPlan單位向量容差。
     std::optional<std::string> executionPolicyRevision;  // 獨立版本化的執行政策識別。
@@ -169,7 +177,7 @@ struct MotionPlanningConfig {
     std::optional<FixedForceEnvelopeConfig> fixedForceEnvelope;
     // 僅保存後續executor所需的版本化timing reference。
     std::optional<PneumaticTimingProfileReference> pneumaticTimingProfile;
-    std::optional<std::string> primaryToolControllerCalibrationRevision;
+    std::optional<std::string> tool1ControllerCalibrationRevision;
 };
 
 enum class RobotAngleComponent {
@@ -190,22 +198,19 @@ struct RealHardwareExecutionConfig {
     std::optional<std::string> authorizationRevision;
     bool realHardwareExecutionEnabled;
     int baseNumber;
-    int primaryToolNumber;  // Tool1：正常端，striker收回時標定的TCP。
+    int tool1Number;  // 唯一Tool1；Push／Pull共用同一個controller TCP。
     std::optional<std::string> base0CalibrationRevision;
-    std::optional<std::string> primaryToolControllerCalibrationRevision;
+    std::optional<std::string> tool1ControllerCalibrationRevision;
     std::optional<HrSdkAngleMappingConfig> angleMapping;
     std::optional<std::string> safeUpCalibrationRevision;
     // ExecutionPolicy獨立要求的三個revision，必須逐一符合deployment校正。
-    std::optional<std::string> requiredPrimaryToolCalibrationRevision;
+    std::optional<std::string> requiredTool1CalibrationRevision;
     std::optional<std::string> requiredAbcMappingRevision;
     std::optional<std::string> requiredSafeUpCalibrationRevision;
     std::optional<bool> base0PositiveZSafeConfirmed;
     std::optional<int> extendDoIndex;  // DO1：striker伸出pulse。
     std::optional<int> retractDoIndex;  // DO2：striker收回pulse。
     std::optional<PneumaticTimingProfileReference> approvedTimingProfile;
-    int oppositeToolNumber;  // Tool2：相反端，striker伸出時標定的TCP。
-    std::optional<std::string> oppositeToolControllerCalibrationRevision;
-    std::optional<std::string> requiredOppositeToolCalibrationRevision;
 };
 
 // 連線：人工部署的控制器、視覺服務與連接埠。

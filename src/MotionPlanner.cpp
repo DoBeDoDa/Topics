@@ -21,6 +21,37 @@ bool finiteArray(const std::array<double, 6>& values) noexcept
     });
 }
 
+bool validBounds(const AxisAlignedBounds2D& bounds) noexcept
+{
+    return std::isfinite(bounds.minX) && std::isfinite(bounds.maxX) &&
+        std::isfinite(bounds.minY) && std::isfinite(bounds.maxY) &&
+        bounds.minX < bounds.maxX && bounds.minY < bounds.maxY;
+}
+
+double dot(Vector2D first, Vector2D second) noexcept
+{
+    return first.x * second.x + first.y * second.y;
+}
+
+StrikeMode resolveStrikeMode(
+    double bottomDistanceMm,
+    double pullModeMinBottomDistanceMm,
+    double tableDownDirectionDot) noexcept
+{
+    return bottomDistanceMm > pullModeMinBottomDistanceMm &&
+            tableDownDirectionDot > 0.0
+        ? StrikeMode::Pull
+        : StrikeMode::Push;
+}
+
+std::array<double, 3> strikeAxisForMode(
+    const std::array<double, 3>& pushAxis,
+    StrikeMode mode) noexcept
+{
+    if (mode == StrikeMode::Push) return pushAxis;
+    return {-pushAxis[0], -pushAxis[1], -pushAxis[2]};
+}
+
 double normalizeAngleDeg(double angle) noexcept
 {
     if (!std::isfinite(angle)) {
@@ -171,7 +202,9 @@ bool completeConfig(const BilliardConfig::MotionPlanningConfig& config) noexcept
     return config.calibrationRevision &&
         config.base0PlanarCalibrationRevision &&
         config.cueForwardAxisCalibrationRevision && config.strikeZMm &&
-        config.safeApproachZMm && config.readyGapMm && config.safeLiftHeightMm &&
+        config.safeApproachZMm && config.readyGapMm &&
+        config.strikePositionBiasMm && config.pullModeMinBottomDistanceMm &&
+        config.tableDownDirectionBase0XY && config.safeLiftHeightMm &&
         config.a0Deg && config.b0Deg && config.deltaADeg && config.deltaBDeg &&
         config.stepADeg && config.stepBDeg && config.searchOrder &&
         config.axisOffsetOrder && config.tieBreak && config.cToolOffsetDeg &&
@@ -180,7 +213,7 @@ bool completeConfig(const BilliardConfig::MotionPlanningConfig& config) noexcept
         config.policyMode &&
         config.legalContactExecutionAuthorized && config.fixedForceEnvelope &&
         config.pneumaticTimingProfile &&
-        config.primaryToolControllerCalibrationRevision;
+        config.tool1ControllerCalibrationRevision;
 }
 
 bool validConfig(const BilliardConfig::MotionPlanningConfig& config) noexcept
@@ -189,10 +222,15 @@ bool validConfig(const BilliardConfig::MotionPlanningConfig& config) noexcept
     if (!completeConfig(config) || config.calibrationRevision->empty() ||
         config.base0PlanarCalibrationRevision->empty() ||
         config.cueForwardAxisCalibrationRevision->empty() ||
-        config.primaryToolControllerCalibrationRevision->empty() ||
+        config.tool1ControllerCalibrationRevision->empty() ||
         config.executionPolicyRevision->empty() ||
         !finite(*config.strikeZMm) || !finite(*config.safeApproachZMm) ||
         !finite(*config.readyGapMm) || *config.readyGapMm < 0.0 ||
+        !finite(*config.strikePositionBiasMm) ||
+        *config.strikePositionBiasMm < 0.0 ||
+        !finite(*config.pullModeMinBottomDistanceMm) ||
+        *config.pullModeMinBottomDistanceMm < 0.0 ||
+        !BilliardMath::isFinite(*config.tableDownDirectionBase0XY) ||
         !finite(*config.safeLiftHeightMm) || *config.safeLiftHeightMm <= 0.0 ||
         !finite(*config.a0Deg) || !finite(*config.b0Deg) ||
         !finite(*config.deltaADeg) || *config.deltaADeg < 0.0 ||
@@ -227,10 +265,25 @@ bool validConfig(const BilliardConfig::MotionPlanningConfig& config) noexcept
         (*config.cueForwardAxisTool)[0] * (*config.cueForwardAxisTool)[0] +
         (*config.cueForwardAxisTool)[1] * (*config.cueForwardAxisTool)[1] +
         (*config.cueForwardAxisTool)[2] * (*config.cueForwardAxisTool)[2]);
+    const double tableDownLength = std::hypot(
+        config.tableDownDirectionBase0XY->x,
+        config.tableDownDirectionBase0XY->y);
     if (!finite((*config.cueForwardAxisTool)[0]) ||
         !finite((*config.cueForwardAxisTool)[1]) ||
         !finite((*config.cueForwardAxisTool)[2]) || !finite(axisLength) ||
-        std::fabs(axisLength - 1.0) > *config.directionUnitTolerance) {
+        std::fabs(axisLength - 1.0) > *config.directionUnitTolerance ||
+        std::fabs((*config.cueForwardAxisTool)[0] - 1.0) >
+            *config.directionUnitTolerance ||
+        std::fabs((*config.cueForwardAxisTool)[1]) >
+            *config.directionUnitTolerance ||
+        std::fabs((*config.cueForwardAxisTool)[2]) >
+            *config.directionUnitTolerance ||
+        !finite(tableDownLength) ||
+        std::fabs(tableDownLength - 1.0) > *config.directionUnitTolerance ||
+        std::fabs(config.tableDownDirectionBase0XY->x) >
+            *config.directionUnitTolerance ||
+        std::fabs(config.tableDownDirectionBase0XY->y + 1.0) >
+            *config.directionUnitTolerance) {
         return false;
     }
     const double aSteps = *config.deltaADeg / *config.stepADeg;
@@ -446,16 +499,37 @@ bool ExecutionPlan::isValid() const noexcept
          fixedForceEnvelope.kickRailAngleDeg);
     const double directionLength = std::hypot(
         shotDirectionXY.x, shotDirectionXY.y);
+    const double tableDownLength = std::hypot(
+        tableDownDirectionBase0XY.x,
+        tableDownDirectionBase0XY.y);
+    const double expectedBottomDistance =
+        cueBallCenterBase0Mm.y - physicalPlayingSurfaceBase0Mm.minY;
+    const double expectedDirectionDot =
+        dot(shotDirectionXY, tableDownDirectionBase0XY);
+    const StrikeMode expectedMode = resolveStrikeMode(
+        expectedBottomDistance,
+        pullModeMinBottomDistanceMm,
+        expectedDirectionDot);
     const double centerToTcpMm = ballRadiusMm + readyGapMm;
-    const double expectedX =
+    const double nominalX =
         cueBallCenterBase0Mm.x - centerToTcpMm * shotDirectionXY.x;
-    const double expectedY =
+    const double nominalY =
         cueBallCenterBase0Mm.y - centerToTcpMm * shotDirectionXY.y;
-    const std::optional<double> expectedC = directionToCDeg(
+    const double biasSign = strikeMode == StrikeMode::Push ? 1.0 : -1.0;
+    const double expectedX =
+        nominalX + biasSign * strikePositionBiasMm * shotDirectionXY.x;
+    const double expectedY =
+        nominalY + biasSign * strikePositionBiasMm * shotDirectionXY.y;
+    const std::optional<double> pushC = directionToCDeg(
         shotDirectionXY, cToolOffsetDeg, directionUnitTolerance);
+    const std::optional<double> expectedC = pushC
+        ? std::optional<double>{strikeMode == StrikeMode::Pull
+              ? normalizeAngleDeg(*pushC + 180.0)
+              : *pushC}
+        : std::nullopt;
     const std::optional<double> measuredError =
         BilliardMath::getAngleBetweenVectorsDeg(
-            validatedCueForwardAxisXY, shotDirectionXY);
+            validatedStrikeDirectionXY, shotDirectionXY);
     return (isPot(sourceShotType) || legal) && sourcePlanIdentity.isValid() &&
         !base0PlanarCalibrationRevision.empty() &&
         !tableGeometryRevision.empty() && !motionCalibrationRevision.empty() &&
@@ -463,15 +537,33 @@ bool ExecutionPlan::isValid() const noexcept
         std::isfinite(cueBallCenterBase0Mm.x) &&
         std::isfinite(cueBallCenterBase0Mm.y) &&
         BilliardMath::isFinite(shotDirectionXY) &&
+        (strikeMode == StrikeMode::Push || strikeMode == StrikeMode::Pull) &&
+        strikeMode == expectedMode && validBounds(physicalPlayingSurfaceBase0Mm) &&
+        cueBallCenterBase0Mm.x >= physicalPlayingSurfaceBase0Mm.minX &&
+        cueBallCenterBase0Mm.x <= physicalPlayingSurfaceBase0Mm.maxX &&
+        cueBallCenterBase0Mm.y >= physicalPlayingSurfaceBase0Mm.minY &&
+        cueBallCenterBase0Mm.y <= physicalPlayingSurfaceBase0Mm.maxY &&
+        BilliardMath::isFinite(tableDownDirectionBase0XY) &&
+        std::isfinite(tableDownLength) &&
+        std::fabs(tableDownLength - 1.0) <= directionUnitTolerance &&
+        std::fabs(tableDownDirectionBase0XY.x) <= directionUnitTolerance &&
+        std::fabs(tableDownDirectionBase0XY.y + 1.0) <= directionUnitTolerance &&
+        std::isfinite(pullModeMinBottomDistanceMm) &&
+        pullModeMinBottomDistanceMm >= 0.0 &&
+        std::isfinite(bottomDistanceMm) && bottomDistanceMm >= 0.0 &&
+        std::fabs(bottomDistanceMm - expectedBottomDistance) <= RANGE_TOLERANCE &&
+        std::isfinite(tableDownDirectionDot) &&
+        std::fabs(tableDownDirectionDot - expectedDirectionDot) <= RANGE_TOLERANCE &&
+        std::isfinite(strikePositionBiasMm) && strikePositionBiasMm >= 0.0 &&
         std::isfinite(ballRadiusMm) && ballRadiusMm > 0.0 &&
         std::isfinite(readyGapMm) && readyGapMm >= 0.0 &&
         std::isfinite(directionUnitTolerance) && directionUnitTolerance > 0.0 &&
         std::isfinite(directionLength) &&
         std::fabs(directionLength - 1.0) <= directionUnitTolerance &&
         std::isfinite(cToolOffsetDeg) &&
-        BilliardMath::isFinite(validatedCueForwardAxisXY) &&
+        BilliardMath::isFinite(validatedStrikeDirectionXY) &&
         std::fabs(std::hypot(
-            validatedCueForwardAxisXY.x, validatedCueForwardAxisXY.y) - 1.0) <=
+            validatedStrikeDirectionXY.x, validatedStrikeDirectionXY.y) - 1.0) <=
             directionUnitTolerance &&
         std::isfinite(cueDirectionErrorDeg) && cueDirectionErrorDeg >= 0.0 &&
         std::isfinite(maxCueDirectionErrorDeg) &&
@@ -498,10 +590,8 @@ bool ExecutionPlan::isValid() const noexcept
         validStages && fixedForceEnvelope.isValid() && validEnvelopeShape &&
         validTiming && !executionPolicyRevision.empty() &&
         validPolicyMode &&
-        selectedToolNumber >= 0 &&
-        (selectedToolMode == ExecutionToolMode::Primary ||
-         selectedToolMode == ExecutionToolMode::Opposite) &&
-        !selectedToolCalibrationRevision.empty() &&
+        tool1Number == BilliardConfig::TOOL_NUMBER &&
+        !tool1ControllerCalibrationRevision.empty() &&
         ((!legal && policyDecision == ExecutionPolicyDecision::PotAccepted) ||
          (legal && policyDecision ==
             ExecutionPolicyDecision::LegalContactExplicitlyAuthorized &&
@@ -571,9 +661,10 @@ bool ExecutionPlanResult::isValid() const noexcept
 
 ExecutionPlanResult MotionPlanner::createExecutionPlan(
     const PlanningResult& planningResult,
+    const std::optional<BilliardConfig::TableGeometryConfig>& tableGeometry,
     const std::optional<BilliardConfig::MotionPlanningConfig>& config,
     const MotionPlanningChecks& checks,
-    const std::optional<ExecutionToolSelection>& toolSelection) const
+    bool rankedPotCandidatesExhausted) const
 {
     if (!planningResult.isValid()) {
         return reject(
@@ -585,6 +676,11 @@ ExecutionPlanResult MotionPlanner::createExecutionPlan(
         return reject(
             ExecutionPlanStatus::InvalidShotPlan,
             ExecutionPlanFailureReason::InputIsNotShotPlan);
+    }
+    if (!tableGeometry) {
+        return reject(
+            ExecutionPlanStatus::ConfigurationMissing,
+            ExecutionPlanFailureReason::MissingTableGeometry);
     }
     if (!config) {
         return reject(
@@ -612,9 +708,24 @@ ExecutionPlanResult MotionPlanner::createExecutionPlan(
             ExecutionPlanStatus::InvalidConfiguration,
             ExecutionPlanFailureReason::CalibrationRevisionMismatch);
     }
+    if (tableGeometry->calibrationRevision.empty() ||
+        !validBounds(tableGeometry->physicalPlayingSurface) ||
+        !std::isfinite(tableGeometry->ballRadiusMm) ||
+        tableGeometry->ballRadiusMm <= 0.0 ||
+        std::fabs(tableGeometry->ballRadiusMm - shotPlan->source.ballRadiusMm) >
+            RANGE_TOLERANCE) {
+        return reject(
+            ExecutionPlanStatus::InvalidConfiguration,
+            ExecutionPlanFailureReason::InvalidTableGeometry);
+    }
+    if (shotPlan->source.tableGeometryRevision !=
+        tableGeometry->calibrationRevision) {
+        return reject(
+            ExecutionPlanStatus::InvalidConfiguration,
+            ExecutionPlanFailureReason::TableGeometryRevisionMismatch);
+    }
     const bool legal = isLegalContact(shotPlan->type);
-    const bool planningTestLegal = legal && toolSelection &&
-        toolSelection->rankedPotCandidatesExhausted &&
+    const bool planningTestLegal = legal && rankedPotCandidatesExhausted &&
         *config->policyMode == BilliardConfig::ExecutionPolicyMode::PlanningTest;
     const bool productionLegalFallback =
         legal && isProductionLegalContactFallback(*shotPlan) &&
@@ -623,23 +734,12 @@ ExecutionPlanResult MotionPlanner::createExecutionPlan(
         ((!planningTestLegal && !productionLegalFallback &&
           !*config->legalContactExecutionAuthorized) ||
          (productionLegalFallback &&
-          (!config->productionLegalContactFallbackAuthorized ||
-           !*config->productionLegalContactFallbackAuthorized ||
-           !toolSelection ||
-           !toolSelection->rankedPotCandidatesExhausted)))) {
+           (!config->productionLegalContactFallbackAuthorized ||
+            !*config->productionLegalContactFallbackAuthorized ||
+            !rankedPotCandidatesExhausted)))) {
         return reject(
             ExecutionPlanStatus::NoExecutablePlan,
             ExecutionPlanFailureReason::LegalContactNotAuthorized);
-    }
-    const ExecutionToolSelection selectedTool = toolSelection.value_or(
-        ExecutionToolSelection{
-            BilliardConfig::TOOL_NUMBER,
-            ExecutionToolMode::Primary,
-            *config->primaryToolControllerCalibrationRevision});
-    if (!selectedTool.isValid()) {
-        return reject(
-            ExecutionPlanStatus::InvalidConfiguration,
-            ExecutionPlanFailureReason::InvalidMotionCalibration);
     }
 
     const std::optional<ShotExecutionMetrics> metrics = shotMetrics(*shotPlan);
@@ -690,19 +790,53 @@ ExecutionPlanResult MotionPlanner::createExecutionPlan(
             ExecutionPlanStatus::InvalidShotPlan,
             ExecutionPlanFailureReason::InvalidShotDirection);
     }
-    const std::optional<double> cDeg = directionToCDeg(
+    const AxisAlignedBounds2D& physicalSurface =
+        tableGeometry->physicalPlayingSurface;
+    const Point cueBall = shotPlan->source.cueBallSnapshot;
+    if (!BilliardMath::isFinite(cueBall) || cueBall.x < physicalSurface.minX ||
+        cueBall.x > physicalSurface.maxX || cueBall.y < physicalSurface.minY ||
+        cueBall.y > physicalSurface.maxY) {
+        return reject(
+            ExecutionPlanStatus::InvalidShotPlan,
+            ExecutionPlanFailureReason::InvalidShotPlanContract);
+    }
+    const double bottomDistanceMm = cueBall.y - physicalSurface.minY;
+    const double tableDownDirectionDot = dot(
+        shotPlan->shotDirectionXY,
+        *config->tableDownDirectionBase0XY);
+    if (!std::isfinite(bottomDistanceMm) || bottomDistanceMm < 0.0 ||
+        !std::isfinite(tableDownDirectionDot)) {
+        return reject(
+            ExecutionPlanStatus::NoExecutablePlan,
+            ExecutionPlanFailureReason::NumericalFailure);
+    }
+    const StrikeMode strikeMode = resolveStrikeMode(
+        bottomDistanceMm,
+        *config->pullModeMinBottomDistanceMm,
+        tableDownDirectionDot);
+    const std::optional<double> pushCDeg = directionToCDeg(
         shotPlan->shotDirectionXY,
         *config->cToolOffsetDeg,
         *config->directionUnitTolerance);
+    const std::optional<double> cDeg = pushCDeg
+        ? std::optional<double>{strikeMode == StrikeMode::Pull
+              ? normalizeAngleDeg(*pushCDeg + 180.0)
+              : *pushCDeg}
+        : std::nullopt;
     const double centerToTcpMm =
         shotPlan->source.ballRadiusMm + *config->readyGapMm;
+    const Point nominalStrikeXY{
+        cueBall.x - centerToTcpMm * shotPlan->shotDirectionXY.x,
+        cueBall.y - centerToTcpMm * shotPlan->shotDirectionXY.y};
+    const double biasSign = strikeMode == StrikeMode::Push ? 1.0 : -1.0;
     const Point readyXY{
-        shotPlan->source.cueBallSnapshot.x -
-            centerToTcpMm * shotPlan->shotDirectionXY.x,
-        shotPlan->source.cueBallSnapshot.y -
-            centerToTcpMm * shotPlan->shotDirectionXY.y};
+        nominalStrikeXY.x + biasSign * *config->strikePositionBiasMm *
+            shotPlan->shotDirectionXY.x,
+        nominalStrikeXY.y + biasSign * *config->strikePositionBiasMm *
+            shotPlan->shotDirectionXY.y};
     if (!cDeg || !std::isfinite(centerToTcpMm) ||
-        centerToTcpMm <= 0.0 || !BilliardMath::isFinite(readyXY)) {
+        centerToTcpMm <= 0.0 || !BilliardMath::isFinite(nominalStrikeXY) ||
+        !BilliardMath::isFinite(readyXY)) {
         return reject(
             ExecutionPlanStatus::NoExecutablePlan,
             ExecutionPlanFailureReason::NumericalFailure);
@@ -721,8 +855,11 @@ ExecutionPlanResult MotionPlanner::createExecutionPlan(
     std::size_t evaluated = 0;
     std::optional<RobotPoseABC> selectedReady;
     std::optional<RobotPoseABC> selectedApproach;
-    std::optional<Vector2D> selectedProjectedAxis;
+    std::optional<Vector2D> selectedProjectedStrikeDirection;
     std::optional<double> selectedDirectionError;
+    const std::array<double, 3> strikeAxisTool = strikeAxisForMode(
+        *config->cueForwardAxisTool,
+        strikeMode);
     const auto evaluate = [&](double aDeg, double bDeg) {
         ++evaluated;
         const RobotPoseABC ready{
@@ -739,7 +876,7 @@ ExecutionPlanResult MotionPlanner::createExecutionPlan(
         const std::optional<Vector2D> projected =
             checks.projectCueForwardAxisToBase0XY(
                 ready,
-                *config->cueForwardAxisTool);
+                strikeAxisTool);
         if (!projected || !BilliardMath::isFinite(*projected)) return false;
         const std::optional<Vector2D> normalized = BilliardMath::normalize(*projected);
         const std::optional<double> error = normalized
@@ -753,7 +890,7 @@ ExecutionPlanResult MotionPlanner::createExecutionPlan(
         }
         selectedReady = ready;
         selectedApproach = approach;
-        selectedProjectedAxis = *normalized;
+        selectedProjectedStrikeDirection = *normalized;
         selectedDirectionError = *error;
         return true;
     };
@@ -781,7 +918,7 @@ ExecutionPlanResult MotionPlanner::createExecutionPlan(
         }
     }
     if (!found || !selectedReady || !selectedApproach ||
-        !selectedProjectedAxis || !selectedDirectionError) {
+        !selectedProjectedStrikeDirection || !selectedDirectionError) {
         return reject(
             ExecutionPlanStatus::NoExecutablePlan,
             ExecutionPlanFailureReason::NoAcceptedPoseCandidate,
@@ -797,11 +934,18 @@ ExecutionPlanResult MotionPlanner::createExecutionPlan(
         *config->cueForwardAxisCalibrationRevision,
         shotPlan->source.cueBallSnapshot,
         shotPlan->shotDirectionXY,
+        strikeMode,
+        physicalSurface,
+        *config->tableDownDirectionBase0XY,
+        *config->pullModeMinBottomDistanceMm,
+        bottomDistanceMm,
+        tableDownDirectionDot,
+        *config->strikePositionBiasMm,
         shotPlan->source.ballRadiusMm,
         *config->readyGapMm,
         *config->directionUnitTolerance,
         *config->cToolOffsetDeg,
-        *selectedProjectedAxis,
+        *selectedProjectedStrikeDirection,
         *selectedDirectionError,
         *config->maxCueDirectionErrorDeg,
         *selectedApproach,
@@ -866,10 +1010,9 @@ ExecutionPlanResult MotionPlanner::createExecutionPlan(
                         LegalContactProductionFallbackAccepted
                   : ExecutionPolicyDecision::LegalContactExplicitlyAuthorized)
             : ExecutionPolicyDecision::PotAccepted,
-        selectedTool.toolNumber,
-        selectedTool.mode,
-        selectedTool.controllerCalibrationRevision,
-        selectedTool.rankedPotCandidatesExhausted};
+        BilliardConfig::TOOL_NUMBER,
+        *config->tool1ControllerCalibrationRevision,
+        rankedPotCandidatesExhausted};
     if (!plan.isValid()) {
         return reject(
             ExecutionPlanStatus::NoExecutablePlan,

@@ -21,17 +21,6 @@ bool finite(Segment2D segment) noexcept
         BilliardMath::isFinite(segment.end);
 }
 
-bool finite(AxisAlignedBounds2D bounds) noexcept
-{
-    return finite(bounds.minX) && finite(bounds.maxX) &&
-        finite(bounds.minY) && finite(bounds.maxY);
-}
-
-bool validBounds(AxisAlignedBounds2D bounds) noexcept
-{
-    return finite(bounds) && bounds.minX < bounds.maxX && bounds.minY < bounds.maxY;
-}
-
 bool approximatelyEqual(double first, double second) noexcept
 {
     return finite(first) && finite(second) &&
@@ -93,43 +82,6 @@ std::optional<double> pointToSegmentDistance(
     return BilliardMath::getDistance(nearest, point);
 }
 
-bool containsInclusive(AxisAlignedBounds2D bounds, Point point) noexcept
-{
-    return BilliardMath::isFinite(point) &&
-        point.x >= bounds.minX && point.x <= bounds.maxX &&
-        point.y >= bounds.minY && point.y <= bounds.maxY;
-}
-
-bool containsInterior(AxisAlignedBounds2D bounds, Point point) noexcept
-{
-    return BilliardMath::isFinite(point) &&
-        point.x > bounds.minX && point.x < bounds.maxX &&
-        point.y > bounds.minY && point.y < bounds.maxY;
-}
-
-bool containsInclusive(
-    const PlayableBallCenterRegion& region,
-    Point point) noexcept
-{
-    return containsInclusive(region.bounds, point);
-}
-
-bool containsInterior(
-    const PlayableBallCenterRegion& region,
-    Point point) noexcept
-{
-    return containsInterior(region.bounds, point);
-}
-
-bool onBoundsBoundary(AxisAlignedBounds2D bounds, Point point) noexcept
-{
-    return containsInclusive(bounds, point) &&
-        (approximatelyEqual(point.x, bounds.minX) ||
-         approximatelyEqual(point.x, bounds.maxX) ||
-         approximatelyEqual(point.y, bounds.minY) ||
-         approximatelyEqual(point.y, bounds.maxY));
-}
-
 bool excluded(std::size_t index, const std::vector<std::size_t>& exclusions)
 {
     return std::find(exclusions.begin(), exclusions.end(), index) != exclusions.end();
@@ -172,43 +124,26 @@ bool GhostBallResult::isValid() const noexcept
         diagnostic_.ballSurfaceContactPoint.has_value() == succeeded;
 }
 
-GeometryValueResult<PlayableBallCenterRegion>
-BilliardPhysics::derivePlayableBallCenterRegion(
-    AxisAlignedBounds2D physicalPlayingSurface,
-    double ballRadiusMm)
-{
-    if (!validBounds(physicalPlayingSurface) || !finite(ballRadiusMm) || ballRadiusMm <= 0.0) {
-        return GeometryValueResult<PlayableBallCenterRegion>::failure(
-            GeometryStatus::InvalidConfiguration);
-    }
-    const AxisAlignedBounds2D playable{
-        physicalPlayingSurface.minX + ballRadiusMm,
-        physicalPlayingSurface.maxX - ballRadiusMm,
-        physicalPlayingSurface.minY + ballRadiusMm,
-        physicalPlayingSurface.maxY - ballRadiusMm};
-    if (!validBounds(playable)) {
-        return GeometryValueResult<PlayableBallCenterRegion>::failure(
-            GeometryStatus::InvalidConfiguration);
-    }
-    return GeometryValueResult<PlayableBallCenterRegion>::success({playable});
-}
-
 GeometryValueResult<EffectiveCueBallRailSegment> BilliardPhysics::deriveEffectiveRail(
     const BilliardConfig::PhysicalRailConfig& physicalRail,
     const Segment2D& segment,
-    const PlayableBallCenterRegion& playableRegion,
+    Vector2D inwardUnitNormal,
     double ballRadiusMm)
 {
     const auto direction = BilliardMath::getVector(segment.start, segment.end);
     const auto length = direction ? BilliardMath::getLength(*direction) : std::nullopt;
     const auto tangent = direction ? BilliardMath::normalize(*direction) : std::nullopt;
-    if (!finite(segment) || !validBounds(playableRegion.bounds) ||
-        !unitVector(physicalRail.inwardUnitNormal) || !length || !tangent ||
+    const double exclusionMm =
+        physicalRail.startExclusionMm + physicalRail.endExclusionMm;
+    if (!finite(segment) || !BilliardMath::isFinite(inwardUnitNormal) ||
+        !unitVector(inwardUnitNormal) || !length || !tangent ||
         *length <= NUMERICAL_EPSILON || !finite(ballRadiusMm) || ballRadiusMm <= 0.0 ||
         !finite(physicalRail.cushionInsetMm) || physicalRail.cushionInsetMm < 0.0 ||
         !finite(physicalRail.startExclusionMm) || physicalRail.startExclusionMm < 0.0 ||
         !finite(physicalRail.endExclusionMm) || physicalRail.endExclusionMm < 0.0 ||
-        physicalRail.startExclusionMm + physicalRail.endExclusionMm >= *length) {
+        !finite(exclusionMm) || exclusionMm >= *length ||
+        !finite(dot(*tangent, inwardUnitNormal)) ||
+        std::fabs(dot(*tangent, inwardUnitNormal)) > NUMERICAL_EPSILON) {
         return GeometryValueResult<EffectiveCueBallRailSegment>::failure(
             GeometryStatus::InvalidConfiguration);
     }
@@ -216,38 +151,18 @@ GeometryValueResult<EffectiveCueBallRailSegment> BilliardPhysics::deriveEffectiv
     const double normalInsetMm = ballRadiusMm + physicalRail.cushionInsetMm;
     const Point offsetStart = add(
         segment.start,
-        physicalRail.inwardUnitNormal,
+        inwardUnitNormal,
         normalInsetMm);
     const Point offsetEnd = add(
         segment.end,
-        physicalRail.inwardUnitNormal,
+        inwardUnitNormal,
         normalInsetMm);
     const Point effectiveStart = add(offsetStart, *tangent, physicalRail.startExclusionMm);
     const Point effectiveEnd = add(offsetEnd, *tangent, -physicalRail.endExclusionMm);
     const Segment2D effective{effectiveStart, effectiveEnd};
     const auto effectiveLength = BilliardMath::getDistance(effectiveStart, effectiveEnd);
-    const Point physicalMidpoint{
-        (segment.start.x + segment.end.x) / 2.0,
-        (segment.start.y + segment.end.y) / 2.0};
-    const Point effectiveMidpoint = add(
-        physicalMidpoint,
-        physicalRail.inwardUnitNormal,
-        normalInsetMm);
-    const double directionProbeMm = ballRadiusMm / 4.0;
-    const Point inwardProbe = add(
-        effectiveMidpoint,
-        physicalRail.inwardUnitNormal,
-        directionProbeMm);
-    const Point outwardProbe = add(
-        effectiveMidpoint,
-        physicalRail.inwardUnitNormal,
-        -directionProbeMm);
-    if (!finite(effective) || !effectiveLength || *effectiveLength <= NUMERICAL_EPSILON ||
-        !containsInclusive(playableRegion, effectiveStart) ||
-        !containsInclusive(playableRegion, effectiveEnd) ||
-        !containsInclusive(playableRegion, effectiveMidpoint) ||
-        !containsInterior(playableRegion, inwardProbe) ||
-        containsInterior(playableRegion, outwardProbe)) {
+    if (!finite(normalInsetMm) || !finite(effective) || !effectiveLength ||
+        *effectiveLength <= NUMERICAL_EPSILON) {
         return GeometryValueResult<EffectiveCueBallRailSegment>::failure(
             GeometryStatus::InvalidConfiguration);
     }
@@ -255,7 +170,7 @@ GeometryValueResult<EffectiveCueBallRailSegment> BilliardPhysics::deriveEffectiv
     return GeometryValueResult<EffectiveCueBallRailSegment>::success({
         physicalRail.id,
         effective,
-        physicalRail.inwardUnitNormal});
+        inwardUnitNormal});
 }
 
 GeometryValueResult<ResolvedTableGeometry> BilliardPhysics::resolveTableGeometry(
@@ -274,25 +189,11 @@ GeometryValueResult<ResolvedTableGeometry> BilliardPhysics::resolveTableGeometry
         return GeometryValueResult<ResolvedTableGeometry>::failure(
             GeometryStatus::InvalidConfiguration);
     }
-    const auto playable = derivePlayableBallCenterRegion(
-        config->physicalPlayingSurface,
-        config->ballRadiusMm);
-    if (!playable.value()) {
-        return GeometryValueResult<ResolvedTableGeometry>::failure(playable.status());
-    }
-
-    const PlayableBallCenterRegion& resolvedPlayable = *playable.value();
-
     std::array<ResolvedPocket, 6> pockets{};
     std::array<PhysicalRailSegment, 6> physicalRails{};
     std::array<EffectiveCueBallRailSegment, 6> effectiveRails{};
     for (std::size_t index = 0; index < pockets.size(); ++index) {
-        const std::size_t startIndex = static_cast<std::size_t>(config->rails[index].startPocket);
-        const std::size_t endIndex = static_cast<std::size_t>(config->rails[index].endPocket);
-        if (static_cast<std::size_t>(config->rails[index].id) != index ||
-            startIndex >= currentCyclePocketCenters.size() ||
-            endIndex >= currentCyclePocketCenters.size() ||
-            !BilliardMath::isFinite(currentCyclePocketCenters[index])) {
+        if (!BilliardMath::isFinite(currentCyclePocketCenters[index])) {
             return GeometryValueResult<ResolvedTableGeometry>::failure(
                 GeometryStatus::InvalidConfiguration,
                 index);
@@ -300,20 +201,102 @@ GeometryValueResult<ResolvedTableGeometry> BilliardPhysics::resolveTableGeometry
         pockets[index] = ResolvedPocket{
             static_cast<BilliardConfig::PocketId>(index),
             currentCyclePocketCenters[index]};
+    }
+
+    std::array<Segment2D, 6> rawSegments{};
+    std::array<Vector2D, 6> tangents{};
+    std::array<std::size_t, 6> startIndices{};
+    std::array<std::size_t, 6> endIndices{};
+    std::array<bool, 6> visitedStarts{};
+    double signedArea2 = 0.0;
+    for (std::size_t index = 0; index < config->rails.size(); ++index) {
+        const auto& rail = config->rails[index];
+        const std::size_t startIndex =
+            static_cast<std::size_t>(rail.startPocket);
+        const std::size_t endIndex =
+            static_cast<std::size_t>(rail.endPocket);
+        if (static_cast<std::size_t>(rail.id) != index ||
+            startIndex >= currentCyclePocketCenters.size() ||
+            endIndex >= currentCyclePocketCenters.size() ||
+            startIndex == endIndex || visitedStarts[startIndex]) {
+            return GeometryValueResult<ResolvedTableGeometry>::failure(
+                GeometryStatus::InvalidConfiguration,
+                index);
+        }
 
         const Segment2D railSegment{
             currentCyclePocketCenters[startIndex],
             currentCyclePocketCenters[endIndex]};
+        const auto direction = BilliardMath::getVector(
+            railSegment.start,
+            railSegment.end);
+        const auto length = direction
+            ? BilliardMath::getLength(*direction)
+            : std::nullopt;
+        const auto tangent = direction
+            ? BilliardMath::normalize(*direction)
+            : std::nullopt;
+        const double areaTerm =
+            railSegment.start.x * railSegment.end.y -
+            railSegment.end.x * railSegment.start.y;
+        if (!direction || !length || !tangent ||
+            *length <= NUMERICAL_EPSILON || !finite(areaTerm) ||
+            !finite(signedArea2 + areaTerm)) {
+            return GeometryValueResult<ResolvedTableGeometry>::failure(
+                GeometryStatus::InvalidConfiguration,
+                index);
+        }
+        rawSegments[index] = railSegment;
+        tangents[index] = *tangent;
+        startIndices[index] = startIndex;
+        endIndices[index] = endIndex;
+        visitedStarts[startIndex] = true;
+        signedArea2 += areaTerm;
+    }
+
+    // TableGeometryConfig::rails is a RailId-indexed ordered array: the
+    // id==index contract fixes Rail1..Rail6 as the approved boundary traversal
+    // order, so closed-chain adjacency is intentionally checked in array order.
+    for (std::size_t index = 0; index < config->rails.size(); ++index) {
+        const std::size_t nextIndex = (index + 1) % config->rails.size();
+        if (endIndices[index] != startIndices[nextIndex]) {
+            return GeometryValueResult<ResolvedTableGeometry>::failure(
+                GeometryStatus::InvalidConfiguration,
+                index);
+        }
+    }
+    if (!finite(signedArea2) ||
+        std::fabs(signedArea2) <= NUMERICAL_EPSILON) {
+        return GeometryValueResult<ResolvedTableGeometry>::failure(
+            GeometryStatus::InvalidConfiguration);
+    }
+
+    const bool counterClockwise = signedArea2 > 0.0;
+    for (std::size_t index = 0; index < config->rails.size(); ++index) {
+        const Vector2D tangent = tangents[index];
+        const Vector2D inwardUnitNormal = counterClockwise
+            ? Vector2D{-tangent.y, tangent.x}
+            : Vector2D{tangent.y, -tangent.x};
+        const double tangentNormalDot = dot(tangent, inwardUnitNormal);
+        if (!BilliardMath::isFinite(tangent) ||
+            !BilliardMath::isFinite(inwardUnitNormal) ||
+            !unitVector(tangent) || !unitVector(inwardUnitNormal) ||
+            !finite(tangentNormalDot) ||
+            std::fabs(tangentNormalDot) > NUMERICAL_EPSILON) {
+            return GeometryValueResult<ResolvedTableGeometry>::failure(
+                GeometryStatus::InvalidConfiguration,
+                index);
+        }
         physicalRails[index] = {
             config->rails[index].id,
-            railSegment,
-            config->rails[index].inwardUnitNormal,
+            rawSegments[index],
+            inwardUnitNormal,
             config->rails[index].startExclusionMm,
             config->rails[index].endExclusionMm};
         const auto effective = deriveEffectiveRail(
             config->rails[index],
-            railSegment,
-            resolvedPlayable,
+            rawSegments[index],
+            inwardUnitNormal,
             config->ballRadiusMm);
         if (!effective.value()) {
             return GeometryValueResult<ResolvedTableGeometry>::failure(
@@ -325,7 +308,6 @@ GeometryValueResult<ResolvedTableGeometry> BilliardPhysics::resolveTableGeometry
 
     return GeometryValueResult<ResolvedTableGeometry>::success({
         config->calibrationRevision,
-        resolvedPlayable,
         pockets,
         physicalRails,
         RailReflectionRegion{effectiveRails},
@@ -372,30 +354,9 @@ GhostBallResult BilliardPhysics::computeGhostBallPoint(
     return GhostBallResult::success({ghost}, surfaceContact);
 }
 
-GeometryCheckResult BilliardPhysics::checkSegmentWithinPlayableRegion(
-    Segment2D path,
-    const PlayableBallCenterRegion& playableRegion)
-{
-    const auto length = finite(path)
-        ? BilliardMath::getDistance(path.start, path.end)
-        : std::nullopt;
-    if (samePoint(path.start, path.end)) {
-        return GeometryCheckResult::rejected(GeometryStatus::DegenerateGeometry);
-    }
-    if (!validBounds(playableRegion.bounds) || !length) {
-        return GeometryCheckResult::rejected(GeometryStatus::InvalidInput);
-    }
-    if (!containsInclusive(playableRegion, path.start) ||
-        !containsInclusive(playableRegion, path.end)) {
-        return GeometryCheckResult::rejected(GeometryStatus::OutsideValidRegion);
-    }
-    return GeometryCheckResult::clear();
-}
-
 GeometryCheckResult BilliardPhysics::checkTargetPathToPocket(
     Segment2D targetPath,
-    Point pocketTarget,
-    const PlayableBallCenterRegion& playableRegion)
+    Point pocketTarget)
 {
     const auto length = finite(targetPath)
         ? BilliardMath::getDistance(targetPath.start, targetPath.end)
@@ -403,9 +364,7 @@ GeometryCheckResult BilliardPhysics::checkTargetPathToPocket(
     if (samePoint(targetPath.start, targetPath.end)) {
         return GeometryCheckResult::rejected(GeometryStatus::DegenerateGeometry);
     }
-    if (!length || !BilliardMath::isFinite(pocketTarget) ||
-        !validBounds(playableRegion.bounds) ||
-        !containsInclusive(playableRegion, targetPath.start)) {
+    if (!length || !BilliardMath::isFinite(pocketTarget)) {
         return GeometryCheckResult::rejected(GeometryStatus::InvalidInput);
     }
     if (!approximatelyEqual(targetPath.end, pocketTarget)) {
@@ -579,32 +538,4 @@ GeometryValueResult<Point> BilliardPhysics::intersectRayWithEffectiveRail(
         return GeometryValueResult<Point>::failure(GeometryStatus::InvalidInput);
     }
     return GeometryValueResult<Point>::success(intersection);
-}
-
-GeometryCheckResult BilliardPhysics::checkEffectiveRailForReflection(
-    const EffectiveCueBallRailSegment& rail,
-    const PlayableBallCenterRegion& playableRegion)
-{
-    constexpr double PROBE_DISTANCE_MM = 1e-6;
-    if (!validBounds(playableRegion.bounds) || !finite(rail.segment) ||
-        samePoint(rail.segment.start, rail.segment.end) ||
-        !unitVector(rail.inwardUnitNormal)) {
-        return GeometryCheckResult::rejected(GeometryStatus::InvalidConfiguration);
-    }
-    const Point midpoint{
-        (rail.segment.start.x + rail.segment.end.x) / 2.0,
-        (rail.segment.start.y + rail.segment.end.y) / 2.0};
-    if (!BilliardMath::isFinite(midpoint) ||
-        !onBoundsBoundary(playableRegion.bounds, rail.segment.start) ||
-        !onBoundsBoundary(playableRegion.bounds, rail.segment.end) ||
-        !onBoundsBoundary(playableRegion.bounds, midpoint)) {
-        return GeometryCheckResult::rejected(GeometryStatus::InvalidConfiguration);
-    }
-    const Point inwardProbe = add(midpoint, rail.inwardUnitNormal, PROBE_DISTANCE_MM);
-    const Point outwardProbe = add(midpoint, rail.inwardUnitNormal, -PROBE_DISTANCE_MM);
-    if (!containsInterior(playableRegion, inwardProbe) ||
-        containsInclusive(playableRegion, outwardProbe)) {
-        return GeometryCheckResult::rejected(GeometryStatus::InvalidConfiguration);
-    }
-    return GeometryCheckResult::clear();
 }

@@ -10,10 +10,6 @@
 #include "GeometryResults.h"
 #include "Point.h"
 
-struct PlayableBallCenterRegion {
-    AxisAlignedBounds2D bounds;
-};
-
 struct ResolvedPocket {
     BilliardConfig::PocketId id;
 
@@ -41,7 +37,6 @@ struct RailReflectionRegion {
 
 struct ResolvedTableGeometry {
     std::string calibrationRevision;
-    PlayableBallCenterRegion playableBallCenterRegion;
     std::array<ResolvedPocket, 6> pockets;
     std::array<PhysicalRailSegment, 6> physicalRails;
     RailReflectionRegion railReflectionRegion;
@@ -87,10 +82,6 @@ struct MinimumClearance {
 
 class BilliardPhysics {
 public:
-    static GeometryValueResult<PlayableBallCenterRegion> derivePlayableBallCenterRegion(
-        AxisAlignedBounds2D physicalPlayingSurface,
-        double ballRadiusMm);
-
     static GeometryValueResult<ResolvedTableGeometry> resolveTableGeometry(
         const std::array<Point, 6>& currentCyclePocketCenters,
         const std::optional<BilliardConfig::TableGeometryConfig>& config);
@@ -98,7 +89,7 @@ public:
     static GeometryValueResult<EffectiveCueBallRailSegment> deriveEffectiveRail(
         const BilliardConfig::PhysicalRailConfig& physicalRail,
         const Segment2D& segment,
-        const PlayableBallCenterRegion& playableRegion,
+        Vector2D inwardUnitNormal,
         double ballRadiusMm);
 
     static GhostBallResult computeGhostBallPoint(
@@ -107,14 +98,9 @@ public:
         Point pocketTarget,
         double ballRadiusMm);
 
-    static GeometryCheckResult checkSegmentWithinPlayableRegion(
-        Segment2D path,
-        const PlayableBallCenterRegion& playableRegion);
-
     static GeometryCheckResult checkTargetPathToPocket(
         Segment2D targetPath,
-        Point pocketTarget,
-        const PlayableBallCenterRegion& playableRegion);
+        Point pocketTarget);
 
     static GeometryCheckResult checkSegmentCollision(
         Segment2D path,
@@ -136,8 +122,4 @@ public:
         Point rayStart,
         Point rayThrough,
         const EffectiveCueBallRailSegment& rail);
-
-    static GeometryCheckResult checkEffectiveRailForReflection(
-        const EffectiveCueBallRailSegment& rail,
-        const PlayableBallCenterRegion& playableRegion);
 };

@@ -258,7 +258,7 @@ struct RealExecutionCycleServices {
     std::function<const PlanningResult*()> currentPlanningResult;
     std::function<ExecutionPlanResult(
         const ShotPlan&,
-        const ExecutionToolSelection&)> buildExecutionPlanForTool;
+        bool)> buildExecutionPlanForShot;
 #ifdef BILLIARDS_P2_03_TEST_SEAM
     // 舊單計畫入口僅供既有離線adapter fixtures；production不可啟用。
     bool testOnlyAllowSinglePlanCompatibility = false;

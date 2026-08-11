@@ -333,12 +333,10 @@ RobotAdapterResult RobotController::validateRealHardwareConfiguration(
 {
     if (!config || !config->authorizationRevision ||
         !config->base0CalibrationRevision ||
-        !config->primaryToolControllerCalibrationRevision ||
-        !config->oppositeToolControllerCalibrationRevision ||
+        !config->tool1ControllerCalibrationRevision ||
         !config->angleMapping ||
         !config->safeUpCalibrationRevision ||
-        !config->requiredPrimaryToolCalibrationRevision ||
-        !config->requiredOppositeToolCalibrationRevision ||
+        !config->requiredTool1CalibrationRevision ||
         !config->requiredAbcMappingRevision ||
         !config->requiredSafeUpCalibrationRevision ||
         !config->base0PositiveZSafeConfirmed || !config->extendDoIndex ||
@@ -369,25 +367,19 @@ RobotAdapterResult RobotController::validateRealHardwareConfiguration(
             [](double value) { return std::isfinite(value); });
     if (config->authorizationRevision->empty() ||
         config->base0CalibrationRevision->empty() ||
-        config->primaryToolControllerCalibrationRevision->empty() ||
-        config->oppositeToolControllerCalibrationRevision->empty() ||
+        config->tool1ControllerCalibrationRevision->empty() ||
         config->safeUpCalibrationRevision->empty() ||
-        config->requiredPrimaryToolCalibrationRevision->empty() ||
-        config->requiredOppositeToolCalibrationRevision->empty() ||
+        config->requiredTool1CalibrationRevision->empty() ||
         config->requiredAbcMappingRevision->empty() ||
         config->requiredSafeUpCalibrationRevision->empty() ||
         mapping.calibrationRevision.empty() ||
-        *config->requiredPrimaryToolCalibrationRevision !=
-            *config->primaryToolControllerCalibrationRevision ||
-        *config->requiredOppositeToolCalibrationRevision !=
-            *config->oppositeToolControllerCalibrationRevision ||
+        *config->requiredTool1CalibrationRevision !=
+            *config->tool1ControllerCalibrationRevision ||
         *config->requiredAbcMappingRevision != mapping.calibrationRevision ||
         *config->requiredSafeUpCalibrationRevision !=
             *config->safeUpCalibrationRevision ||
         config->baseNumber != BilliardConfig::BASE_NUMBER ||
-        config->primaryToolNumber != BilliardConfig::TOOL_NUMBER ||
-        config->oppositeToolNumber < 0 ||
-        config->oppositeToolNumber == config->primaryToolNumber ||
+        config->tool1Number != BilliardConfig::TOOL_NUMBER ||
         *config->extendDoIndex < 0 || *config->retractDoIndex < 0 ||
         *config->extendDoIndex == *config->retractDoIndex ||
         !mappingSourcesKnown || !mappingSourcesArePermutation ||
@@ -453,14 +445,6 @@ RobotAdapterResult RobotController::validateRealExecutionConfiguration(
         !acceptedPolicy) {
         return {RobotAdapterStatus::Unauthorized, -1};
     }
-    const int expectedTool =
-        plan.selectedToolMode == ExecutionToolMode::Primary
-        ? config->primaryToolNumber
-        : config->oppositeToolNumber;
-    const std::string& expectedToolRevision =
-        plan.selectedToolMode == ExecutionToolMode::Primary
-        ? *config->requiredPrimaryToolCalibrationRevision
-        : *config->requiredOppositeToolCalibrationRevision;
     const auto& timing = *config->approvedTimingProfile;
     const bool timingMatches =
         timing.calibrationRevision == plan.pneumaticTimingProfile.calibrationRevision &&
@@ -472,8 +456,9 @@ RobotAdapterResult RobotController::validateRealExecutionConfiguration(
     if (!plan.isValid() ||
         *config->authorizationRevision != plan.executionPolicyRevision ||
         *config->base0CalibrationRevision != plan.base0PlanarCalibrationRevision ||
-        plan.selectedToolNumber != expectedTool ||
-        plan.selectedToolCalibrationRevision != expectedToolRevision ||
+        plan.tool1Number != config->tool1Number ||
+        plan.tool1ControllerCalibrationRevision !=
+            *config->requiredTool1CalibrationRevision ||
         !timingMatches) {
         return {RobotAdapterStatus::InvalidConfiguration, -1};
     }
@@ -565,7 +550,7 @@ RobotAdapterResult RobotController::activateConfiguredToolAndBase(
         !api.getBaseNumber) {
         return {RobotAdapterStatus::SdkFailure, -1};
     }
-    int sdkCode = api.setToolNumber(id, config->primaryToolNumber);
+    int sdkCode = api.setToolNumber(id, config->tool1Number);
     if (sdkCode != 0) return {RobotAdapterStatus::SdkFailure, sdkCode};
     sdkCode = api.setBaseNumber(id, config->baseNumber);
     if (sdkCode != 0) return {RobotAdapterStatus::SdkFailure, sdkCode};
@@ -575,7 +560,7 @@ RobotAdapterResult RobotController::activateConfiguredToolAndBase(
         return {RobotAdapterStatus::SdkFailure,
             actualTool < 0 ? actualTool : actualBase};
     }
-    if (actualTool != config->primaryToolNumber ||
+    if (actualTool != config->tool1Number ||
         actualBase != config->baseNumber) {
         return {RobotAdapterStatus::InvalidConfiguration, -1};
     }
@@ -631,7 +616,7 @@ RobotAdapterResult RobotController::activateConfiguredToolAndBase(
         !api.getBaseNumber) {
         return {RobotAdapterStatus::SdkFailure, -1};
     }
-    int sdkCode = api.setToolNumber(id, plan.selectedToolNumber);
+    int sdkCode = api.setToolNumber(id, plan.tool1Number);
     if (sdkCode != 0) return {RobotAdapterStatus::SdkFailure, sdkCode};
     sdkCode = api.setBaseNumber(id, config->baseNumber);
     if (sdkCode != 0) return {RobotAdapterStatus::SdkFailure, sdkCode};
@@ -641,7 +626,7 @@ RobotAdapterResult RobotController::activateConfiguredToolAndBase(
         return {RobotAdapterStatus::SdkFailure,
             actualTool < 0 ? actualTool : actualBase};
     }
-    return actualTool == plan.selectedToolNumber &&
+    return actualTool == plan.tool1Number &&
             actualBase == config->baseNumber
         ? RobotAdapterResult{RobotAdapterStatus::Success, 0}
         : RobotAdapterResult{RobotAdapterStatus::InvalidConfiguration, -1};
