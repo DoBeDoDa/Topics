@@ -25,6 +25,9 @@ bool robotPoseStable(const std::vector<RobotPose>& samples,
 PlaneIntersection intersectRayWithHorizontalPlane(const Vec3& originBase0,
                                                   const Vec3& unitRayBase0,
                                                   double targetZMm);
+PlaneIntersection projectRgbPixelToBallCenterPlane(const CalibrationData& calibration,
+                                                   double u,
+                                                   double v);
 void validateCalibration(const CalibrationData& calibration);
 
 }  // namespace rgb_base0

@@ -17,7 +17,7 @@
 - 控制器中的 Tool3 必須已由操作者設定好，而且 Tool3 原點就是 RGB optical center、Tool3 軸與 RGB optical 軸對齊。
 - 程式只暫時呼叫 `set_tool_number(3)`、`set_base_number(0)` 與讀取狀態／姿態函式。程式碼中沒有移動、馬達、清除警報或 DO 命令。
 - 每次都保存原 Tool/Base，完成後回復並關閉連線。姿態在相機前後都取 3 次、約 500 ms，XYZ spread 上限 0.1 mm、ABC 包角 spread 上限 0.05°。
-- 所有結果均標記 `experimental`、`authorized_for_robot_motion=false`，禁止餵入主程式或真實移動流程。
+- 所有結果均標記 `experimental`、`authorized_for_robot_motion=false`。固定 current calibration 可供 production RGB→Base0 視覺幾何使用，但不會因此取得真實機械手臂運動授權。
 
 ## 已確認與暫定的座標定義
 
@@ -52,7 +52,7 @@
 
 6. `lambda<=0` 或光線近乎平行時拒絕；流程完全不使用 Depth stream。
 
-畸變係數依 SDK 欄位順序保存為 `k1,k2,k3,k4,k5,k6,p1,p2`。程式不把它們直接當成 OpenCV 8-vector，也不使用 `cv::fisheye`。目前版本化工程映射為：radial numerator=`k1,k2,k3`、radial denominator=`k4,k5,k6`、tangential=`p1,p2`。Orbbec profile API 未暴露足以獨立證實此完整方程的 variant，因此校正檔會明確保存 `engineering_assumption_pending_ground_truth_validation`，實機 ground truth 未通過前不得整合主程式。
+畸變係數依 SDK 欄位順序保存為 `k1,k2,k3,k4,k5,k6,p1,p2`。程式不把它們直接當成 OpenCV 8-vector，也不使用 `cv::fisheye`。目前版本化工程映射為：radial numerator=`k1,k2,k3`、radial denominator=`k4,k5,k6`、tangential=`p1,p2`。Orbbec profile API 未暴露足以獨立證實此完整方程的 variant，因此校正檔會明確保存 `engineering_assumption_pending_ground_truth_validation`；production 可用它計算視覺座標，但實機 ground truth 未通過前不得授權真實機械手臂運動。
 
 ## 建置
 
@@ -98,7 +98,7 @@ output/rgb_base0_calibration/<timestamp>/
   terminal_log.txt
 ```
 
-YAML 與 JSON 寫完後會立刻用嚴格 parser 讀回並檢查語意完全相同。schema v1.3 明確保存 `authorized_for_robot_motion=false`、K、D、工程模型／係數映射、solver 版本與門檻、frame 定義、Tool3 原始 XYZABC、三個 rotation matrices、Tool3→RGB 修正、`C_Base0`、constant-Z plane 與單位。缺欄、重複欄、錯誤型別、非有限數值、序號或 profile 不合都會報錯；每個 rotation matrix 都檢查 `R^T R`、正交誤差與 determinant。
+YAML 與 JSON 寫完後會立刻用嚴格 parser 讀回並檢查語意完全相同。全部驗證成功後，歷史 JSON 會以 Windows 原子替換安全發布到 `config/vision/camera_calibration.json`；任何發布或最終回讀失敗都不會以未驗證資料取代 current calibration。schema v1.3 明確保存 `authorized_for_robot_motion=false`、K、D、工程模型／係數映射、solver 版本與門檻、frame 定義、Tool3 原始 XYZABC、三個 rotation matrices、Tool3→RGB 修正、`C_Base0`、constant-Z plane 與單位。缺欄、重複欄、錯誤型別、非有限數值、序號或 profile 不合都會報錯；每個 rotation matrix 都檢查 `R^T R`、正交誤差與 determinant。
 
 ## 2. 自動 YOLO 驗證
 
@@ -116,7 +116,7 @@ build/rgb_base0_calibration/rgb_base0_validate.exe --calibration <camera_calibra
 - 重新計算 final median，inlier 的 median radial distance 不超過 2 px。
 - 未通過的類別不產生 Base0 XYZ，但拒絕原因與全部觀測仍完整輸出。
 
-袋口只列出偵測；任何 frame 超過 6 個會警告。第一版不計算袋口 Base0 點位。確認球點正確後，必須提醒並另行實作、驗證袋口計算。
+Standalone validation 的袋口仍只列出偵測，任何 frame 超過 6 個會警告；這不等同 production 單張流程。Production `python/robot.py` 會要求至少六個袋口、依 confidence 選六個、在 raw pixel space 指派 P1～P6，並讓球與袋口使用同一個 C++ RGB→Base0 geometry bridge。
 
 每次輸出：
 

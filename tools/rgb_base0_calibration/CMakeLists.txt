@@ -46,6 +46,10 @@ target_include_directories(rgb_base0_core PUBLIC include)
 target_compile_definitions(rgb_base0_core PUBLIC RGB_BASE0_REPO_ROOT="${PROJECT_REPO_ROOT_ABS}")
 target_compile_options(rgb_base0_core PRIVATE /W4 /permissive- /EHsc)
 
+add_library(rgb_base0_geometry_bridge SHARED src/geometry_bridge.cpp)
+target_link_libraries(rgb_base0_geometry_bridge PRIVATE rgb_base0_core)
+target_compile_options(rgb_base0_geometry_bridge PRIVATE /W4 /permissive- /EHsc)
+
 add_library(rgb_base0_hardware STATIC
   src/orbbec_camera.cpp
   src/robot_pose_reader.cpp
@@ -70,8 +74,14 @@ target_compile_options(rgb_base0_validate PRIVATE /W4 /permissive- /EHsc)
 add_executable(rgb_base0_geometry_tests tests/geometry_tests.cpp)
 target_link_libraries(rgb_base0_geometry_tests PRIVATE rgb_base0_core)
 target_compile_options(rgb_base0_geometry_tests PRIVATE /W4 /permissive- /EHsc)
+
+add_executable(rgb_base0_publication_tests tests/publication_tests.cpp)
+target_link_libraries(rgb_base0_publication_tests PRIVATE rgb_base0_core)
+target_compile_options(rgb_base0_publication_tests PRIVATE /W4 /permissive- /EHsc)
+
 enable_testing()
 add_test(NAME rgb_base0_geometry_tests COMMAND rgb_base0_geometry_tests)
+add_test(NAME rgb_base0_publication_tests COMMAND rgb_base0_publication_tests)
 
 set(ORBBEC_RUNTIME_DLLS
   OrbbecSDK.dll

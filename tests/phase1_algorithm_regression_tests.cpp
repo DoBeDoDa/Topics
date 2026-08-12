@@ -759,12 +759,10 @@ int main()
         "Direct and Kick share pocket ID and target path");
     const auto directPocketPathCheck = BilliardPhysics::checkTargetPathToPocket(
         samePocketDirectCandidate.targetPath,
-        samePocketDirectCandidate.pocketTarget,
-        geometry.playableBallCenterRegion);
+        samePocketDirectCandidate.pocketTarget);
     const auto kickPocketPathCheck = BilliardPhysics::checkTargetPathToPocket(
         baselineCandidate.targetPath,
-        baselineCandidate.pocketTarget,
-        geometry.playableBallCenterRegion);
+        baselineCandidate.pocketTarget);
     tests.expectTrue(
         directPocketPathCheck.status() == GeometryStatus::Clear &&
         kickPocketPathCheck.status() == GeometryStatus::Clear,

@@ -17,6 +17,33 @@ bool samePoint(Point first, Point second) noexcept
     return first.x == second.x && first.y == second.y;
 }
 
+bool validEffectiveRail(
+    const ResolvedTableGeometry& geometry,
+    std::size_t railIndex) noexcept
+{
+    if (railIndex >= geometry.railReflectionRegion.rails.size() ||
+        railIndex >= geometry.physicalRails.size()) {
+        return false;
+    }
+    const auto& effective = geometry.railReflectionRegion.rails[railIndex];
+    const auto& physical = geometry.physicalRails[railIndex];
+    const double normalLength = std::hypot(
+        effective.inwardUnitNormal.x,
+        effective.inwardUnitNormal.y);
+    const double normalAgreement =
+        effective.inwardUnitNormal.x * physical.inwardUnitNormal.x +
+        effective.inwardUnitNormal.y * physical.inwardUnitNormal.y;
+    return static_cast<std::size_t>(effective.physicalRailId) == railIndex &&
+        static_cast<std::size_t>(physical.id) == railIndex &&
+        BilliardMath::isFinite(effective.segment.start) &&
+        BilliardMath::isFinite(effective.segment.end) &&
+        BilliardMath::isFinite(effective.inwardUnitNormal) &&
+        std::isfinite(normalLength) &&
+        std::fabs(normalLength - 1.0) <= NUMERICAL_EPSILON &&
+        std::isfinite(normalAgreement) &&
+        normalAgreement > 1.0 - NUMERICAL_EPSILON;
+}
+
 std::optional<DirectPotGenerationStatus> validateInputs(
     const StableTableState& table,
     const EligibleTarget& selectedTarget,
@@ -668,9 +695,15 @@ LegalContactSearchResult generateLegalContact(
         const auto outgoing = outgoingRaw
             ? BilliardMath::normalize(*outgoingRaw)
             : std::nullopt;
-        if (!incoming || !outgoing) {
+        if (!incoming) {
             reject(
-                LegalContactRejectionReason::ReflectionInvariantFailed,
+                LegalContactRejectionReason::FirstSegmentInvalid,
+                GeometryStatus::DegenerateGeometry);
+            continue;
+        }
+        if (!outgoing) {
+            reject(
+                LegalContactRejectionReason::SecondSegmentInvalid,
                 GeometryStatus::DegenerateGeometry);
             continue;
         }
@@ -1069,7 +1102,7 @@ KickPotGenerationResult BilliardAlgorithm::generateKickPotCandidates(
          ++railIndex) {
         const EffectiveCueBallRailSegment& rail =
             geometry.railReflectionRegion.rails[railIndex];
-        if (static_cast<std::size_t>(rail.physicalRailId) != railIndex) {
+        if (!validEffectiveRail(geometry, railIndex)) {
             return KickPotGenerationResult::rejected(
                 KickPotGenerationStatus::InvalidGeometryConfiguration);
         }
@@ -1172,7 +1205,6 @@ KickPotGenerationResult BilliardAlgorithm::generateKickPotCandidates(
 
             const Segment2D cuePathFirst{table.cueBall, *rebound.value()};
             const Segment2D cuePathSecond{*rebound.value(), ghost.value()->center};
-
             const auto incomingRaw = BilliardMath::getVector(
                 cuePathFirst.start,
                 cuePathFirst.end);
@@ -1185,9 +1217,15 @@ KickPotGenerationResult BilliardAlgorithm::generateKickPotCandidates(
             const auto outgoing = outgoingRaw
                 ? BilliardMath::normalize(*outgoingRaw)
                 : std::nullopt;
-            if (!incoming || !outgoing) {
+            if (!incoming) {
                 reject(
-                    KickPotRejectionReason::ReflectionInvariantFailed,
+                    KickPotRejectionReason::CueFirstSegmentInvalid,
+                    GeometryStatus::DegenerateGeometry);
+                continue;
+            }
+            if (!outgoing) {
+                reject(
+                    KickPotRejectionReason::CueSecondSegmentInvalid,
                     GeometryStatus::DegenerateGeometry);
                 continue;
             }

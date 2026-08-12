@@ -18,9 +18,16 @@ __pycache__/
 # PyTorch / Model files
 best.pt
 /bin/
+/build/
+/output/
 
 # Local lens-calibration photos and generated reports
 calibration/lens/images/*
 !calibration/lens/images/.gitkeep
 calibration/lens/results/*
 !calibration/lens/results/.gitkeep
+
+# Runtime-published RGB-to-Base0 calibration (generated only after strict verification)
+/config/vision/camera_calibration.json
+/config/vision/camera_calibration.json.tmp
+/config/vision/camera_calibration.json.rollback.tmp
