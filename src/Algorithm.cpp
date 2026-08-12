@@ -555,10 +555,6 @@ LegalContactSearchResult generateLegalContact(
             selectedTarget.center.y -
                 geometry.ballDiameterMm * directDirection->y};
         const Segment2D cuePath{table.cueBall, ghost};
-        const GeometryCheckResult region =
-            BilliardPhysics::checkSegmentWithinPlayableRegion(
-                cuePath,
-                geometry.playableBallCenterRegion);
         const GeometryCheckResult collision =
             BilliardPhysics::checkSegmentCollision(
                 cuePath,
@@ -568,8 +564,7 @@ LegalContactSearchResult generateLegalContact(
                 geometry.collisionMarginMm);
         std::optional<double> minimumClearance;
         double totalDistance = 0.0;
-        if (region.status() == GeometryStatus::Clear &&
-            collision.status() == GeometryStatus::Clear) {
+        if (collision.status() == GeometryStatus::Clear) {
             if (accumulateClearance(
                     minimumClearance,
                     cuePath,
@@ -597,8 +592,8 @@ LegalContactSearchResult generateLegalContact(
                 blocked
                     ? LegalContactRejectionReason::FirstSegmentBlocked
                     : LegalContactRejectionReason::FirstSegmentInvalid,
-                blocked ? collision.status() : region.status(),
-                blocked ? relatedIndex(collision) : relatedIndex(region)});
+                collision.status(),
+                relatedIndex(collision)});
         }
     } else {
         result.diagnostics.push_back({
@@ -665,25 +660,6 @@ LegalContactSearchResult generateLegalContact(
         }
         const Segment2D first{table.cueBall, *rebound.value()};
         const Segment2D second{*rebound.value(), ghost};
-        const GeometryCheckResult firstRegion =
-            BilliardPhysics::checkSegmentWithinPlayableRegion(
-                first,
-                geometry.playableBallCenterRegion);
-        const GeometryCheckResult secondRegion =
-            BilliardPhysics::checkSegmentWithinPlayableRegion(
-                second,
-                geometry.playableBallCenterRegion);
-        if (firstRegion.status() != GeometryStatus::Clear ||
-            secondRegion.status() != GeometryStatus::Clear) {
-            const bool firstFailed = firstRegion.status() != GeometryStatus::Clear;
-            reject(
-                firstFailed
-                    ? LegalContactRejectionReason::FirstSegmentInvalid
-                    : LegalContactRejectionReason::SecondSegmentInvalid,
-                firstFailed ? firstRegion.status() : secondRegion.status(),
-                relatedIndex(firstFailed ? firstRegion : secondRegion));
-            continue;
-        }
         const auto incomingRaw = BilliardMath::getVector(first.start, first.end);
         const auto outgoingRaw = BilliardMath::getVector(second.start, second.end);
         const auto incoming = incomingRaw
@@ -993,24 +969,10 @@ DirectPotGenerationResult BilliardAlgorithm::generateDirectPotCandidates(
             selectedTarget.center,
             pocket.center};
 
-        const GeometryCheckResult cueRegion =
-            BilliardPhysics::checkSegmentWithinPlayableRegion(
-                cuePath,
-                geometry.playableBallCenterRegion);
-        if (cueRegion.status() != GeometryStatus::Clear) {
-            evaluation.rejected[index] = rejected(
-                pocket.id,
-                DirectPotRejectionReason::CuePathInvalid,
-                cueRegion.status(),
-                relatedIndex(cueRegion));
-            continue;
-        }
-
         const GeometryCheckResult targetRegion =
             BilliardPhysics::checkTargetPathToPocket(
                 targetPath,
-                pocket.center,
-                geometry.playableBallCenterRegion);
+                pocket.center);
         if (targetRegion.status() != GeometryStatus::Clear) {
             evaluation.rejected[index] = rejected(
                 pocket.id,
@@ -1107,10 +1069,7 @@ KickPotGenerationResult BilliardAlgorithm::generateKickPotCandidates(
          ++railIndex) {
         const EffectiveCueBallRailSegment& rail =
             geometry.railReflectionRegion.rails[railIndex];
-        if (static_cast<std::size_t>(rail.physicalRailId) != railIndex ||
-            BilliardPhysics::checkEffectiveRailForReflection(
-                rail,
-                geometry.playableBallCenterRegion).status() != GeometryStatus::Clear) {
+        if (static_cast<std::size_t>(rail.physicalRailId) != railIndex) {
             return KickPotGenerationResult::rejected(
                 KickPotGenerationStatus::InvalidGeometryConfiguration);
         }
@@ -1168,8 +1127,7 @@ KickPotGenerationResult BilliardAlgorithm::generateKickPotCandidates(
             const GeometryCheckResult targetRegion =
                 BilliardPhysics::checkTargetPathToPocket(
                     targetPath,
-                    pocket.center,
-                    geometry.playableBallCenterRegion);
+                    pocket.center);
             if (targetRegion.status() != GeometryStatus::Clear) {
                 reject(
                     KickPotRejectionReason::TargetPathInvalid,
@@ -1214,28 +1172,6 @@ KickPotGenerationResult BilliardAlgorithm::generateKickPotCandidates(
 
             const Segment2D cuePathFirst{table.cueBall, *rebound.value()};
             const Segment2D cuePathSecond{*rebound.value(), ghost.value()->center};
-            const GeometryCheckResult firstRegion =
-                BilliardPhysics::checkSegmentWithinPlayableRegion(
-                    cuePathFirst,
-                    geometry.playableBallCenterRegion);
-            if (firstRegion.status() != GeometryStatus::Clear) {
-                reject(
-                    KickPotRejectionReason::CueFirstSegmentInvalid,
-                    firstRegion.status(),
-                    relatedIndex(firstRegion));
-                continue;
-            }
-            const GeometryCheckResult secondRegion =
-                BilliardPhysics::checkSegmentWithinPlayableRegion(
-                    cuePathSecond,
-                    geometry.playableBallCenterRegion);
-            if (secondRegion.status() != GeometryStatus::Clear) {
-                reject(
-                    KickPotRejectionReason::CueSecondSegmentInvalid,
-                    secondRegion.status(),
-                    relatedIndex(secondRegion));
-                continue;
-            }
 
             const auto incomingRaw = BilliardMath::getVector(
                 cuePathFirst.start,
@@ -1525,6 +1461,11 @@ RankedPotSelectionResult BilliardAlgorithm::rankPotCandidates(
                 selectedTargetExclusion)) {
             return RankedPotSelectionResult::rejected(PotSelectionStatus::NumericalFailure);
         }
+        if (minimumClearance &&
+            std::isfinite(*minimumClearance) &&
+            *minimumClearance <= blockedThreshold) {
+            continue;
+        }
         const auto audit = makeAudit(
             ScoringRawCosts{
                 0.0,
@@ -1587,6 +1528,11 @@ RankedPotSelectionResult BilliardAlgorithm::rankPotCandidates(
                     obstacles,
                     selectedTargetExclusion)) {
                 return RankedPotSelectionResult::rejected(PotSelectionStatus::NumericalFailure);
+            }
+            if (minimumClearance &&
+                std::isfinite(*minimumClearance) &&
+                *minimumClearance <= blockedThreshold) {
+                continue;
             }
             const auto audit = makeAudit(
                 ScoringRawCosts{
