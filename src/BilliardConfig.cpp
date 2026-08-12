@@ -581,8 +581,11 @@ const MotionProfile TEST_MOTION = {
 // ============================================================
 
 // [暫勿啟用 / 需完整人工校正]
-// Strike Z、ready gap、A/B核准範圍、C offset、Tool forward axis及
+// Strike Z、ready gap、A/B核准範圍、C offset、Tool1 local +X及
 // safe approach/lift尚未共同驗收前保持nullopt，MotionPlanner必須fail closed。
+// strikePositionBiasMm初始值固定為0.0 mm；非零值只由人工調適。
+// pullModeMinBottomDistanceMm初始研究值為300.0 mm，不是固定機械規格。
+// 球桌往下方向已確認為Base0 Y-，且Robot正對球桌長邊、無平面旋轉偏移。
 const std::optional<MotionPlanningConfig> MOTION_PLANNING_CONFIG = std::nullopt;
 const ExecutionPolicyMode PRODUCTION_RUNTIME_MODE = ExecutionPolicyMode::PlanningTest;
 
@@ -590,7 +593,7 @@ const ExecutionPolicyMode PRODUCTION_RUNTIME_MODE = ExecutionPolicyMode::Plannin
 // 18. P2-03 Real Hardware Authorization / Calibration
 // ============================================================
 
-// ABC↔HRSDK RX/RY/RZ、Tool1/Base0 revision、Base0 +Z安全方向與
+// ABC↔HRSDK RX/RY/RZ、唯一Tool1/Base0 revision、Base0 +Z安全方向與
 // DO1/DO2 timing尚未完成受控實機核准；不得以測試值代替production值。
 const std::optional<RealHardwareExecutionConfig>
     REAL_HARDWARE_EXECUTION_CONFIG = std::nullopt;
