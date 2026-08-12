@@ -2,6 +2,7 @@
 #include "SocketClient.h"
 
 #include <algorithm>
+#include <chrono>
 #include <limits>
 #include <utility>
 
@@ -294,8 +295,55 @@ SocketReceiveResult SocketClient::receiveFrame()
         return {SocketReceiveStatus::FrameReady, std::move(frame), 0};
     }
 
+    const auto deadline = std::chrono::steady_clock::now() +
+        std::chrono::milliseconds{receiveTimeoutMs_};
+    const auto transportFailure = [&](SocketReceiveStatus status, int error) {
+        invalidateReceiveState();
+        if (status == SocketReceiveStatus::CleanClose ||
+            status == SocketReceiveStatus::TimedOut ||
+            status == SocketReceiveStatus::SocketError) {
+            if (clientSocket_ != INVALID_SOCKET) {
+                closesocket(clientSocket_);
+                clientSocket_ = INVALID_SOCKET;
+            }
+            connected_ = false;
+            receiveState_.invalidateConnection();
+        }
+        return SocketReceiveResult{status, std::nullopt, error};
+    };
+
     char buffer[1024];
     while (true) {
+        const auto now = std::chrono::steady_clock::now();
+        if (now >= deadline) {
+            return transportFailure(
+                SocketReceiveStatus::TimedOut,
+                WSAETIMEDOUT);
+        }
+
+        const auto remaining =
+            std::chrono::duration_cast<std::chrono::microseconds>(deadline - now);
+        const auto remainingSeconds =
+            std::chrono::duration_cast<std::chrono::seconds>(remaining);
+        timeval timeout{};
+        timeout.tv_sec = static_cast<long>(remainingSeconds.count());
+        timeout.tv_usec = static_cast<long>(
+            (remaining - remainingSeconds).count());
+        fd_set readable;
+        FD_ZERO(&readable);
+        FD_SET(clientSocket_, &readable);
+        const int ready = select(0, &readable, nullptr, nullptr, &timeout);
+        if (ready == 0) {
+            return transportFailure(
+                SocketReceiveStatus::TimedOut,
+                WSAETIMEDOUT);
+        }
+        if (ready == SOCKET_ERROR) {
+            return transportFailure(
+                SocketReceiveStatus::SocketError,
+                WSAGetLastError());
+        }
+
         const int received = recv(clientSocket_, buffer, sizeof(buffer), 0);
         if (received > 0) {
             const FrameBufferStatus framing = receiveState_.append(
@@ -315,17 +363,7 @@ SocketReceiveResult SocketClient::receiveFrame()
 
         const int error = received == SOCKET_ERROR ? WSAGetLastError() : 0;
         const SocketReceiveStatus status = classifyTransportOutcome(received, error);
-        invalidateReceiveState();
-        if (status == SocketReceiveStatus::CleanClose ||
-            status == SocketReceiveStatus::SocketError) {
-            if (clientSocket_ != INVALID_SOCKET) {
-                closesocket(clientSocket_);
-                clientSocket_ = INVALID_SOCKET;
-            }
-            connected_ = false;
-            receiveState_.invalidateConnection();
-        }
-        return {status, std::nullopt, error};
+        return transportFailure(status, error);
     }
 }
 
@@ -370,8 +408,13 @@ SocketOperationResult SocketClient::flushBuffer()
         return {SocketOperationStatus::NotConnected, 0};
     }
 
+    const auto deadline = std::chrono::steady_clock::now() +
+        std::chrono::milliseconds{receiveTimeoutMs_};
     char discard[1024];
     while (true) {
+        if (std::chrono::steady_clock::now() >= deadline) {
+            return {SocketOperationStatus::SocketError, WSAETIMEDOUT};
+        }
         u_long bytesAvailable = 0;
         if (ioctlsocket(clientSocket_, FIONREAD, &bytesAvailable) == SOCKET_ERROR) {
             return {SocketOperationStatus::SocketError, WSAGetLastError()};
