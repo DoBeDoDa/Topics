@@ -210,7 +210,7 @@ const std::optional<TableGeometryConfig>
                     Vector2D{0.0, 1.0},
                     35.0,   // startExclusionMm（須≥ballRadiusMm，否則corner袋口端點會落在playableRegion外）
                     35.0,   // endExclusionMm
-                    0.0     // cushionInsetMm（非0會讓checkEffectiveRailForReflection必定失敗，見P1-xx討論）
+                    0.0     // cushionInsetMm
                 },
 
                 // Rail2：P2 下中袋 → P3 右下角

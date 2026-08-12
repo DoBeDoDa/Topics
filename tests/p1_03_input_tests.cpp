@@ -183,15 +183,11 @@ int main()
             missingMaximum.append("1\n", 2) == FrameBufferStatus::InvalidConfiguration,
             "explicit zero maximum frame bytes is invalid configuration");
 
-        SocketClient missingSocketConfiguration;
+        SocketClient productionSocketConfiguration;
         tests.expectTrue(
-            missingSocketConfiguration.configurationStatus() ==
-                SocketConfigurationStatus::ConfigurationMissing,
-            "missing frame maximum and receive timeout remain ConfigurationMissing");
-        tests.expectTrue(
-            missingSocketConfiguration.connectToServerResult("127.0.0.1", 5000).status ==
-                SocketConnectStatus::ConfigurationMissing,
-            "missing socket configuration is named before any connection attempt");
+            productionSocketConfiguration.configurationStatus() ==
+                SocketConfigurationStatus::Valid,
+            "approved frame maximum and receive timeout are valid");
 
         SocketClient invalidMaximum(0, 1000);
         tests.expectTrue(

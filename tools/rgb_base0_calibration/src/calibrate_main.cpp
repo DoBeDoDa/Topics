@@ -167,6 +167,8 @@ int main(const int argc, char** argv) {
         std::filesystem::create_directories(options.outputDirectory);
         const std::filesystem::path jsonPath = options.outputDirectory / "camera_calibration.json";
         const std::filesystem::path yamlPath = options.outputDirectory / "camera_calibration.yaml";
+        const std::filesystem::path currentJson =
+            std::filesystem::path(RGB_BASE0_REPO_ROOT) / "config" / "vision" / "camera_calibration.json";
         if(std::filesystem::exists(jsonPath) || std::filesystem::exists(yamlPath)) {
             throw std::runtime_error("Refusing to overwrite an existing calibration file in "
                                      + options.outputDirectory.string());
@@ -301,9 +303,12 @@ int main(const int argc, char** argv) {
             throw std::runtime_error("Written JSON/YAML calibration equivalence check failed");
         }
         logger->line("[OUTPUT] JSON/YAML strict read-back and equivalence check passed.");
-        logger->line("[OUTPUT] " + jsonPath.string());
-        logger->line("[OUTPUT] " + yamlPath.string());
-        logger->line("[DONE] Experimental calibration captured. It is not authorized for main-program or robot-motion use.");
+        logger->line("[OUTPUT] historical calibration JSON: " + jsonPath.string());
+        logger->line("[OUTPUT] historical calibration YAML: " + yamlPath.string());
+        rgb_base0::publishCurrentCalibrationJson(jsonPath, json, currentJson);
+        logger->line("[OUTPUT] current calibration updated: " + currentJson.string());
+        logger->line("[DONE] Experimental calibration captured and current calibration published successfully.");
+        logger->line("[DONE] Current calibration is available for production RGB geometry; it does not authorize robot motion.");
         return 0;
     }
     catch(const std::exception& error) {

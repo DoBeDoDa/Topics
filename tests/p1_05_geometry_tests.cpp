@@ -73,8 +73,6 @@ int main()
         return tests.exitCode();
     }
     const auto& table = *resolved.value();
-    tests.expectNear(table.playableBallCenterRegion.bounds.minX, 10.0, TOLERANCE,
-        "playable region is physical surface inset by one radius");
     for (std::size_t index = 0; index < table.pockets.size(); ++index) {
         tests.expectNear(table.pockets[index].center.x, stable.pockets[index].x,
             TOLERANCE, "resolved pocket preserves current-cycle vision X");
@@ -123,37 +121,18 @@ int main()
     tests.expectTrue(
         BilliardPhysics::checkTargetPathToPocket(
             targetPath,
-            bottomPocketTarget,
-            table.playableBallCenterRegion).status() == GeometryStatus::Clear,
+            bottomPocketTarget).status() == GeometryStatus::Clear,
         "target path ending exactly at the pocket target is accepted");
     tests.expectTrue(
         BilliardPhysics::checkTargetPathToPocket(
             {{500.0, 100.0}, {500.0, 100.0}},
-            bottomPocketTarget,
-            table.playableBallCenterRegion).status() == GeometryStatus::DegenerateGeometry,
+            bottomPocketTarget).status() == GeometryStatus::DegenerateGeometry,
         "zero-length target path fails closed");
     tests.expectTrue(
         BilliardPhysics::checkTargetPathToPocket(
             targetPath,
-            {600.0, 100.0},
-            table.playableBallCenterRegion).status() == GeometryStatus::InvalidConfiguration,
+            {600.0, 100.0}).status() == GeometryStatus::InvalidConfiguration,
         "target path ending away from the pocket target is rejected");
-    tests.expectTrue(
-        BilliardPhysics::checkTargetPathToPocket(
-            {{-5.0, 100.0}, bottomPocketTarget},
-            bottomPocketTarget,
-            table.playableBallCenterRegion).status() == GeometryStatus::InvalidInput,
-        "target path starting outside the playable region fails closed");
-    tests.expectTrue(
-        BilliardPhysics::checkSegmentWithinPlayableRegion(
-            {{30.0, 10.0}, {970.0, 490.0}},
-            table.playableBallCenterRegion).status() == GeometryStatus::Clear,
-        "playable boundary is inclusive for ball-center paths");
-    tests.expectTrue(
-        BilliardPhysics::checkSegmentWithinPlayableRegion(
-            {{30.0, 10.0}, {1001.0, 490.0}},
-            table.playableBallCenterRegion).status() == GeometryStatus::OutsideValidRegion,
-        "ordinary rail exit is rejected");
 
     const auto& effective = table.railReflectionRegion.rails[0];
     for (std::size_t index = 0; index < table.railReflectionRegion.rails.size(); ++index) {
@@ -173,15 +152,6 @@ int main()
         "physical end exclusion maps longitudinally to effective rail");
     const Segment2D rail1Segment{{0.0, 0.0}, {500.0, 0.0}};
 
-    auto reversedRail = config.rails[0];
-    reversedRail.inwardUnitNormal = {0.0, -1.0};
-    tests.expectTrue(
-        BilliardPhysics::deriveEffectiveRail(
-            reversedRail,
-            rail1Segment,
-            table.playableBallCenterRegion,
-            config.ballRadiusMm).status() == GeometryStatus::InvalidConfiguration,
-        "outward/reversed rail normal fails closed");
     auto emptyRail = config.rails[0];
     emptyRail.startExclusionMm = 250.0;
     emptyRail.endExclusionMm = 250.0;
@@ -189,7 +159,7 @@ int main()
         BilliardPhysics::deriveEffectiveRail(
             emptyRail,
             rail1Segment,
-            table.playableBallCenterRegion,
+            {0.0, 1.0},
             config.ballRadiusMm).status() == GeometryStatus::InvalidConfiguration,
         "empty effective rail fails closed");
     const Segment2D zeroLengthSegment{{0.0, 0.0}, {0.0, 0.0}};
@@ -197,26 +167,21 @@ int main()
         BilliardPhysics::deriveEffectiveRail(
             config.rails[0],
             zeroLengthSegment,
-            table.playableBallCenterRegion,
+            {0.0, 1.0},
             config.ballRadiusMm).status() == GeometryStatus::InvalidConfiguration,
         "zero-length physical rail fails closed");
-    auto nonUnitRail = config.rails[0];
-    nonUnitRail.inwardUnitNormal = {0.0, 2.0};
     tests.expectTrue(
         BilliardPhysics::deriveEffectiveRail(
-            nonUnitRail,
+            config.rails[0],
             rail1Segment,
-            table.playableBallCenterRegion,
+            {0.0, 2.0},
             config.ballRadiusMm).status() == GeometryStatus::InvalidConfiguration,
         "non-unit rail normal fails closed");
-    auto nonFiniteRail = config.rails[0];
-    nonFiniteRail.inwardUnitNormal = {
-        0.0, std::numeric_limits<double>::infinity()};
     tests.expectTrue(
         BilliardPhysics::deriveEffectiveRail(
-            nonFiniteRail,
+            config.rails[0],
             rail1Segment,
-            table.playableBallCenterRegion,
+            {0.0, std::numeric_limits<double>::infinity()},
             config.ballRadiusMm).status() == GeometryStatus::InvalidConfiguration,
         "non-finite rail normal fails closed");
 

@@ -2,11 +2,20 @@
 
 #include "rgb_base0/geometry.h"
 
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#define WIN32_LEAN_AND_MEAN
+#include <Windows.h>
+
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdint>
+#include <cwctype>
 #include <fstream>
 #include <iomanip>
+#include <limits>
 #include <map>
 #include <sstream>
 #include <stdexcept>
@@ -357,8 +366,153 @@ void requireOutput(std::ofstream& output, const std::filesystem::path& path) {
     }
 }
 
-bool near(const double left, const double right, const double tolerance) {
+bool valuesNear(const double left, const double right, const double tolerance) {
     return std::abs(left - right) <= tolerance;
+}
+
+CalibrationData readStrictJson(const std::filesystem::path& path) {
+    const std::string text = readAll(path);
+    return parseCalibration([&text](const std::string& key) { return jsonRawValue(text, key); });
+}
+
+std::string windowsError(const DWORD code) {
+    LPSTR message = nullptr;
+    const DWORD length = FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM
+                                            | FORMAT_MESSAGE_IGNORE_INSERTS,
+                                        nullptr, code, 0,
+                                        reinterpret_cast<LPSTR>(&message), 0, nullptr);
+    std::string result = length != 0 && message != nullptr
+                             ? std::string(message, length)
+                             : "Windows error " + std::to_string(code);
+    if(message != nullptr) {
+        LocalFree(message);
+    }
+    while(!result.empty() && (result.back() == '\r' || result.back() == '\n')) {
+        result.pop_back();
+    }
+    return result;
+}
+
+void requireRemoved(const std::filesystem::path& path, const std::string& role) {
+    std::error_code error;
+    const bool exists = std::filesystem::exists(path, error);
+    if(error) {
+        throw std::runtime_error("Cannot inspect " + role + " " + path.string() + ": " + error.message());
+    }
+    if(!exists) {
+        return;
+    }
+    if(!std::filesystem::remove(path, error) || error) {
+        throw std::runtime_error("Cannot remove " + role + " " + path.string() + ": "
+                                 + (error ? error.message() : "path was not removed"));
+    }
+}
+
+void writeDurableFile(const std::filesystem::path& path, const std::string& bytes) {
+    HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,
+                              FILE_ATTRIBUTE_NORMAL, nullptr);
+    if(file == INVALID_HANDLE_VALUE) {
+        const DWORD code = GetLastError();
+        throw std::runtime_error("Cannot create publication temporary file " + path.string()
+                                 + ": " + windowsError(code));
+    }
+    try {
+        std::size_t offset = 0;
+        while(offset < bytes.size()) {
+            const std::size_t remaining = bytes.size() - offset;
+            const DWORD requested = static_cast<DWORD>(
+                std::min<std::size_t>(remaining, std::numeric_limits<DWORD>::max()));
+            DWORD written = 0;
+            if(WriteFile(file, bytes.data() + offset, requested, &written, nullptr) == FALSE
+               || written != requested) {
+                const DWORD code = GetLastError();
+                throw std::runtime_error("Failed writing publication temporary file " + path.string()
+                                         + ": " + windowsError(code));
+            }
+            offset += written;
+        }
+        if(FlushFileBuffers(file) == FALSE) {
+            const DWORD code = GetLastError();
+            throw std::runtime_error("Failed flushing publication temporary file " + path.string()
+                                     + ": " + windowsError(code));
+        }
+    }
+    catch(...) {
+        CloseHandle(file);
+        throw;
+    }
+    if(CloseHandle(file) == FALSE) {
+        const DWORD code = GetLastError();
+        throw std::runtime_error("Failed closing publication temporary file " + path.string()
+                                 + ": " + windowsError(code));
+    }
+}
+
+std::wstring publicationMutexName(const std::filesystem::path& currentJson) {
+    std::error_code error;
+    std::filesystem::path absolute = std::filesystem::absolute(currentJson, error);
+    if(error) {
+        throw std::runtime_error("Cannot resolve current calibration path for publication lock: "
+                                 + error.message());
+    }
+    std::wstring normalized = absolute.lexically_normal().wstring();
+    std::transform(normalized.begin(), normalized.end(), normalized.begin(),
+                   [](const wchar_t character) { return static_cast<wchar_t>(std::towlower(character)); });
+    std::uint64_t hash = 1469598103934665603ULL;
+    for(const wchar_t character : normalized) {
+        hash ^= static_cast<std::uint64_t>(character);
+        hash *= 1099511628211ULL;
+    }
+    std::wostringstream name;
+    name << L"Local\\RGB_BASE0_CALIBRATION_" << std::hex << hash;
+    return name.str();
+}
+
+class PublicationMutex final {
+public:
+    explicit PublicationMutex(const std::filesystem::path& currentJson) {
+        const std::wstring name = publicationMutexName(currentJson);
+        handle_ = CreateMutexW(nullptr, FALSE, name.c_str());
+        if(handle_ == nullptr) {
+            throw std::runtime_error("Cannot create current-calibration publication lock: "
+                                     + windowsError(GetLastError()));
+        }
+        const DWORD wait = WaitForSingleObject(handle_, 0);
+        if(wait != WAIT_OBJECT_0 && wait != WAIT_ABANDONED) {
+            const DWORD code = wait == WAIT_FAILED ? GetLastError() : ERROR_BUSY;
+            CloseHandle(handle_);
+            handle_ = nullptr;
+            throw std::runtime_error("Another current-calibration publication is active: "
+                                     + windowsError(code));
+        }
+        owns_ = true;
+    }
+    PublicationMutex(const PublicationMutex&) = delete;
+    PublicationMutex& operator=(const PublicationMutex&) = delete;
+    ~PublicationMutex() {
+        if(handle_ != nullptr) {
+            if(owns_) {
+                ReleaseMutex(handle_);
+            }
+            CloseHandle(handle_);
+        }
+    }
+private:
+    HANDLE handle_{nullptr};
+    bool owns_{false};
+};
+
+std::string appendCleanupErrors(const std::string& original,
+                                const std::vector<std::string>& cleanupErrors) {
+    if(cleanupErrors.empty()) {
+        return original;
+    }
+    std::ostringstream combined;
+    combined << original << "; cleanup/rollback errors:";
+    for(const std::string& error : cleanupErrors) {
+        combined << " [" << error << ']';
+    }
+    return combined.str();
 }
 
 }  // namespace
@@ -562,14 +716,14 @@ void writeCalibrationYaml(const CalibrationData& value, const std::filesystem::p
 }
 
 CalibrationData readCalibration(const std::filesystem::path& path) {
-    const std::string text = readAll(path);
     std::string extension = path.extension().string();
     std::transform(extension.begin(), extension.end(), extension.begin(),
                    [](const unsigned char character) { return static_cast<char>(std::tolower(character)); });
     if(extension == ".json") {
-        return parseCalibration([&text](const std::string& key) { return jsonRawValue(text, key); });
+        return readStrictJson(path);
     }
     if(extension == ".yaml" || extension == ".yml") {
+        const std::string text = readAll(path);
         const auto values = yamlRawValues(text);
         return parseCalibration([&values](const std::string& key) { return yamlRawValue(values, key); });
     }
@@ -624,20 +778,171 @@ bool equivalentCalibration(const CalibrationData& left, const CalibrationData& r
         right.zTableMm, right.ballDiameterMm, right.ballRadiusMm,
     };
     for(std::size_t index = 0; index < leftNumbers.size(); ++index) {
-        if(!near(leftNumbers[index], rightNumbers[index], tolerance)) {
+        if(!valuesNear(leftNumbers[index], rightNumbers[index], tolerance)) {
             return false;
         }
     }
     for(std::size_t row = 0; row < 3; ++row) {
         for(std::size_t column = 0; column < 3; ++column) {
-            if(!near(left.rBase0FromTool3[row][column], right.rBase0FromTool3[row][column], tolerance)
-               || !near(left.rTool3FromRgb[row][column], right.rTool3FromRgb[row][column], tolerance)
-               || !near(left.rBase0FromRgb[row][column], right.rBase0FromRgb[row][column], tolerance)) {
+            if(!valuesNear(left.rBase0FromTool3[row][column], right.rBase0FromTool3[row][column], tolerance)
+               || !valuesNear(left.rTool3FromRgb[row][column], right.rTool3FromRgb[row][column], tolerance)
+               || !valuesNear(left.rBase0FromRgb[row][column], right.rBase0FromRgb[row][column], tolerance)) {
                 return false;
             }
         }
     }
     return true;
+}
+
+void publishCurrentCalibrationJson(const std::filesystem::path& verifiedHistoricalJson,
+                                   const CalibrationData& verifiedCalibration,
+                                   const std::filesystem::path& currentJson) {
+    validateCalibration(verifiedCalibration);
+    const CalibrationData historical = readStrictJson(verifiedHistoricalJson);
+    if(!equivalentCalibration(verifiedCalibration, historical)) {
+        throw std::runtime_error("Historical JSON does not match the verified calibration: "
+                                 + verifiedHistoricalJson.string());
+    }
+    const std::string historicalBytes = readAll(verifiedHistoricalJson);
+
+    std::error_code pathError;
+    const std::filesystem::path historicalAbsolute =
+        std::filesystem::absolute(verifiedHistoricalJson, pathError).lexically_normal();
+    if(pathError) {
+        throw std::runtime_error("Cannot resolve historical calibration path: " + pathError.message());
+    }
+    const std::filesystem::path currentAbsolute =
+        std::filesystem::absolute(currentJson, pathError).lexically_normal();
+    if(pathError) {
+        throw std::runtime_error("Cannot resolve current calibration path: " + pathError.message());
+    }
+    if(historicalAbsolute == currentAbsolute) {
+        throw std::runtime_error("Historical and current calibration paths must be different");
+    }
+
+    PublicationMutex publicationLock(currentAbsolute);
+    const std::filesystem::path temporary(currentAbsolute.string() + ".tmp");
+    const std::filesystem::path rollback(currentAbsolute.string() + ".rollback.tmp");
+    std::error_code filesystemError;
+    std::filesystem::create_directories(currentAbsolute.parent_path(), filesystemError);
+    if(filesystemError) {
+        throw std::runtime_error("Cannot create current calibration directory "
+                                 + currentAbsolute.parent_path().string() + ": "
+                                 + filesystemError.message());
+    }
+    requireRemoved(temporary, "stale publication temporary file");
+    requireRemoved(rollback, "stale publication rollback file");
+
+    const bool hadCurrent = std::filesystem::exists(currentAbsolute, filesystemError);
+    if(filesystemError) {
+        throw std::runtime_error("Cannot inspect current calibration " + currentAbsolute.string()
+                                 + ": " + filesystemError.message());
+    }
+    if(hadCurrent && !std::filesystem::is_regular_file(currentAbsolute, filesystemError)) {
+        if(filesystemError) {
+            throw std::runtime_error("Cannot inspect current calibration type " + currentAbsolute.string()
+                                     + ": " + filesystemError.message());
+        }
+        throw std::runtime_error("Current calibration path is not a regular file: "
+                                 + currentAbsolute.string());
+    }
+
+    bool replacementCompleted = false;
+    try {
+        writeDurableFile(temporary, historicalBytes);
+        const CalibrationData temporaryCalibration = readStrictJson(temporary);
+        if(!equivalentCalibration(verifiedCalibration, temporaryCalibration)
+           || !equivalentCalibration(historical, temporaryCalibration)) {
+            throw std::runtime_error("Publication temporary JSON semantic verification failed");
+        }
+        if(readAll(temporary) != historicalBytes) {
+            throw std::runtime_error("Publication temporary JSON byte verification failed");
+        }
+
+        if(hadCurrent) {
+            if(ReplaceFileW(currentAbsolute.c_str(), temporary.c_str(), rollback.c_str(),
+                            REPLACEFILE_WRITE_THROUGH, nullptr, nullptr) == FALSE) {
+                const DWORD code = GetLastError();
+                throw std::runtime_error("Cannot atomically replace current calibration "
+                                         + currentAbsolute.string() + ": " + windowsError(code));
+            }
+        }
+        else if(MoveFileExW(temporary.c_str(), currentAbsolute.c_str(), MOVEFILE_WRITE_THROUGH) == FALSE) {
+            const DWORD code = GetLastError();
+            throw std::runtime_error("Cannot atomically publish first current calibration "
+                                     + currentAbsolute.string() + ": " + windowsError(code));
+        }
+        replacementCompleted = true;
+
+        const CalibrationData published = readStrictJson(currentAbsolute);
+        if(!equivalentCalibration(verifiedCalibration, published)
+           || !equivalentCalibration(historical, published)) {
+            throw std::runtime_error("Published current JSON semantic verification failed");
+        }
+        if(readAll(currentAbsolute) != historicalBytes) {
+            throw std::runtime_error("Published current JSON byte verification failed");
+        }
+        if(readAll(verifiedHistoricalJson) != historicalBytes) {
+            throw std::runtime_error("Historical calibration changed during current publication");
+        }
+        requireRemoved(rollback, "completed publication rollback file");
+        requireRemoved(temporary, "completed publication temporary file");
+    }
+    catch(const std::exception& error) {
+        const std::string originalError = error.what();
+        std::vector<std::string> cleanupErrors;
+        bool preserveRollbackForRecovery = false;
+        std::error_code inspectError;
+        const bool rollbackExists = std::filesystem::exists(rollback, inspectError);
+        if(inspectError) {
+            cleanupErrors.push_back("cannot inspect rollback file: " + inspectError.message());
+        }
+        else if(hadCurrent && rollbackExists) {
+            const bool currentExists = std::filesystem::exists(currentAbsolute, inspectError);
+            if(inspectError) {
+                cleanupErrors.push_back("cannot inspect current file before rollback: "
+                                        + inspectError.message());
+            }
+            else {
+                const BOOL restored = currentExists
+                    ? ReplaceFileW(currentAbsolute.c_str(), rollback.c_str(), nullptr,
+                                   REPLACEFILE_WRITE_THROUGH, nullptr, nullptr)
+                    : MoveFileExW(rollback.c_str(), currentAbsolute.c_str(), MOVEFILE_WRITE_THROUGH);
+                if(restored == FALSE) {
+                    preserveRollbackForRecovery = true;
+                    cleanupErrors.push_back("cannot restore prior current calibration: "
+                                            + windowsError(GetLastError()));
+                }
+            }
+        }
+        else if(replacementCompleted && !hadCurrent) {
+            std::error_code removeError;
+            if(!std::filesystem::remove(currentAbsolute, removeError) || removeError) {
+                cleanupErrors.push_back("cannot remove failed first publication: "
+                                        + (removeError ? removeError.message() : "path was not removed"));
+            }
+        }
+        else if(replacementCompleted && hadCurrent && !rollbackExists) {
+            cleanupErrors.push_back("prior current calibration rollback file is unavailable");
+        }
+
+        for(const auto& residue : {temporary, rollback}) {
+            if(residue == rollback && preserveRollbackForRecovery) {
+                continue;
+            }
+            std::error_code removeError;
+            const bool exists = std::filesystem::exists(residue, removeError);
+            if(removeError) {
+                cleanupErrors.push_back("cannot inspect residue " + residue.string() + ": "
+                                        + removeError.message());
+            }
+            else if(exists && (!std::filesystem::remove(residue, removeError) || removeError)) {
+                cleanupErrors.push_back("cannot remove residue " + residue.string() + ": "
+                                        + (removeError ? removeError.message() : "path was not removed"));
+            }
+        }
+        throw std::runtime_error(appendCleanupErrors(originalError, cleanupErrors));
+    }
 }
 
 }  // namespace rgb_base0

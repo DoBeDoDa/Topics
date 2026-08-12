@@ -1,5 +1,7 @@
 #include "rgb_base0/geometry.h"
 
+#include "rgb_base0/brown_projection.h"
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -262,6 +264,20 @@ PlaneIntersection intersectRayWithHorizontalPlane(const Vec3& originBase0,
         throw std::runtime_error("Final plane intersection is non-finite or fails the target-Z consistency check");
     }
     return {originBase0, direction, targetZMm, lambda, point};
+}
+
+PlaneIntersection projectRgbPixelToBallCenterPlane(const CalibrationData& calibration,
+                                                   const double u,
+                                                   const double v) {
+    validateCalibration(calibration);
+    const PixelRayDiagnostics ray = inverseProjectBrownPixel(
+        u, v, calibration.profile, calibration.intrinsic, calibration.distortion,
+        {calibration.inverseMaxIterations,
+         calibration.inverseConvergenceTolerance,
+         calibration.inverseReprojectionTolerancePx});
+    const Vec3 rayBase0 = multiply(calibration.rBase0FromRgb, ray.unitRayRgb);
+    const double targetZMm = calibration.zTableMm + calibration.ballRadiusMm;
+    return intersectRayWithHorizontalPlane(calibration.tBase0FromRgb, rayBase0, targetZMm);
 }
 
 void validateCalibration(const CalibrationData& calibration) {
