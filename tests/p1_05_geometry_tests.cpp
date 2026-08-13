@@ -27,12 +27,12 @@ BilliardConfig::TableGeometryConfig validConfig()
         20.0,
         2.0,
         {{
-            {RailId::Rail1, PocketId::Pocket1, PocketId::Pocket2, {0.0, 1.0}, 40.0, 40.0, 0.0},
-            {RailId::Rail2, PocketId::Pocket2, PocketId::Pocket3, {0.0, 1.0}, 40.0, 40.0, 0.0},
-            {RailId::Rail3, PocketId::Pocket3, PocketId::Pocket4, {-1.0, 0.0}, 40.0, 40.0, 0.0},
-            {RailId::Rail4, PocketId::Pocket4, PocketId::Pocket5, {0.0, -1.0}, 40.0, 40.0, 0.0},
-            {RailId::Rail5, PocketId::Pocket5, PocketId::Pocket6, {0.0, -1.0}, 40.0, 40.0, 0.0},
-            {RailId::Rail6, PocketId::Pocket6, PocketId::Pocket1, {1.0, 0.0}, 40.0, 40.0, 0.0}
+            {RailId::Rail1, PocketId::Pocket1, PocketId::Pocket2, 40.0, 40.0, 0.0},
+            {RailId::Rail2, PocketId::Pocket2, PocketId::Pocket3, 40.0, 40.0, 0.0},
+            {RailId::Rail3, PocketId::Pocket3, PocketId::Pocket4, 40.0, 40.0, 0.0},
+            {RailId::Rail4, PocketId::Pocket4, PocketId::Pocket5, 40.0, 40.0, 0.0},
+            {RailId::Rail5, PocketId::Pocket5, PocketId::Pocket6, 40.0, 40.0, 0.0},
+            {RailId::Rail6, PocketId::Pocket6, PocketId::Pocket1, 40.0, 40.0, 0.0}
         }}};
 }
 

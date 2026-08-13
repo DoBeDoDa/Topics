@@ -196,6 +196,15 @@ public:
     [[nodiscard]] static RobotAdapterResult validateRealExecutionConfiguration(
         const ExecutionPlan& plan,
         const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config);
+    [[nodiscard]] std::optional<bool> checkPoseReachable(
+        const RobotPoseABC& pose,
+        const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config)
+        const;
+    [[nodiscard]] std::optional<bool> checkLinearPathAccepted(
+        const RobotPoseABC& approach,
+        const RobotPoseABC& ready,
+        const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config)
+        const;
     [[nodiscard]] RobotAdapterResult establishSafeOutputsOff(
         const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config);
     [[nodiscard]] RobotAdapterResult activateConfiguredToolAndBase(
@@ -235,7 +244,7 @@ public:
     [[nodiscard]] RobotPoseAdapterResult readActualPose(
         const ExecutionPlan& plan,
         const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config);
-    [[nodiscard]] RobotAdapterResult confirmStopped() const;
+    [[nodiscard]] RobotAdapterResult confirmStopped();
 #ifdef BILLIARDS_P2_03_TEST_SEAM
     [[nodiscard]] RealPneumaticResult executePneumaticSequence(
         const ExecutionPlan& plan,

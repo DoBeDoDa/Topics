@@ -193,7 +193,8 @@ enum class ExecutionPlanFailureReason {
     FixedForceEnvelopeRejected,
     InvalidExecutionPlanValue,
     NoAcceptedPoseCandidate,
-    NumericalFailure
+    NumericalFailure,
+    ReachabilityCheckFailed
 };
 
 struct ExecutionPlanDiagnostic {
@@ -233,6 +234,10 @@ struct MotionPlanningChecks {
     std::function<std::optional<Vector2D>(
         const RobotPoseABC&,
         const std::array<double, 3>&)> projectCueForwardAxisToBase0XY;
+    // 回傳nullopt代表LIN檢查本身失敗；false代表該路徑不可接受。
+    std::function<std::optional<bool>(
+        const RobotPoseABC&,
+        const RobotPoseABC&)> linearPathAccepted;
 };
 
 class MotionPlanner {

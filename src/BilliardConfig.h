@@ -32,7 +32,6 @@ struct PhysicalRailConfig {
     RailId id;
     PocketId startPocket;  // 庫邊起點對應袋口，實際座標於每輪Vision週期查表取得。
     PocketId endPocket;  // 庫邊終點對應袋口。
-    Vector2D inwardUnitNormal;  // 朝桌內方向。
     double startExclusionMm;  // 起點不可反彈區。
     double endExclusionMm;  // 終點不可反彈區。
     double cushionInsetMm;  // 緩衝墊壓縮造成的碰撞面內縮量，沿inwardUnitNormal方向，疊加於ballRadiusMm之後。
@@ -245,19 +244,14 @@ extern const std::optional<ScoringConfig> SCORING_CONFIG;
 extern const std::optional<std::string> BASE0_PLANAR_CALIBRATION_REVISION;  // Base0平面標定版本。
 extern const BrainConfig BRAIN_CONFIG;
 
-extern const double CAMERA_OFFSET_X_MM;
-extern const double CAMERA_OFFSET_Y_MM;
-extern const double CAMERA_REFERENCE_X_MM;
-extern const double CAMERA_REFERENCE_Y_MM;
-extern const double CAMERA_COMPENSATION_KX;
-extern const double CAMERA_COMPENSATION_KY;
-
 extern const unsigned long CAMERA_SETTLE_MS;
 extern const unsigned long TRANSIT_SETTLE_MS;
+extern const unsigned long MOTION_START_CONFIRMATION_TIMEOUT_MS;
 extern const unsigned long MOTION_TIMEOUT_MS;
 extern const unsigned long MOTION_POLL_INTERVAL_MS;
 
 extern const std::array<double, 6> CAMERA_JOINT;
+extern const double CAMERA_JOINT_TOLERANCE_DEG;
 extern const std::array<double, 6> TRANSIT_JOINT;
 
 // 正式擊球使用的高度與姿態。

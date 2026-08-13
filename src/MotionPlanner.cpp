@@ -700,7 +700,8 @@ ExecutionPlanResult MotionPlanner::createExecutionPlan(
             ExecutionPlanStatus::ConfigurationMissing,
             ExecutionPlanFailureReason::MissingMotionCalibration);
     }
-    if (!checks.poseAccepted || !checks.projectCueForwardAxisToBase0XY) {
+    if (!checks.poseAccepted || !checks.projectCueForwardAxisToBase0XY ||
+        !checks.linearPathAccepted) {
         return reject(
             ExecutionPlanStatus::ConfigurationMissing,
             ExecutionPlanFailureReason::MissingValidationSeam);
@@ -873,6 +874,7 @@ ExecutionPlanResult MotionPlanner::createExecutionPlan(
     const std::array<double, 3> strikeAxisTool = strikeAxisForMode(
         *config->cueForwardAxisTool,
         strikeMode);
+    bool hardFailure = false;
     const auto evaluate = [&](double aDeg, double bDeg) {
         ++evaluated;
         const RobotPoseABC ready{
@@ -881,11 +883,24 @@ ExecutionPlanResult MotionPlanner::createExecutionPlan(
             readyXY.x, readyXY.y, *config->safeApproachZMm, aDeg, bDeg, *cDeg};
         if (!ready.isFinite() || !approach.isFinite()) return false;
         const std::optional<bool> readyAccepted = checks.poseAccepted(ready);
-        const std::optional<bool> approachAccepted = checks.poseAccepted(approach);
-        if (!readyAccepted || !approachAccepted || !*readyAccepted ||
-            !*approachAccepted) {
+        if (!readyAccepted) {
+            hardFailure = true;
             return false;
         }
+        if (!*readyAccepted) return false;
+        const std::optional<bool> approachAccepted = checks.poseAccepted(approach);
+        if (!approachAccepted) {
+            hardFailure = true;
+            return false;
+        }
+        if (!*approachAccepted) return false;
+        const std::optional<bool> linearAccepted =
+            checks.linearPathAccepted(approach, ready);
+        if (!linearAccepted) {
+            hardFailure = true;
+            return false;
+        }
+        if (!*linearAccepted) return false;
         const std::optional<Vector2D> projected =
             checks.projectCueForwardAxisToBase0XY(
                 ready,
@@ -916,8 +931,9 @@ ExecutionPlanResult MotionPlanner::createExecutionPlan(
                     found = true;
                     break;
                 }
+                if (hardFailure) break;
             }
-            if (found) break;
+            if (found || hardFailure) break;
         }
     } else {
         for (double bDeg : bValues) {
@@ -926,9 +942,16 @@ ExecutionPlanResult MotionPlanner::createExecutionPlan(
                     found = true;
                     break;
                 }
+                if (hardFailure) break;
             }
-            if (found) break;
+            if (found || hardFailure) break;
         }
+    }
+    if (hardFailure) {
+        return reject(
+            ExecutionPlanStatus::InvalidExecutionPlan,
+            ExecutionPlanFailureReason::ReachabilityCheckFailed,
+            evaluated);
     }
     if (!found || !selectedReady || !selectedApproach ||
         !selectedProjectedStrikeDirection || !selectedDirectionError) {

@@ -74,6 +74,10 @@ MotionPlanningChecks offlineMotionPlanningChecksFor(
             return BilliardMath::isFinite(projected)
                 ? std::optional<Vector2D>{projected}
                 : std::nullopt;
+        },
+        [](const RobotPoseABC& approach, const RobotPoseABC& ready) {
+            return std::optional<bool>{
+                approach.isFinite() && ready.isFinite()};
         }};
 }
 
@@ -681,14 +685,29 @@ void BilliardApp::run()
             };
         }
         if (!services.buildExecutionPlanForShot && !injectedServices) {
+            MotionPlanningChecks hardwareChecks =
+                offlineMotionPlanningChecks.value_or(MotionPlanningChecks{});
+            hardwareChecks.poseAccepted =
+                [cycleRobot, realConfig](const RobotPoseABC& pose) {
+                return cycleRobot
+                    ? cycleRobot->checkPoseReachable(pose, realConfig)
+                    : std::optional<bool>{};
+            };
+            hardwareChecks.linearPathAccepted =
+                [cycleRobot, realConfig](const RobotPoseABC& approach,
+                                         const RobotPoseABC& ready) {
+                return cycleRobot
+                    ? cycleRobot->checkLinearPathAccepted(
+                          approach, ready, realConfig)
+                    : std::optional<bool>{};
+            };
             services.buildExecutionPlanForShot =
-                [&](const ShotPlan& shot, bool potsExhausted) {
+                [&, hardwareChecks](const ShotPlan& shot, bool potsExhausted) {
                 return motionPlanner.createExecutionPlan(
                     PlanningResult::shotPlan(shot),
                     tableGeometryConfig,
                     motionPlanningConfig,
-                    offlineMotionPlanningChecks.value_or(
-                        MotionPlanningChecks{}),
+                    hardwareChecks,
                     potsExhausted);
             };
         }

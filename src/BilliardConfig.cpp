@@ -132,13 +132,7 @@ const std::optional<unsigned long> VISION_RECEIVE_TIMEOUT_MS = 2000;
 // 需要根據實際相機視野＋Base0 校正範圍取得。
 // 尚未核准前保持 nullopt。
 const std::optional<AxisAlignedBounds2D>
-    VISION_OBSERVATION_BOUNDS =
-        AxisAlignedBounds2D{
-            -750,
-            750,
-            150,
-            1000
-        };
+    VISION_OBSERVATION_BOUNDS = std::nullopt;
 
 
 // ============================================================
@@ -171,105 +165,11 @@ const std::optional<unsigned long>
 // ============================================================
 // 6. 球桌 / 袋口 / 庫邊完整幾何設定
 // ============================================================
+// 桌面幾何（含calibrationRevision、playing-surface邊界、球半徑/直徑、
+// 碰撞安全距離與六段庫邊exclusion）尚未完成實機標定核准，保持nullopt並
+// fail closed。實測後再由使用者填入正式TableGeometryConfig。
 const std::optional<TableGeometryConfig>
-    TABLE_GEOMETRY =
-        TableGeometryConfig{
-
-            // 1. 球桌幾何標定版本
-            "REPLACE_TABLE_GEOMETRY_REVISION",
-
-            // 2. 球桌實體 playing-surface 邊界，Robot Base0 XY
-            // 注意：這不是球心可移動邊界。
-            // 程式之後會自動向內縮 ballRadiusMm。
-            AxisAlignedBounds2D{
-                -750.0,   // minX
-                 750.0,   // maxX
-                 150.0,   // minY
-                1000.0    // maxY
-            },
-
-            // 3. 球半徑 mm
-            24.76,
-
-            // 4. 球直徑 mm
-            49.52,
-
-            // 5. 碰撞額外安全距離 mm
-            3.0,
-
-            // 6. 六段實體庫邊
-            // segment端點不在此寫死，改由PocketId於每輪Vision週期查
-            // StableTableState.pockets即時取得（見BilliardPhysics::resolveTableGeometry）。
-            std::array<PhysicalRailConfig, 6>{{
-
-                // Rail1：P1 左下角 → P2 下中袋
-                PhysicalRailConfig{
-                    RailId::Rail1,
-                    PocketId::Pocket1,
-                    PocketId::Pocket2,
-                    Vector2D{0.0, 1.0},
-                    35.0,   // startExclusionMm（須≥ballRadiusMm，否則corner袋口端點會落在playableRegion外）
-                    35.0,   // endExclusionMm
-                    0.0     // cushionInsetMm
-                },
-
-                // Rail2：P2 下中袋 → P3 右下角
-                PhysicalRailConfig{
-                    RailId::Rail2,
-                    PocketId::Pocket2,
-                    PocketId::Pocket3,
-                    Vector2D{0.0, 1.0},
-                    35.0,
-                    35.0,
-                    0.0
-                },
-
-                // Rail3：P3 右下角 → P4 右上角
-                PhysicalRailConfig{
-                    RailId::Rail3,
-                    PocketId::Pocket3,
-                    PocketId::Pocket4,
-                    Vector2D{-1.0, 0.0},
-                    35.0,
-                    35.0,
-                    0.0
-                },
-
-                // Rail4：P4 右上角 → P5 上中袋
-                PhysicalRailConfig{
-                    RailId::Rail4,
-                    PocketId::Pocket4,
-                    PocketId::Pocket5,
-                    Vector2D{0.0, -1.0},
-                    35.0,
-                    35.0,
-                    0.0
-                },
-
-                // Rail5：P5 上中袋 → P6 左上角
-                PhysicalRailConfig{
-                    RailId::Rail5,
-                    PocketId::Pocket5,
-                    PocketId::Pocket6,
-                    Vector2D{0.0, -1.0},
-                    35.0,
-                    35.0,
-                    0.0
-                },
-
-                // Rail6：P6 左上角 → P1 左下角
-                PhysicalRailConfig{
-                    RailId::Rail6,
-                    PocketId::Pocket6,
-                    PocketId::Pocket1,
-                    Vector2D{1.0, 0.0},
-                    35.0,
-                    35.0,
-                    0.0
-                }
-
-            }}
-        };
+    TABLE_GEOMETRY = std::nullopt;
 
 // ============================================================
 // 7. 一次碰庫 Kick 幾何
@@ -409,28 +309,6 @@ const BrainConfig BRAIN_CONFIG = {
 
 
 // ============================================================
-// 11. 舊 Camera Compensation 參數
-// ============================================================
-
-// [Legacy / 正式 Phase 1 不應使用]
-// Python 現在負責：
-// pixel → lens correction → homography/calibration → Robot Base0 XY。
-//
-// 因此正式 C++ 不得再使用下面這些數值做第二次 XY compensation。
-// 如果舊 test_cueball.cpp 還引用，只能視為 legacy/test code。
-// 不應為現在 Phase 1 Vision integration 再人工調整它們。
-
-const double CAMERA_OFFSET_X_MM = 0.0;
-const double CAMERA_OFFSET_Y_MM = 0.0;
-
-const double CAMERA_REFERENCE_X_MM = -400.0;
-const double CAMERA_REFERENCE_Y_MM = 600.0;
-
-const double CAMERA_COMPENSATION_KX = 0.0;
-const double CAMERA_COMPENSATION_KY = 0.0;
-
-
-// ============================================================
 // 12. Robot / Camera 動作等待時間
 // ============================================================
 
@@ -444,6 +322,10 @@ const unsigned long CAMERA_SETTLE_MS = 800;
 // Robot 到 Transit pose 後的額外穩定等待時間。
 // 應依實際手臂停止震動時間確認。
 const unsigned long TRANSIT_SETTLE_MS = 500;
+
+// [人工設定 / 安全參數]
+// Robot motion命令送出後，確認控制器離開停止狀態的最長等待時間。
+const unsigned long MOTION_START_CONFIRMATION_TIMEOUT_MS = 1000;
 
 // [人工設定 / 安全參數]
 // 單次 Robot motion 最長允許等待時間。
@@ -479,6 +361,10 @@ const std::array<double, 6> CAMERA_JOINT = {
     -15.574,
     -90.0
 };
+
+// [人工可調 / 實驗參數]
+// 六軸都在此誤差內時，視為已位於CameraPose，不重送相同PTP命令。
+const double CAMERA_JOINT_TOLERANCE_DEG = 0.2;
 
 
 // ============================================================

@@ -11,6 +11,30 @@
 #include <limits>
 #include <utility>
 
+namespace {
+
+RobotAdapterResult motionAdapterResult(
+    const MotionResult& motion,
+    bool unknownUnsafeLatched) noexcept
+{
+    if (motion.success) {
+        return {RobotAdapterStatus::Success, motion.sdkCode};
+    }
+    int diagnosticCode = motion.sdkCode;
+    if (diagnosticCode == 0 && motion.finalMotionState < 0) {
+        diagnosticCode = motion.finalMotionState;
+    } else if (diagnosticCode == 0 && motion.abortSdkCode != 0) {
+        diagnosticCode = motion.abortSdkCode;
+    }
+    return {
+        unknownUnsafeLatched
+            ? RobotAdapterStatus::UnknownUnsafe
+            : RobotAdapterStatus::SdkFailure,
+        diagnosticCode};
+}
+
+}
+
 #ifndef BILLIARDS_P2_03_TEST_SEAM
 #pragma comment(lib, "HRSDK.lib")
 
@@ -78,6 +102,9 @@ RobotController::~RobotController() {
 }
 
 bool RobotController::connect(const std::string& ip) {
+    if (connected) {
+        return false;
+    }
     if (!api.openConnection || !api.closeConnection) {
         return false;
     }
@@ -285,19 +312,44 @@ MotionResult RobotController::waitForMotion(int sdkCode, bool wait) {
         !api.abortMotion) {
         return result;
     }
-    const unsigned long startTime = api.tickCountMs();
+    const unsigned long confirmationStart = api.tickCountMs();
     while (true) {
         result.finalMotionState = api.getMotionState(id);
+        if (result.finalMotionState < 0) {
+            result.abortSdkCode = api.abortMotion(id);
+            unknownUnsafeLatched = true;
+            return result;
+        }
+        if (result.finalMotionState != 1) {
+            break;
+        }
+        if (api.tickCountMs() - confirmationStart >=
+            BilliardConfig::MOTION_START_CONFIRMATION_TIMEOUT_MS) {
+            result.timedOut = true;
+            result.abortSdkCode = api.abortMotion(id);
+            unknownUnsafeLatched = true;
+            return result;
+        }
+        api.sleepMs(BilliardConfig::MOTION_POLL_INTERVAL_MS);
+    }
+
+    const unsigned long completionStart = api.tickCountMs();
+    while (true) {
+        result.finalMotionState = api.getMotionState(id);
+        if (result.finalMotionState < 0) {
+            result.abortSdkCode = api.abortMotion(id);
+            unknownUnsafeLatched = true;
+            return result;
+        }
         if (result.finalMotionState == 1) {
             result.success = true;
             return result;
         }
-        if (result.finalMotionState < 0) {
-            return result;
-        }
-        if (api.tickCountMs() - startTime >= BilliardConfig::MOTION_TIMEOUT_MS) {
+        if (api.tickCountMs() - completionStart >=
+            BilliardConfig::MOTION_TIMEOUT_MS) {
             result.timedOut = true;
             result.abortSdkCode = api.abortMotion(id);
+            unknownUnsafeLatched = true;
             return result;
         }
         api.sleepMs(BilliardConfig::MOTION_POLL_INTERVAL_MS);
@@ -390,6 +442,53 @@ RobotAdapterResult RobotController::validateRealHardwareConfiguration(
         return {RobotAdapterStatus::InvalidConfiguration, -1};
     }
     return {RobotAdapterStatus::Success, 0};
+}
+
+std::optional<bool> RobotController::checkPoseReachable(
+    const RobotPoseABC& pose,
+    const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config)
+    const
+{
+    if (unknownUnsafeLatched || !connected || !pose.isFinite() ||
+        !validateRealHardwareConfiguration(config).succeeded()) {
+        return std::nullopt;
+    }
+    const HrSdkPoseResult mapped = mapPoseToHrSdk(pose, *config->angleMapping);
+    if (!mapped.isValid() || !mapped.value) return std::nullopt;
+    bool reachable = false;
+    int sdkCode = -1;
+    if (!checkReachable(*mapped.value, reachable, sdkCode)) {
+        return std::nullopt;
+    }
+    return reachable;
+}
+
+std::optional<bool> RobotController::checkLinearPathAccepted(
+    const RobotPoseABC& approach,
+    const RobotPoseABC& ready,
+    const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config)
+    const
+{
+    if (unknownUnsafeLatched || !connected || !approach.isFinite() ||
+        !ready.isFinite() ||
+        !validateRealHardwareConfiguration(config).succeeded()) {
+        return std::nullopt;
+    }
+    const HrSdkPoseResult mappedApproach =
+        mapPoseToHrSdk(approach, *config->angleMapping);
+    const HrSdkPoseResult mappedReady =
+        mapPoseToHrSdk(ready, *config->angleMapping);
+    if (!mappedApproach.isValid() || !mappedApproach.value ||
+        !mappedReady.isValid() || !mappedReady.value) {
+        return std::nullopt;
+    }
+    bool reachable = false;
+    int sdkCode = -1;
+    if (!checkLinearPath(
+            *mappedApproach.value, *mappedReady.value, reachable, sdkCode)) {
+        return std::nullopt;
+    }
+    return reachable;
 }
 
 RobotAdapterResult RobotController::establishSafeOutputsOff(
@@ -655,9 +754,7 @@ RobotAdapterResult RobotController::checkedPtp(
     }
     if (!reachable) return {RobotAdapterStatus::NotReachable, sdkCode};
     const MotionResult motion = moveToPosition(mapped.value->data(), true);
-    return motion.success
-        ? RobotAdapterResult{RobotAdapterStatus::Success, motion.sdkCode}
-        : RobotAdapterResult{RobotAdapterStatus::SdkFailure, motion.sdkCode};
+    return motionAdapterResult(motion, unknownUnsafeLatched);
 }
 
 RobotAdapterResult RobotController::checkedConfiguredJointPtp(
@@ -676,10 +773,44 @@ RobotAdapterResult RobotController::checkedConfiguredJointPtp(
     }
     const RobotAdapterResult frame = activateConfiguredToolAndBase(config);
     if (!frame.succeeded()) return frame;
+    if (joints == BilliardConfig::CAMERA_JOINT) {
+        RobotAdapterResult stopped = confirmStopped();
+        if (stopped.status == RobotAdapterStatus::NotStopped) {
+            if (!api.tickCountMs || !api.sleepMs) {
+                return {RobotAdapterStatus::SdkFailure, -1};
+            }
+            const unsigned long waitStart = api.tickCountMs();
+            while (stopped.status == RobotAdapterStatus::NotStopped) {
+                if (api.tickCountMs() - waitStart >=
+                    BilliardConfig::MOTION_TIMEOUT_MS) {
+                    return stopped;
+                }
+                api.sleepMs(BilliardConfig::MOTION_POLL_INTERVAL_MS);
+                stopped = confirmStopped();
+            }
+        }
+        if (!stopped.succeeded()) return stopped;
+
+        std::array<double, 6> current{};
+        int sdkCode = -1;
+        if (!getCurrentJoints(current, sdkCode) ||
+            !std::all_of(current.begin(), current.end(),
+                [](double value) { return std::isfinite(value); })) {
+            unknownUnsafeLatched = true;
+            return {RobotAdapterStatus::UnknownUnsafe, sdkCode};
+        }
+        const bool alreadyAtCamera = std::equal(
+            current.begin(), current.end(), joints.begin(),
+            [](double actual, double target) {
+                return std::fabs(actual - target) <=
+                    BilliardConfig::CAMERA_JOINT_TOLERANCE_DEG;
+            });
+        if (alreadyAtCamera) {
+            return {RobotAdapterStatus::Success, sdkCode};
+        }
+    }
     const MotionResult motion = moveToAxis(joints.data(), true);
-    return motion.success
-        ? RobotAdapterResult{RobotAdapterStatus::Success, motion.sdkCode}
-        : RobotAdapterResult{RobotAdapterStatus::SdkFailure, motion.sdkCode};
+    return motionAdapterResult(motion, unknownUnsafeLatched);
 }
 
 RobotAdapterResult RobotController::checkedJointPtp(
@@ -699,9 +830,7 @@ RobotAdapterResult RobotController::checkedJointPtp(
         return {RobotAdapterStatus::InvalidConfiguration, -1};
     }
     const MotionResult motion = moveToAxis(joints.data(), true);
-    return motion.success
-        ? RobotAdapterResult{RobotAdapterStatus::Success, motion.sdkCode}
-        : RobotAdapterResult{RobotAdapterStatus::SdkFailure, motion.sdkCode};
+    return motionAdapterResult(motion, unknownUnsafeLatched);
 }
 
 RobotAdapterResult RobotController::checkedLin(
@@ -732,9 +861,7 @@ RobotAdapterResult RobotController::checkedLin(
     }
     if (!reachable) return {RobotAdapterStatus::NotReachable, sdkCode};
     const MotionResult motion = moveLinearTo(mappedEnd.value->data(), true);
-    return motion.success
-        ? RobotAdapterResult{RobotAdapterStatus::Success, motion.sdkCode}
-        : RobotAdapterResult{RobotAdapterStatus::SdkFailure, motion.sdkCode};
+    return motionAdapterResult(motion, unknownUnsafeLatched);
 }
 
 RobotAdapterResult RobotController::checkVerticalSafeLift(
@@ -790,9 +917,7 @@ RobotAdapterResult RobotController::checkedVerticalSafeLift(
         return {RobotAdapterStatus::InvalidConfiguration, -1};
     }
     const MotionResult motion = moveLinearTo(mappedEnd.value->data(), true);
-    return motion.success
-        ? RobotAdapterResult{RobotAdapterStatus::Success, motion.sdkCode}
-        : RobotAdapterResult{RobotAdapterStatus::SdkFailure, motion.sdkCode};
+    return motionAdapterResult(motion, unknownUnsafeLatched);
 }
 
 RobotPoseAdapterResult RobotController::readActualPose(
@@ -817,12 +942,21 @@ RobotPoseAdapterResult RobotController::readActualPose(
     return result;
 }
 
-RobotAdapterResult RobotController::confirmStopped() const
+RobotAdapterResult RobotController::confirmStopped()
 {
+    if (unknownUnsafeLatched) {
+        return {RobotAdapterStatus::UnknownUnsafe, -1};
+    }
     if (!connected) return {RobotAdapterStatus::NotConnected, -1};
-    if (!api.getMotionState) return {RobotAdapterStatus::SdkFailure, -1};
+    if (!api.getMotionState) {
+        unknownUnsafeLatched = true;
+        return {RobotAdapterStatus::UnknownUnsafe, -1};
+    }
     const int state = api.getMotionState(id);
-    if (state < 0) return {RobotAdapterStatus::SdkFailure, state};
+    if (state < 0) {
+        unknownUnsafeLatched = true;
+        return {RobotAdapterStatus::UnknownUnsafe, state};
+    }
     return state == 1
         ? RobotAdapterResult{RobotAdapterStatus::Success, 0}
         : RobotAdapterResult{RobotAdapterStatus::NotStopped, 0};
@@ -897,6 +1031,10 @@ RealPneumaticResult RobotController::pulseOutput(
     }
     const RobotAdapterResult stopped = confirmStopped();
     if (!stopped.succeeded()) {
+        if (stopped.status == RobotAdapterStatus::UnknownUnsafe) {
+            return {RealPneumaticStatus::UnknownUnsafe, std::nullopt,
+                stopped.sdkCode};
+        }
         return {RealPneumaticStatus::KnownSafeFailure, std::nullopt,
             stopped.sdkCode};
     }
@@ -1006,6 +1144,10 @@ RealPneumaticResult RobotController::executePneumaticSequence(
     }
     const RobotAdapterResult stopped = confirmStopped();
     if (!stopped.succeeded()) {
+        if (stopped.status == RobotAdapterStatus::UnknownUnsafe) {
+            return {RealPneumaticStatus::UnknownUnsafe, std::nullopt,
+                stopped.sdkCode};
+        }
         return {RealPneumaticStatus::KnownSafeFailure, std::nullopt,
             stopped.sdkCode};
     }
