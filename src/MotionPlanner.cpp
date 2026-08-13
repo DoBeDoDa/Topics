@@ -13,6 +13,11 @@ namespace {
 constexpr double PI = 3.14159265358979323846;
 constexpr double RANGE_TOLERANCE = 1e-9;
 constexpr std::size_t MAX_AXIS_CANDIDATES = 10001;
+// MAX_AXIS_CANDIDATES bounds each axis independently; without a combined
+// bound, two individually-approved per-axis ranges can still multiply into
+// an unbounded pose search (up to ~4e8 combinations). This caps the actual
+// total search size createExecutionPlan() will iterate.
+constexpr std::size_t MAX_TOTAL_POSE_CANDIDATES = 10;
 
 bool finiteArray(const std::array<double, 6>& values) noexcept
 {
@@ -288,11 +293,19 @@ bool validConfig(const BilliardConfig::MotionPlanningConfig& config) noexcept
     }
     const double aSteps = *config.deltaADeg / *config.stepADeg;
     const double bSteps = *config.deltaBDeg / *config.stepBDeg;
-    return finite(aSteps) && finite(bSteps) &&
-        aSteps <= static_cast<double>(MAX_AXIS_CANDIDATES) &&
-        bSteps <= static_cast<double>(MAX_AXIS_CANDIDATES) &&
-        std::fabs(aSteps - std::round(aSteps)) <= RANGE_TOLERANCE &&
-        std::fabs(bSteps - std::round(bSteps)) <= RANGE_TOLERANCE;
+    if (!finite(aSteps) || !finite(bSteps) ||
+        aSteps > static_cast<double>(MAX_AXIS_CANDIDATES) ||
+        bSteps > static_cast<double>(MAX_AXIS_CANDIDATES) ||
+        std::fabs(aSteps - std::round(aSteps)) > RANGE_TOLERANCE ||
+        std::fabs(bSteps - std::round(bSteps)) > RANGE_TOLERANCE) {
+        return false;
+    }
+    const unsigned long long aCandidateCount =
+        1ULL + 2ULL * static_cast<unsigned long long>(std::llround(aSteps));
+    const unsigned long long bCandidateCount =
+        1ULL + 2ULL * static_cast<unsigned long long>(std::llround(bSteps));
+    return aCandidateCount * bCandidateCount <=
+        static_cast<unsigned long long>(MAX_TOTAL_POSE_CANDIDATES);
 }
 
 std::vector<double> axisCandidates(
