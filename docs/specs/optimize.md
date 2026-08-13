@@ -13,7 +13,7 @@ MotionPlanner         ✅ Freeze
         ↓
 RobotController       ✅ Freeze
         ↓
-BilliardApp           ← 現在
+BilliardApp           ← 死碼清理PASS；主流程實作待進行
 
 0	MathUtils.h/.cpp
 共用純數學工具	已完成，Freeze，不回頭改
@@ -48,10 +48,10 @@ BilliardApp           ← 現在
 HRSDK、Tool/Base、reachability、LIN/PTP、DO 等硬體介面	已完成，Freeze；3項修正（waitForMotion兩階段、timeout latch、connect() guard）已實作並獨立驗證
 
 10	BilliardApp.h/.cpp
-把 Socket→規劃→Motion→Robot 整個 shot cycle 串起來	下一個從這裡開始重新審查（orchestration review）
+把 Socket→規劃→Motion→Robot 整個 shot cycle 串起來	死碼清理已完成並驗證；完整主流程仍須依billiardapp-implementation-plan.md完成H/P Start、15秒期限、重拍/重連、移除TRANSIT_JOINT、safe lift回準備姿態等兩階段實作，尚未Freeze
 
 11	main.cpp
-啟動與最外層組裝	最小化審查，不塞業務邏輯
+啟動與最外層組裝	等待BilliardApp主流程完成後再審查；最小化審查，不塞業務邏輯
 
 12	tests/*
 對完成後的 production contract 做 regression	最後統一 migration / 補 coverage / full regression
