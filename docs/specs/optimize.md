@@ -11,9 +11,9 @@ Algorithm             ✅ Freeze
         ↓
 MotionPlanner         ✅ Freeze
         ↓
-RobotController       ← 下一步
+RobotController       ✅ Freeze
         ↓
-BilliardApp
+BilliardApp           ← 現在
 
 0	MathUtils.h/.cpp
 共用純數學工具	已完成，Freeze，不回頭改
@@ -45,10 +45,10 @@ BilliardApp
 把「這球怎麼打」轉成機械手臂應到的姿態與運動計畫	已完成，Freeze；A/B總搜尋上限10（對稱網格實際最多9組），0.1°由stepADeg/stepBDeg設定
 
 9	RobotController.h/.cpp
-HRSDK、Tool/Base、reachability、LIN/PTP、DO 等硬體介面	下一個：做硬體adapter與fail-closed contract審查
+HRSDK、Tool/Base、reachability、LIN/PTP、DO 等硬體介面	已完成，Freeze；3項修正（waitForMotion兩階段、timeout latch、connect() guard）已實作並獨立驗證
 
 10	BilliardApp.h/.cpp
-把 Socket→規劃→Motion→Robot 整個 shot cycle 串起來	最後做 orchestration review
+把 Socket→規劃→Motion→Robot 整個 shot cycle 串起來	下一個從這裡開始重新審查（orchestration review）
 
 11	main.cpp
 啟動與最外層組裝	最小化審查，不塞業務邏輯

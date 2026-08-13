@@ -37,6 +37,7 @@
 8. 即使 TCP 的 `X、Y、Z` 不變，改變 `RX、RY、RZ` 仍可能造成法蘭與關節大幅移動，因此送出動作前仍須檢查可達性與安全。
 9. V1維持既有newline-delimited 32值CSV，不得自行要求Python新增control handshake、runtime attestation、sender frame ID或timestamp；freshness由既有`BilliardApp + SocketClient`在CameraPose settle後以本地shot-cycle gate、舊buffer flush及累積reset管理。
 10. 一個`StartRequested`只允許一個完整shot cycle；完成後返回`WaitingForStart`，不得自動規劃或擊發下一球。
+11. Tool1中實體球桿的forward axis已完成實機校正確認：Push擊球方向為Tool1 local `+X`，Pull使用其反向local `-X`。
 
 ## 已確認的程式職責方向
 
@@ -58,8 +59,7 @@
 3. HIWIN將核心Pose的`A、B、C`轉成`RX、RY、RZ`的確切順序、角度範圍與奇異點處理規則。
 4. `motion_reachable()`失敗時除核准A／B小區間搜尋以外的安全策略。
 5. 鏡頭畸變校正功能的實裝範圍與校正資料。
-6. Tool1中的實體球桿forward axis；不得在實機校正前假設為局部`+X`。
-7. Base0 `+Z`是否為實體安全上方；P2-03 no-fire確認前不得啟用真實擊發後safe lift。
+6. Base0 `+Z`是否為實體安全上方；P2-03 no-fire確認前不得啟用真實擊發後safe lift。
 
 ## 動作安全
 
