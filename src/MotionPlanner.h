@@ -9,14 +9,6 @@
 #include "BilliardConfig.h"
 #include "TableState.h"
 
-// P2-02尚未遷移的既有執行相容型別；P2-01不再產生此型別。
-struct MotionPlan {
-    std::array<double, 6> transitJoint;
-    std::array<double, 6> readyPose;
-    std::array<double, 6> strikePose;
-    double aimAngleDeg = 0.0;
-};
-
 struct RobotPoseABC {
     double x;
     double y;
