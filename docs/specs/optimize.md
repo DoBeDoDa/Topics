@@ -9,9 +9,9 @@ BilliardPhysics       ✅ Freeze
         ↓
 Algorithm             ✅ Freeze
         ↓
-MotionPlanner
+MotionPlanner         ✅ Freeze
         ↓
-RobotController
+RobotController       ← 下一步
         ↓
 BilliardApp
 
@@ -33,7 +33,7 @@ BilliardApp
 從桌上球選出最低號合法目標球	已完成，Freeze；只做 integration smoke check
 
 5	BilliardConfig.h/.cpp
-全系統設定與版本化參數	下一個：做一致性/安全性審查；不要隨便改已被 frozen planning 使用的 contract
+全系統設定與版本化參數	已完成，Freeze；VISION_OBSERVATION_BOUNDS/TABLE_GEOMETRY保持nullopt待實測
 
 6	BilliardPhysics.h/.cpp	Ghost、碰撞、袋口、庫邊、反射幾何
 已完成，Freeze；只做 integration smoke check
@@ -42,10 +42,10 @@ BilliardApp
 產生 Direct/Kick、評分、排序、選打法	已完成，Freeze；只做 integration smoke check
 
 8	MotionPlanner.h/.cpp
-把「這球怎麼打」轉成機械手臂應到的姿態與運動計畫	下一個重要的大模組
+把「這球怎麼打」轉成機械手臂應到的姿態與運動計畫	已完成，Freeze；A/B總搜尋上限10（對稱網格實際最多9組），0.1°由stepADeg/stepBDeg設定
 
 9	RobotController.h/.cpp
-HRSDK、Tool/Base、reachability、LIN/PTP、DO 等硬體介面	MotionPlanner contract 穩定後正式審查
+HRSDK、Tool/Base、reachability、LIN/PTP、DO 等硬體介面	下一個：做硬體adapter與fail-closed contract審查
 
 10	BilliardApp.h/.cpp
 把 Socket→規劃→Motion→Robot 整個 shot cycle 串起來	最後做 orchestration review
@@ -55,3 +55,28 @@ HRSDK、Tool/Base、reachability、LIN/PTP、DO 等硬體介面	MotionPlanner co
 
 12	tests/*
 對完成後的 production contract 做 regression	最後統一 migration / 補 coverage / full regression
+
+## 下一步：RobotController module audit
+
+主審查檔案（本輪若需要修改，也只先考慮這兩個）：
+
+- `src/RobotController.h`
+- `src/RobotController.cpp`
+
+唯讀核對 contract／caller／測試：
+
+- `src/MotionPlanner.h/.cpp`：`ExecutionPlan`、姿態與路徑檢查契約。
+- `src/BilliardConfig.h/.cpp`：Tool1、Base0、ABC mapping、timeout、DO與實機授權設定。
+- `src/BilliardApp.h/.cpp`：preflight、Push/Pull順序、actual-pose safe lift與錯誤傳播。
+- `src/MathUtils.h/.cpp`、`include/HRSDK.h`：確認角度轉換及HRSDK API signature沒有第二套解讀。
+- `tests/p2_03_real_adapter_tests.cpp`、`tests/p2_02_execution_state_machine_tests.cpp`：只讀現有安全回歸；tests migration留到最後統一處理。
+
+建議審查順序：
+
+1. 連線／斷線、handle與`unknownUnsafeLatched`生命週期。
+2. 正式動作前Tool1／Base0設定及readback確認。
+3. ABC↔HRSDK RX/RY/RZ唯一mapping，確認Push/Pull不會重複加180°。
+4. `motion_reachable`、`motion_check_lin`、PTP/LIN與timeout/abort的fail-closed邊界。
+5. DO1/DO2互斥、readback、Push/Pull pulse順序及UnknownUnsafe／ManualRecovery傳播。
+6. 擊球後actual pose讀回，以及只保留actual X/Y/A/B/C、沿核准Base0 +Z做LIN safe lift。
+7. 跨模組追蹤：RealHardware A/B搜尋需要hardware-backed checks；責任應由RobotController提供安全adapter能力、BilliardApp負責注入，不在RobotController建立第二套MotionPlanner或自行換ShotPlan。
