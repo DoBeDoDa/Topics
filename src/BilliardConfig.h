@@ -97,6 +97,28 @@ struct MotionProfile {
     double standoffExtraMm;
 };
 
+// 版本化／核准的準備（standby）姿態Joint reference；H/P流程PTP的唯一權威來源。
+// jointDeg可先保存使用者已確認的關節角度；calibrationRevision在使用者核准
+// 正式追蹤標籤前必須保持nullopt，isValid()須fail closed，不得以非空字串
+// 佔位充當已核准版本。
+struct StandbyJointReference {
+    std::optional<std::string> calibrationRevision;
+    std::array<double, 6> jointDeg;
+
+    [[nodiscard]] bool isValid() const noexcept;
+};
+
+// 單一shot-cycle競賽計時契約：15秒deadline、5秒execution reserve、10秒
+// planning retry cutoff。三者必須維持deadline >= retryCutoff且
+// (deadline - retryCutoff) >= reserve，確保重拍截止後仍留有足夠執行預留。
+struct ShotCycleTimingConfig {
+    unsigned long shotDeadlineMs;
+    unsigned long minimumExecutionReserveMs;
+    unsigned long planningRetryCutoffMs;
+
+    [[nodiscard]] bool isValid() const noexcept;
+};
+
 enum class PoseSearchOrder {
     AThenB,
     BThenA
@@ -153,7 +175,7 @@ struct MotionPlanningConfig {
     std::optional<double> pullModeMinBottomDistanceMm = 300.0;
     // 已確認Robot正對球桌長邊且無平面旋轉偏移，球桌往下即Base0 Y-。
     std::optional<Vector2D> tableDownDirectionBase0XY = Vector2D{0.0, -1.0};
-    std::optional<double> safeLiftHeightMm;  // 從runtime actual pose垂直上升量。
+    // safe-lift高度唯一權威為ExecutionPlan::safeApproachPose.z；不在此重複設定。
     std::optional<double> a0Deg;  // 人工核准A基準。
     std::optional<double> b0Deg;  // 人工核准B基準。
     std::optional<double> deltaADeg;  // A基準兩側核准範圍。
@@ -245,14 +267,20 @@ extern const std::optional<std::string> BASE0_PLANAR_CALIBRATION_REVISION;  // B
 extern const BrainConfig BRAIN_CONFIG;
 
 extern const unsigned long CAMERA_SETTLE_MS;
-extern const unsigned long TRANSIT_SETTLE_MS;
 extern const unsigned long MOTION_START_CONFIRMATION_TIMEOUT_MS;
 extern const unsigned long MOTION_TIMEOUT_MS;
 extern const unsigned long MOTION_POLL_INTERVAL_MS;
 
 extern const std::array<double, 6> CAMERA_JOINT;
 extern const double CAMERA_JOINT_TOLERANCE_DEG;
-extern const std::array<double, 6> TRANSIT_JOINT;
+
+// 準備（standby）姿態：核准流程唯一authoritative joint reference。
+extern const StandbyJointReference STANDBY_JOINT_REFERENCE;
+// [已核准 / 人工可調研究值] 六軸都在此誤差內時，視為已位於standby姿態。
+// 獨立於CAMERA_JOINT_TOLERANCE_DEG，即使初始值相同也不得共用同一常數。
+extern const double STANDBY_JOINT_TOLERANCE_DEG;
+// [已核准 / 人工可調研究值] Vision reconnect gate每次重試連線之間的等待間隔。
+extern const unsigned long VISION_RECONNECT_POLL_INTERVAL_MS;
 
 // 正式擊球使用的高度與姿態。
 extern const MotionProfile PRODUCTION_MOTION;
@@ -267,5 +295,11 @@ extern const ExecutionPolicyMode PRODUCTION_RUNTIME_MODE;
 // P2-03：未完成人工／實機驗收前，真實motion與DO一律保持停用。
 extern const std::optional<RealHardwareExecutionConfig>
     REAL_HARDWARE_EXECUTION_CONFIG;
+
+// [暫定競賽參數] 15秒shot deadline／5秒execution reserve／10秒planning retry
+// cutoff。minimumExecutionReserveMs為人工可調研究初值，須以實機最慢執行時間
+// 校正；不是固定機械規格。production計時必須使用單調時鐘量測，本設定僅提供
+// 門檻數值。
+extern const ShotCycleTimingConfig SHOT_CYCLE_TIMING;
 
 }  // namespace BilliardConfig

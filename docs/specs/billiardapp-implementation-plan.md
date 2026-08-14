@@ -58,12 +58,14 @@ planningRetryCutoffMs = 10000
 
 - `15000 ms`來自「超過15秒未出桿視為犯規」的比賽規則。
 - `5000 ms`是人工可調／研究初值，不是固定機械規格；之後需用實機最慢執行時間校正。
+- production deadline必須使用`std::chrono::steady_clock`等單調時鐘，不得使用系統日期時間、累加Sleep時間或可被校時影響的clock；測試必須能注入fake monotonic clock，不得真的等待10／15秒。
 - 計時從接受`H`／Start的瞬間開始，包含必要的準備姿態移動、CameraPose、拍照、規劃、Robot移動與氣動。
 - Push以DO1 Extend開始作為出桿時點。
 - Pull以DO2 Retract開始作為出桿時點；Pull的DO1 pre-extend不是實際出桿。
 - 找到安全可執行方案後立即執行，不等待10秒用完。
 - 前10秒內允許自動重拍、重置三次累積並重新規劃。
 - 剩餘時間少於5秒時不得再開始新的重拍／重算。
+- `minimumExecutionReserveMs`是開始整段擊球執行的硬門檻：在任何mode-dependent pneumatic action或前往`safeApproachPose`的第一個motion之前，剩餘時間必須`>= 5000 ms`。Pull必須在DO1 pre-extend之前檢查；不足時不得改變氣動狀態或開始擊球動作，應在狀態已知安全時回準備姿態並結束本輪。
 - Robot動作已經開始後，不得只因競賽時間超過15秒就粗暴abort；Robot安全優先。
 
 ## 3. 核准主流程
@@ -76,6 +78,7 @@ WaitingForStart
 → 若不在準備姿態：PTP到準備姿態並確認停止
 → PTP到CameraPose並確認停止
 → Camera settle
+→ 依同一shot deadline建立／確認Python連線
 → drain Winsock kernel receive queue並reset本地frame accumulator
 → reset ThreeEventStability與本輪PlanningResult
 → 開啟本輪capture window
@@ -83,13 +86,17 @@ WaitingForStart
 → Algorithm產生ranked ShotPlan
 → 依母球XY與擊球方向決定唯一Push/Pull
 → MotionPlanner使用真實HRSDK checks搜尋A/B姿態
-→ 只在明確NotReachable時嘗試下一姿態或下一ranked candidate
+→ 同一ShotPlan內只在明確NotReachable時嘗試下一組A/B
+→ 依第8.1節核准原因決定是否嘗試下一ranked ShotPlan
+→ 確認剩餘時間>=minimumExecutionReserveMs
+→ Pull only：確認DO狀態已知且全OFF，DO1 Extend並readback，等待direction-change delay
 → PTP直接到safeApproachPose
 → 讀取actual approach pose
 → motion_check_lin(actual approach, strikeReadyPose)
 → LIN到strikeReadyPose
 → confirmStopped
-→ 執行Push或Pull
+→ Push：DO1 Extend後DO2 Retract；Pull：DO2 Retract
+→ 確認氣動完成且DO1/DO2 OFF
 → 讀取post-strike actual pose
 → 建立safe-lift target：保留actual X/Y/A/B/C，Z=safeApproachPose.z
 → motion_check_lin(actual, safe-lift target)
@@ -100,6 +107,15 @@ WaitingForStart
 → CycleCompleted
 → WaitingForStart
 ```
+
+### 3.1 Shot-cycle identity唯一權威
+
+- 接受H時只配置一次非零`activeShotCycleIdentity`，execution runtime、ReceiveEventFactory、PlanningSourceAudit與ExecutionPlan全部使用同一值。
+- 不得依賴`OfflineExecutionRuntime::nextCycleIdentity`與`BilliardApp::nextShotCycleIdentity`兩個計數器「剛好同步」；實作時必須合併成一個authoritative allocator，或明確由同一個已配置identity傳入兩邊。
+- 同一輪重拍、capture-window restart與Python reconnect不得增加shot-cycle identity。
+- Python reconnect只更新`ConnectionIdentity`；shot-cycle identity保持不變。
+- 本輪完成、無方案安全結束或fail closed後，下一次有效H才配置下一個shot-cycle identity。
+- identity耗盡／wrap成0必須fail closed，不得重用舊identity。
 
 ## 4. 鍵盤控制
 
@@ -116,6 +132,7 @@ WaitingForStart
 - 只允許在`WaitingForStart`且未進入shot cycle時使用。
 - 按下後只執行安全前置確認與PTP到準備姿態，不前往CameraPose、不拍照、不規劃、不擊球。
 - `P`不能清除`UnknownUnsafe`，也不能取代人工復原。
+- H/P要求Robot從目前姿態PTP回準備姿態時，按鍵同時代表操作員已目視確認「目前姿態至準備姿態」的實體路徑無障礙；程式的停止、DO OFF與target reachability檢查不能宣稱整條PTP路徑安全。
 
 ### 4.3 H按下時不在準備姿態
 
@@ -137,7 +154,7 @@ H
 
 ```text
 本輪三筆資料
-→ NoPlan或所有候選明確NotReachable
+→ NoPotCandidate／NoLegalContact，或核准的candidate-local可行性拒絕已耗盡
 → Robot保持CameraPose
 → flush/drain舊資料
 → reset本輪累積
@@ -149,12 +166,23 @@ H
 規則：
 
 - 只在elapsed `< 10000 ms`時開始新一輪重拍。
-- 一旦找到安全方案立即進入Robot執行。
+- 一旦找到安全方案且剩餘時間`>= minimumExecutionReserveMs`，立即進入執行；不足時不得開始Pull pre-extend或任何擊球區motion。
 - 到達`10000 ms`仍沒有安全方案時，不強制出桿；在狀態已知安全的前提下回準備姿態，等待下一次H。
-- `NoEligibleTarget`等確定沒有合法目標的結果不應無限重算；應結束本輪。
+- `NoPlanReason::NoPotCandidate`與`NoPlanReason::NoLegalContact`可在10秒規劃時段內重拍。
+- `NoPlanReason::NoEligibleTarget`代表沒有合法目標，直接安全結束本輪，不重拍。
+- `NoPlanReason::InvalidBrainConfiguration`與`NoPlanReason::NumericalPlanningFailure`必須fail closed，不重拍。
 - SDK、設定、數值或UnknownUnsafe錯誤不得包裝成NoPlan重試。
 
 ## 6. Python斷線恢復
+
+### 6.1 啟動與初次連線
+
+- `BilliardApp::initialize()`只做本地設定與生命週期初始化，不得在接受H/P之前無限等待Python連線。
+- `P`是Robot準備姿態的人工功能，不依賴Python是否已啟動。
+- H開始本輪後，最遲在CameraPose capture階段建立／確認Python連線；連線等待使用同一個15秒shot deadline，不建立新的timeout時鐘。
+- Python尚未連線不授權Robot離開CameraPose前往擊球區。
+
+### 6.2 CameraPose階段斷線
 
 只允許在Robot仍處於CameraPose、尚未開始前往擊球區時自動恢復：
 
@@ -182,7 +210,9 @@ Vision socket斷線／timeout
 - RobotController已latch `UnknownUnsafe`。
 - 已超過planning retry cutoff，沒有足夠的5秒執行預留時間。
 
-失敗後不得自行移動到CameraPose或偷偷把DO改成安全狀態再繼續，應等待人工處理。
+到達`planningRetryCutoffMs`仍未重連時，停止重連，並read-only確認Robot仍在CameraPose、已停止且DO1/DO2均為OFF；全部通過才可PTP回準備姿態並安全結束本輪。若Robot位置已知但不在CameraPose，或DO readback明確顯示任一輸出ON，進入`ManualRecoveryRequired`；若姿態／停止／DO狀態因SDK或readback失敗而無法得知，進入`UnknownUnsafe`。兩者都不得移動。
+
+其他恢復檢查失敗後不得自行移動到CameraPose或偷偷把DO改成安全狀態再繼續，應等待人工處理。
 
 ## 7. Push／Pull執行順序
 
@@ -221,15 +251,15 @@ safe state與DO readback已知
 
 ### 8.1 可嘗試下一候選
 
-只有：
+必須區分兩層：
 
-- 明確`NotReachable`
-- `FixedForceEnvelopeRejected`
-- `NoAcceptedPoseCandidate`
+- 同一個ShotPlan內的A/B姿態搜尋，只有hardware check明確回傳`NotReachable`／`false`時才能嘗試下一組A/B。
+- 下一個ranked ShotPlan只有在`FixedForceEnvelopeRejected`、`NoAcceptedPoseCandidate`或execution preflight明確`NotReachable`時才能嘗試。
+- 任何SDK、configuration、numerical、invalid-result或`UnknownUnsafe`不得利用此機制換姿態或換ShotPlan。
 
 ### 8.2 可在同一輪重新拍照／規劃
 
-- 安全的NoPlan。
+- `NoPlanReason::NoPotCandidate`或`NoPlanReason::NoLegalContact`。
 - 所有candidate-local可行性拒絕已耗盡，且仍在10秒規劃時段內。
 - CameraPose階段的Vision transport中斷，且完成核准恢復檢查。
 
@@ -268,34 +298,43 @@ Config、ExecutionPlan、RobotController與BilliardApp互相依賴。為避免�
 - `src/BilliardApp.h`
 - `src/BilliardApp.cpp`
 
-Phase 1內部仍按以下順序修改與自我核對，但中間不建立commit、不要求逐點停下review；全部production contract同步並成功編譯後再統一STOP送審。
+Phase 1內部按以下三個檢查點順序修改，中間不建立commit、不要求每個檢查點都能獨立編譯——但**每個檢查點完成後必須STOP，交出當下累積的diff給Claude審查，確認無誤才能開始下一個檢查點**。理由：這個session至今每一次真正抓到安全性問題（`waitForMotion`負數狀態未latch、`MAX_TOTAL_POSE_CANDIDATES`組合爆炸、`confirmStopped()`結構性無法latch、`pulseOutput()`/`executePneumaticSequence()`把UnknownUnsafe降級等）都發生在兩個檔案以內的小範圍審查，且多半需要2-3輪來回才收斂；Phase 1一次涉及8個檔案、新的keyboard I/O模型、新的競賽計時系統與`ExecutionPlan` schema重構，範圍遠大於先前任何一輪，若review只在全部完成後做一次，風險與診斷難度都會顯著提高。三次checkpoint review不要求production build成功（可能還在中間、暫時編不過），只要求diff邏輯可審查；只有Phase 1整體完成後才需要production build成功。
 
 #### 檢查點1 — Config與ExecutionPlan schema
 
 - 新增版本化／核准的standby joint reference。
 - 新增15秒deadline與5秒execution reserve設定；5秒標記人工可調研究值。
 - 從production `ExecutionPlan`移除`transitJointReference`與`JointPtpToTransit`。
-- 將safe-lift契約由固定`actual.z + safeLiftHeightMm`改為`safeApproachPose.z`。
+- 將safe-lift唯一權威改為`safeApproachPose.z`：移除舊的固定`safeLiftHeightMm`設定，以及只服務`actual.z + height`模型的`SafeLiftDerivationRule`／`SafeLiftDerivation`／`safeLiftRule`欄位與驗證；不得保留第二套高度來源。
+- 新契約必須驗證safe-lift target保留post-strike actual X/Y/A/B/C、`target.z == plan.safeApproachPose.z`且`target.z > actual.z`；任一不成立即fail closed。
 - 調整motion intent與stage contract數量及`ExecutionPlan::isValid()`。
 - 不建立compatibility wrapper或第二套ExecutionPlan。
+
+**檢查點1完成後STOP**，交出`src/BilliardConfig.h/.cpp`、`src/MotionPlanner.h/.cpp`的diff供review，通過後才進入檢查點2。
 
 #### 檢查點2 — RobotController最小硬體能力
 
 - 提供read-only的configured joint-pose確認能力。
 - 提供read-only的DO1/DO2 OFF確認能力。
-- 保留`Success/NotReachable/KnownSafeFailure/UnknownUnsafe`資訊給BilliardApp。
+- Robot motion／state API保留完整`RobotAdapterStatus`；氣動API保留`RealPneumaticStatus::Completed/KnownSafeFailure/UnknownUnsafe`。BilliardApp不得把兩套結果壓成只有Success／Failure，也不得為此發明語意重疊的新錯誤enum。
 - 不在BilliardApp直接呼叫HRSDK。
 - 實體Start DI尚未確認，本輪不得新增猜測的DI編號或電位規則。
+
+**檢查點2完成後STOP**，交出`src/RobotController.h/.cpp`的diff供review，通過後才進入檢查點3。
 
 #### 檢查點3 — BilliardApp orchestration
 
 - 實作H/P鍵盤edge gate。
-- 建立單一shot deadline，跨重拍與重連保持不變。
+- 建立以`std::chrono::steady_clock`為production authority、可由test seam注入fake clock的單一shot deadline，跨重拍與重連保持不變。
+- 建立單一authoritative shot-cycle identity；移除execution／vision兩個計數器靠相同初值隱式同步的風險，capture restart與reconnect重用同一cycle identity。
+- 移除`initialize()`在H/P可用之前無限等待Python的行為；P不依賴Vision，H在CameraPose階段依同一shot deadline處理初次連線／重連。
 - 移除執行層TRANSIT_JOINT步驟。
 - 實作CameraPose內重拍／重算。
 - 實作Vision reconnect recovery gate。
 - 擴充step結果，避免把UnknownUnsafe壓成一般Failure。
 - 完成後回準備姿態；NoPlan／候選耗盡也只在已知安全時回準備姿態。
+
+**檢查點3完成後STOP**，交出`src/BilliardApp.h/.cpp`的diff供review；通過後才進入下方Phase 1完成條件的整體production build驗證。
 
 #### Phase 1完成條件
 
@@ -333,15 +372,21 @@ Phase 1通過review後才進行：
 
 - H key-down立即Start，不需Enter。
 - H長按只啟動一次，key-up後才可重新arm。
+- active cycle期間排入console queue的H/P事件不得在回到WaitingForStart後自動啟動下一輪。
 - P只回準備姿態，不啟動shot cycle。
 - H在非準備姿態時先安全回準備姿態，再開始同一輪。
 - 一個H最多只有一次實際氣動擊球。
-- 第一個安全方案找到後立即執行。
+- 第一個安全方案找到且剩餘時間仍符合5秒execution reserve時立即執行。
+- 剩餘時間少於5秒時不得開始Pull pre-extend或前往safeApproachPose；執行已開始後不以deadline強制abort。
 - 10秒內NoPlan可重新收三筆並重算。
+- deadline測試使用fake monotonic clock，不實際等待10／15秒。
 - 第10秒仍無方案時不強制擊球。
+- `NoPotCandidate`／`NoLegalContact`可重拍；`NoEligibleTarget`直接結束；config／numerical failure不得重拍。
 - 重連不重置15秒deadline。
 - Vision reconnect使用新connection identity、相同shot-cycle identity。
+- 重拍、capture restart與reconnect都不增加shot-cycle identity；下一次有效H才增加一次。
 - 重連時CameraPose不符、Robot未停或DO非OFF均禁止繼續。
+- 第10秒仍未重連時，只有read-only安全確認全部通過才可回standby，否則ManualRecoveryRequired／UnknownUnsafe。
 - production執行沒有TRANSIT_JOINT命令。
 - CameraPose直接PTP到safeApproachPose。
 - safe lift保留post-strike actual X/Y/A/B/C，Z等於safeApproachPose.z。
@@ -349,6 +394,47 @@ Phase 1通過review後才進行：
 - explicit NotReachable可考慮下一姿態／候選。
 - SDK/config/numerical/UnknownUnsafe不得換候選。
 - Pull pre-extend後retract失敗不得返回standby。
+
+### 10.1 驗證方式分類
+
+單元測試的目的是保護少數高風險安全契約，不是把上面24項行為描述逐條變成
+獨立大型測試案例。自動測試（tests/p2_02、p2_03）集中保護以下6項核心契約：
+
+1. **一個H最多一次實際氣動擊球**（對應第6項）——
+   `runOfflineSingleCycle`/`runRealSingleCycle`結構上每次呼叫只執行一次
+   `runPneumatic`；p2_02/p2_03全部成功路徑案例的`do1On`呼叫次數斷言為1。
+2. **UnknownUnsafe後零further motion**（貫穿第16、17、23項的安全核心）——
+   p2_02、p2_03對pneumatic/actualPose/safe-lift-path/Pull-prepare各個
+   UnknownUnsafe分支，都斷言零actual-pose read、零LIN、零PTP、零
+   standby-return。
+3. **Pull retract失敗不得返回standby**（對應第24項）——
+   `runtime.state == ManualRecoveryRequired`且明確驗證不繼續standby return。
+4. **safe lift使用actual pose且只改Z**（對應第20項）——
+   LIN起點＝actual pose、目標保留X/Y/A/B/C、Z=safeApproachPose.z，
+   check LIN→move LIN→confirm stopped→return standby的嚴格順序都有斷言。
+5. **deadline不足不開始擊球，執行已開始不因deadline中止**（對應第7、8項）——
+   Push/Pull兩種模式都驗證reserve不足時零pre-extend/零safeApproach motion；
+   另有獨立案例證明執行開始後deadline中途過期不會中止已開始的cycle。
+6. **reconnect不得混用connection／shot-cycle identity**（對應第13、14、15項
+   的核心風險）——deadline累加（不因重連歸零）有完整自動測試；
+   connectionIdentity配發器（`LocalConnectionLifecycle`）本身有直接測試，
+   但這**不是**端到端測試，run()實際wiring靠程式碼審查，見下方第14項。
+
+其餘18項不個別建立獨立大型測試，逐項分類如下（不重複列出測試內容細節）：
+
+- **既有測試已涵蓋同一段程式碼路徑**（第1–5、9–12、19、21、22項）：
+  H/P鍵盤edge gate、PreparationReturn、NoPlan重試/安全結束分類、
+  CameraPose直接PTP、candidate NotReachable換下一個——都在p2_02、p2_03
+  既有的state-machine/candidate-search table驅動測試裡，不需要另外
+  逐條再開一個測試案例。NoLegalContact與NoPotCandidate共用同一段
+  default-continue程式碼，「精確收三筆」是p1_04既有範圍，不重複測。
+- **程式碼審查佐證**（第14項run()端wiring、第15項cycleIdentity不可變、
+  第16項Robot未停分支、第18項TRANSIT_JOINT、第23項候選搜尋期間
+  preflightExecution自身latch的UnknownUnsafe）：結構上由型別系統或
+  已移除的符號保證，建構獨立測試fixture的成本明顯超過驗證價值。
+- **實機no-fire驗證**（第17項10秒cutoff與read-only確認的合併時序）：
+  單元測試分別驗證了AllSafe/ManualRecoveryRequired/UnknownUnsafe三個
+  分支各自成立，但「剛好卡在10秒」的合併時序屬於第11節no-fire驗證範圍。
 
 ## 11. 實機驗證順序
 

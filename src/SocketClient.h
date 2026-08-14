@@ -74,7 +74,12 @@ enum class SocketConnectStatus {
     InvalidConfiguration,
     SocketCreationError,
     InvalidAddress,
+    // 連線層本身失敗（server拒絕／連線逾時）：可能只是Python尚未啟動，
+    // 呼叫端可在shot deadline內重試。
     ConnectError,
+    // 本機socket API呼叫失敗（ioctlsocket／select／getsockopt）：與對方
+    // 是否已啟動無關，重試不會自行恢復，呼叫端必須立即fail closed。
+    SocketApiError,
     TimeoutConfigurationError
 };
 
@@ -132,7 +137,13 @@ public:
     ~SocketClient();
 
     bool connectToServer(const std::string& ip, int port);
-    [[nodiscard]] SocketConnectResult connectToServerResult(const std::string& ip, int port);
+    // connectTimeoutMsOverride：本次connect()等待上限，未提供時沿用
+    // receiveTimeoutMs_。呼叫端可換算自己的deadline剩餘時間傳入，
+    // 不需要SocketClient知道任何shot-cycle計時概念。
+    [[nodiscard]] SocketConnectResult connectToServerResult(
+        const std::string& ip,
+        int port,
+        std::optional<unsigned long> connectTimeoutMsOverride = std::nullopt);
     [[nodiscard]] SocketConfigurationStatus configurationStatus() const noexcept;
     void closeConnection();
     [[nodiscard]] bool isConnected() const;

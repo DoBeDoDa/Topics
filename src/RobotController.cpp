@@ -297,6 +297,37 @@ std::vector<uint64_t> RobotController::getAlarmCodes(int& sdkCode) const {
     return result;
 }
 
+RobotBoolAdapterResult RobotController::isAtConfiguredJoint(
+    const std::array<double, 6>& joints,
+    double toleranceDeg)
+{
+    if (unknownUnsafeLatched) {
+        return {RobotAdapterStatus::UnknownUnsafe, -1, std::nullopt};
+    }
+    if (!connected) {
+        return {RobotAdapterStatus::NotConnected, -1, std::nullopt};
+    }
+    if (!std::isfinite(toleranceDeg) || toleranceDeg < 0.0 ||
+        !std::all_of(joints.begin(), joints.end(),
+            [](double value) { return std::isfinite(value); })) {
+        return {RobotAdapterStatus::InvalidConfiguration, -1, std::nullopt};
+    }
+    std::array<double, 6> current{};
+    int sdkCode = -1;
+    if (!getCurrentJoints(current, sdkCode) ||
+        !std::all_of(current.begin(), current.end(),
+            [](double value) { return std::isfinite(value); })) {
+        unknownUnsafeLatched = true;
+        return {RobotAdapterStatus::UnknownUnsafe, sdkCode, std::nullopt};
+    }
+    const bool atJoint = std::equal(
+        current.begin(), current.end(), joints.begin(),
+        [toleranceDeg](double actual, double target) {
+            return std::fabs(actual - target) <= toleranceDeg;
+        });
+    return {RobotAdapterStatus::Success, sdkCode, atJoint};
+}
+
 MotionResult RobotController::waitForMotion(int sdkCode, bool wait) {
     MotionResult result;
     result.sdkCode = sdkCode;
@@ -489,6 +520,32 @@ std::optional<bool> RobotController::checkLinearPathAccepted(
         return std::nullopt;
     }
     return reachable;
+}
+
+RobotBoolAdapterResult RobotController::confirmPneumaticOutputsOff(
+    const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config)
+{
+    if (unknownUnsafeLatched) {
+        return {RobotAdapterStatus::UnknownUnsafe, -1, std::nullopt};
+    }
+    const RobotAdapterResult validation = validateRealHardwareConfiguration(config);
+    if (!validation.succeeded()) {
+        return {validation.status, validation.sdkCode, std::nullopt};
+    }
+    if (!connected) {
+        return {RobotAdapterStatus::NotConnected, -1, std::nullopt};
+    }
+    if (!api.getDigitalOutput) {
+        unknownUnsafeLatched = true;
+        return {RobotAdapterStatus::UnknownUnsafe, -1, std::nullopt};
+    }
+    int sdkCode = -1;
+    const bool off = outputsElectricallyOff(*config, sdkCode);
+    if (sdkCode != 0) {
+        unknownUnsafeLatched = true;
+        return {RobotAdapterStatus::UnknownUnsafe, sdkCode, std::nullopt};
+    }
+    return {RobotAdapterStatus::Success, sdkCode, off};
 }
 
 RobotAdapterResult RobotController::establishSafeOutputsOff(
@@ -791,22 +848,13 @@ RobotAdapterResult RobotController::checkedConfiguredJointPtp(
         }
         if (!stopped.succeeded()) return stopped;
 
-        std::array<double, 6> current{};
-        int sdkCode = -1;
-        if (!getCurrentJoints(current, sdkCode) ||
-            !std::all_of(current.begin(), current.end(),
-                [](double value) { return std::isfinite(value); })) {
-            unknownUnsafeLatched = true;
-            return {RobotAdapterStatus::UnknownUnsafe, sdkCode};
+        const RobotBoolAdapterResult alreadyAtCamera = isAtConfiguredJoint(
+            joints, BilliardConfig::CAMERA_JOINT_TOLERANCE_DEG);
+        if (alreadyAtCamera.status != RobotAdapterStatus::Success) {
+            return {alreadyAtCamera.status, alreadyAtCamera.sdkCode};
         }
-        const bool alreadyAtCamera = std::equal(
-            current.begin(), current.end(), joints.begin(),
-            [](double actual, double target) {
-                return std::fabs(actual - target) <=
-                    BilliardConfig::CAMERA_JOINT_TOLERANCE_DEG;
-            });
-        if (alreadyAtCamera) {
-            return {RobotAdapterStatus::Success, sdkCode};
+        if (*alreadyAtCamera.value) {
+            return {RobotAdapterStatus::Success, alreadyAtCamera.sdkCode};
         }
     }
     const MotionResult motion = moveToAxis(joints.data(), true);
@@ -875,11 +923,7 @@ RobotAdapterResult RobotController::checkVerticalSafeLift(
     }
     const RobotAdapterResult validation = validateRealExecution(plan, config);
     if (!validation.succeeded()) return validation;
-    if (!actual.isFinite() || !target.isFinite() || !plan.safeLiftRule.isValid() ||
-        target.x != actual.x || target.y != actual.y || target.a != actual.a ||
-        target.b != actual.b || target.c != actual.c ||
-        target.z != actual.z + plan.safeLiftRule.heightMm ||
-        target.z <= actual.z) {
+    if (!isValidSafeLiftTarget(actual, plan.safeApproachPose.z, target)) {
         return {RobotAdapterStatus::InvalidConfiguration, -1};
     }
     const RobotAdapterResult frame = activateConfiguredToolAndBase(plan, config);

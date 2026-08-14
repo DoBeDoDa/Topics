@@ -85,6 +85,22 @@ struct HrSdkPoseResult {
     }
 };
 
+// Read-only查詢的完整結果：重用RobotAdapterStatus，不新增語意重疊enum。
+// status==Success時value必有值（true/false為確定結果）；status為其他值時
+// value必為nullopt。ConfigurationMissing／Unauthorized／InvalidConfiguration／
+// NotConnected為已知精確狀態，不latch；UnknownUnsafe代表SDK／readback本身
+// 失敗，呼叫端必定已被latch，之後任何motion命令都會被擋下。
+struct RobotBoolAdapterResult {
+    RobotAdapterStatus status;
+    int sdkCode;
+    std::optional<bool> value;
+
+    [[nodiscard]] bool isValid() const noexcept
+    {
+        return (status == RobotAdapterStatus::Success) == value.has_value();
+    }
+};
+
 enum class RealPneumaticStatus {
     Completed,
     KnownSafeFailure,
@@ -187,6 +203,12 @@ public:
         int& sdkCode
     ) const;
     std::vector<uint64_t> getAlarmCodes(int& sdkCode) const;
+    // Read-only：只讀目前joints並比對，不下任何motion命令。
+    // SDK讀取失敗時latch unknownUnsafeLatched並回傳UnknownUnsafe＋原始
+    // sdkCode；未連線／輸入無效回傳對應精確狀態，不latch。
+    [[nodiscard]] RobotBoolAdapterResult isAtConfiguredJoint(
+        const std::array<double, 6>& joints,
+        double toleranceDeg);
 
     MotionResult moveToAxis(const double joint[6], bool wait = true);
     MotionResult moveToPosition(const double position[6], bool wait = true);
@@ -205,6 +227,12 @@ public:
         const RobotPoseABC& ready,
         const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config)
         const;
+    // Read-only：只讀DO1/DO2目前電位，不下setDigitalOutput命令。
+    // SDK讀取失敗時latch unknownUnsafeLatched並回傳UnknownUnsafe＋原始
+    // sdkCode；未連線／設定缺失回傳對應精確狀態，不latch。讀值成功時
+    // value=true代表DO1/DO2確認皆為OFF，false代表至少一個不是OFF。
+    [[nodiscard]] RobotBoolAdapterResult confirmPneumaticOutputsOff(
+        const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config);
     [[nodiscard]] RobotAdapterResult establishSafeOutputsOff(
         const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config);
     [[nodiscard]] RobotAdapterResult activateConfiguredToolAndBase(

@@ -20,23 +20,23 @@ struct RobotPoseABC {
     [[nodiscard]] bool isFinite() const noexcept;
 };
 
-enum class SafeLiftDerivation {
-    RuntimeActualPoseKeepXYABCIncreaseZ
-};
+// safe-lift高度唯一權威是ExecutionPlan::safeApproachPose.z；不存在第二套
+// 高度來源。buildSafeLiftTarget()是建立safe-lift target的唯一方式，
+// isValidSafeLiftTarget()是執行前的fail-closed驗證。
+[[nodiscard]] RobotPoseABC buildSafeLiftTarget(
+    const RobotPoseABC& postStrikeActualPose,
+    double safeApproachPoseZ) noexcept;
 
-struct SafeLiftDerivationRule {
-    SafeLiftDerivation derivation;
-    double heightMm;
-
-    [[nodiscard]] bool isValid() const noexcept;
-};
+[[nodiscard]] bool isValidSafeLiftTarget(
+    const RobotPoseABC& postStrikeActualPose,
+    double safeApproachPoseZ,
+    const RobotPoseABC& safeLiftTarget) noexcept;
 
 enum class PlannedMotionIntent {
-    JointPtpToTransit,
     CartesianPtpToSafeApproach,
     LinearToStrikeReady,
     RuntimeActualPoseVerticalSafeLift,
-    JointPtpToCamera
+    JointPtpToStandby
 };
 
 enum class ExecutionPolicyDecision {
@@ -143,11 +143,10 @@ struct ExecutionPlan {
     double selectedCDeg;
     std::size_t selectedSearchOrdinal;
     PoseSearchAudit poseSearchAudit;
-    SafeLiftDerivationRule safeLiftRule;
-    std::array<double, 6> transitJointReference;
-    std::array<double, 6> cameraJointReference;
-    std::array<PlannedMotionIntent, 5> motionIntents;
-    std::array<PlannedStageContract, 5> stageContracts;
+    std::string standbyJointCalibrationRevision;
+    std::array<double, 6> standbyJointReference;
+    std::array<PlannedMotionIntent, 4> motionIntents;
+    std::array<PlannedStageContract, 4> stageContracts;
     FixedForceEnvelopeEvaluation fixedForceEnvelope;
     BilliardConfig::PneumaticTimingProfileReference pneumaticTimingProfile;
     std::string executionPolicyRevision;

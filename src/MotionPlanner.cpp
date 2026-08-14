@@ -209,7 +209,7 @@ bool completeConfig(const BilliardConfig::MotionPlanningConfig& config) noexcept
         config.cueForwardAxisCalibrationRevision && config.strikeZMm &&
         config.safeApproachZMm && config.readyGapMm &&
         config.strikePositionBiasMm && config.pullModeMinBottomDistanceMm &&
-        config.tableDownDirectionBase0XY && config.safeLiftHeightMm &&
+        config.tableDownDirectionBase0XY &&
         config.a0Deg && config.b0Deg && config.deltaADeg && config.deltaBDeg &&
         config.stepADeg && config.stepBDeg && config.searchOrder &&
         config.axisOffsetOrder && config.tieBreak && config.cToolOffsetDeg &&
@@ -230,13 +230,13 @@ bool validConfig(const BilliardConfig::MotionPlanningConfig& config) noexcept
         config.tool1ControllerCalibrationRevision->empty() ||
         config.executionPolicyRevision->empty() ||
         !finite(*config.strikeZMm) || !finite(*config.safeApproachZMm) ||
+        *config.safeApproachZMm <= *config.strikeZMm ||
         !finite(*config.readyGapMm) || *config.readyGapMm < 0.0 ||
         !finite(*config.strikePositionBiasMm) ||
         *config.strikePositionBiasMm < 0.0 ||
         !finite(*config.pullModeMinBottomDistanceMm) ||
         *config.pullModeMinBottomDistanceMm < 0.0 ||
         !BilliardMath::isFinite(*config.tableDownDirectionBase0XY) ||
-        !finite(*config.safeLiftHeightMm) || *config.safeLiftHeightMm <= 0.0 ||
         !finite(*config.a0Deg) || !finite(*config.b0Deg) ||
         !finite(*config.deltaADeg) || *config.deltaADeg < 0.0 ||
         !finite(*config.deltaBDeg) || *config.deltaBDeg < 0.0 ||
@@ -347,10 +347,33 @@ bool RobotPoseABC::isFinite() const noexcept
         std::isfinite(a) && std::isfinite(b) && std::isfinite(c);
 }
 
-bool SafeLiftDerivationRule::isValid() const noexcept
+RobotPoseABC buildSafeLiftTarget(
+    const RobotPoseABC& postStrikeActualPose,
+    double safeApproachPoseZ) noexcept
 {
-    return derivation == SafeLiftDerivation::RuntimeActualPoseKeepXYABCIncreaseZ &&
-        std::isfinite(heightMm) && heightMm > 0.0;
+    return RobotPoseABC{
+        postStrikeActualPose.x,
+        postStrikeActualPose.y,
+        safeApproachPoseZ,
+        postStrikeActualPose.a,
+        postStrikeActualPose.b,
+        postStrikeActualPose.c};
+}
+
+bool isValidSafeLiftTarget(
+    const RobotPoseABC& postStrikeActualPose,
+    double safeApproachPoseZ,
+    const RobotPoseABC& safeLiftTarget) noexcept
+{
+    return postStrikeActualPose.isFinite() && safeLiftTarget.isFinite() &&
+        std::isfinite(safeApproachPoseZ) &&
+        safeLiftTarget.x == postStrikeActualPose.x &&
+        safeLiftTarget.y == postStrikeActualPose.y &&
+        safeLiftTarget.a == postStrikeActualPose.a &&
+        safeLiftTarget.b == postStrikeActualPose.b &&
+        safeLiftTarget.c == postStrikeActualPose.c &&
+        safeLiftTarget.z == safeApproachPoseZ &&
+        safeLiftTarget.z > postStrikeActualPose.z;
 }
 
 bool FixedForceEnvelopeEvaluation::isValid() const noexcept
@@ -375,11 +398,10 @@ bool FixedForceEnvelopeEvaluation::isValid() const noexcept
 bool PlannedStageContract::isValid() const noexcept
 {
     const bool validIntent =
-        intent == PlannedMotionIntent::JointPtpToTransit ||
         intent == PlannedMotionIntent::CartesianPtpToSafeApproach ||
         intent == PlannedMotionIntent::LinearToStrikeReady ||
         intent == PlannedMotionIntent::RuntimeActualPoseVerticalSafeLift ||
-        intent == PlannedMotionIntent::JointPtpToCamera;
+        intent == PlannedMotionIntent::JointPtpToStandby;
     const bool validPrecondition =
         precondition == PlannedStagePrecondition::PreviousStageSucceeded ||
         precondition == PlannedStagePrecondition::PolicyAndCalibrationAccepted ||
@@ -455,31 +477,26 @@ bool PoseSearchAudit::contains(
 bool ExecutionPlan::isValid() const noexcept
 {
     const bool legal = isLegalContact(sourceShotType);
-    const std::array<PlannedMotionIntent, 5> requiredIntents{
-        PlannedMotionIntent::JointPtpToTransit,
+    const std::array<PlannedMotionIntent, 4> requiredIntents{
         PlannedMotionIntent::CartesianPtpToSafeApproach,
         PlannedMotionIntent::LinearToStrikeReady,
         PlannedMotionIntent::RuntimeActualPoseVerticalSafeLift,
-        PlannedMotionIntent::JointPtpToCamera};
-    const std::array<PlannedStageContract, 5> requiredStages{{
+        PlannedMotionIntent::JointPtpToStandby};
+    const std::array<PlannedStageContract, 4> requiredStages{{
         {requiredIntents[0], PlannedStagePrecondition::PolicyAndCalibrationAccepted,
          PlannedStageSuccessCondition::TargetReachedAndStopped,
          PlannedStageFailureTransition::StopFailClosed,
          PlannedPathCheck::ApprovedPtpPolicyAndTargetReachability},
         {requiredIntents[1], PlannedStagePrecondition::PreviousStageSucceeded,
-         PlannedStageSuccessCondition::TargetReachedAndStopped,
-         PlannedStageFailureTransition::StopFailClosed,
-         PlannedPathCheck::ApprovedPtpPolicyAndTargetReachability},
-        {requiredIntents[2], PlannedStagePrecondition::PreviousStageSucceeded,
          PlannedStageSuccessCondition::LinearTargetReachedAndStopped,
          PlannedStageFailureTransition::StopFailClosed,
          PlannedPathCheck::MotionCheckLinRequired},
-        {requiredIntents[3],
+        {requiredIntents[2],
          PlannedStagePrecondition::RuntimeActualPoseAndPneumaticCompletion,
          PlannedStageSuccessCondition::SafeLiftReachedAndStopped,
          PlannedStageFailureTransition::StopFailClosed,
          PlannedPathCheck::MotionCheckLinRequired},
-        {requiredIntents[4], PlannedStagePrecondition::PreviousStageSucceeded,
+        {requiredIntents[3], PlannedStagePrecondition::PreviousStageSucceeded,
          PlannedStageSuccessCondition::TargetReachedAndStopped,
          PlannedStageFailureTransition::StopFailClosed,
          PlannedPathCheck::ApprovedPtpPolicyAndTargetReachability}}};
@@ -598,8 +615,13 @@ bool ExecutionPlan::isValid() const noexcept
         safeApproachPose.a == strikeReadyPose.a &&
         safeApproachPose.b == strikeReadyPose.b &&
         safeApproachPose.c == strikeReadyPose.c &&
-        safeLiftRule.isValid() && finiteArray(transitJointReference) &&
-        finiteArray(cameraJointReference) && motionIntents == requiredIntents &&
+        safeApproachPose.z > strikeReadyPose.z &&
+        finiteArray(standbyJointReference) &&
+        !standbyJointCalibrationRevision.empty() &&
+        standbyJointCalibrationRevision ==
+            BilliardConfig::STANDBY_JOINT_REFERENCE.calibrationRevision &&
+        standbyJointReference == BilliardConfig::STANDBY_JOINT_REFERENCE.jointDeg &&
+        motionIntents == requiredIntents &&
         validStages && fixedForceEnvelope.isValid() && validEnvelopeShape &&
         validTiming && !executionPolicyRevision.empty() &&
         validPolicyMode &&
@@ -696,6 +718,11 @@ ExecutionPlanResult MotionPlanner::createExecutionPlan(
             ExecutionPlanFailureReason::MissingTableGeometry);
     }
     if (!config) {
+        return reject(
+            ExecutionPlanStatus::ConfigurationMissing,
+            ExecutionPlanFailureReason::MissingMotionCalibration);
+    }
+    if (!BilliardConfig::STANDBY_JOINT_REFERENCE.isValid()) {
         return reject(
             ExecutionPlanStatus::ConfigurationMissing,
             ExecutionPlanFailureReason::MissingMotionCalibration);
@@ -1000,22 +1027,14 @@ ExecutionPlanResult MotionPlanner::createExecutionPlan(
          *config->axisOffsetOrder,
          *config->tieBreak,
          evaluated},
-        {SafeLiftDerivation::RuntimeActualPoseKeepXYABCIncreaseZ,
-         *config->safeLiftHeightMm},
-        BilliardConfig::TRANSIT_JOINT,
-        BilliardConfig::CAMERA_JOINT,
-        {PlannedMotionIntent::JointPtpToTransit,
-         PlannedMotionIntent::CartesianPtpToSafeApproach,
+        *BilliardConfig::STANDBY_JOINT_REFERENCE.calibrationRevision,
+        BilliardConfig::STANDBY_JOINT_REFERENCE.jointDeg,
+        {PlannedMotionIntent::CartesianPtpToSafeApproach,
          PlannedMotionIntent::LinearToStrikeReady,
          PlannedMotionIntent::RuntimeActualPoseVerticalSafeLift,
-         PlannedMotionIntent::JointPtpToCamera},
-        {{{PlannedMotionIntent::JointPtpToTransit,
+         PlannedMotionIntent::JointPtpToStandby},
+        {{{PlannedMotionIntent::CartesianPtpToSafeApproach,
            PlannedStagePrecondition::PolicyAndCalibrationAccepted,
-           PlannedStageSuccessCondition::TargetReachedAndStopped,
-           PlannedStageFailureTransition::StopFailClosed,
-           PlannedPathCheck::ApprovedPtpPolicyAndTargetReachability},
-          {PlannedMotionIntent::CartesianPtpToSafeApproach,
-           PlannedStagePrecondition::PreviousStageSucceeded,
            PlannedStageSuccessCondition::TargetReachedAndStopped,
            PlannedStageFailureTransition::StopFailClosed,
            PlannedPathCheck::ApprovedPtpPolicyAndTargetReachability},
@@ -1029,7 +1048,7 @@ ExecutionPlanResult MotionPlanner::createExecutionPlan(
            PlannedStageSuccessCondition::SafeLiftReachedAndStopped,
            PlannedStageFailureTransition::StopFailClosed,
            PlannedPathCheck::MotionCheckLinRequired},
-          {PlannedMotionIntent::JointPtpToCamera,
+          {PlannedMotionIntent::JointPtpToStandby,
            PlannedStagePrecondition::PreviousStageSucceeded,
            PlannedStageSuccessCondition::TargetReachedAndStopped,
            PlannedStageFailureTransition::StopFailClosed,

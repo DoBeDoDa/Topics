@@ -5,6 +5,14 @@
 #include <cmath>
 #include <iostream>
 
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+// GetAsyncKeyState()（H/P長按跨邊界resync用）位於user32.lib，
+// 預設console連結不包含它，需顯式引入。
+#pragma comment(lib, "user32.lib")
+
 #include "BilliardConfig.h"
 #include "MathUtils.h"
 
@@ -79,6 +87,42 @@ MotionPlanningChecks offlineMotionPlanningChecksFor(
         }};
 }
 
+ConsoleKeyPoll productionConsoleKeyPoll()
+{
+    return [] {
+        std::vector<ConsoleKeyEvent> events;
+        HANDLE stdIn = GetStdHandle(STD_INPUT_HANDLE);
+        if (stdIn == INVALID_HANDLE_VALUE || stdIn == nullptr) return events;
+        DWORD pending = 0;
+        if (!GetNumberOfConsoleInputEvents(stdIn, &pending) || pending == 0) {
+            return events;
+        }
+        std::vector<INPUT_RECORD> records(pending);
+        DWORD read = 0;
+        if (!ReadConsoleInputW(stdIn, records.data(), pending, &read)) {
+            return events;
+        }
+        for (DWORD i = 0; i < read; ++i) {
+            if (records[i].EventType != KEY_EVENT) continue;
+            const KEY_EVENT_RECORD& key = records[i].Event.KeyEvent;
+            if (key.wVirtualKeyCode == 'H') {
+                events.push_back({ConsoleKey::H, key.bKeyDown != 0});
+            } else if (key.wVirtualKeyCode == 'P') {
+                events.push_back({ConsoleKey::P, key.bKeyDown != 0});
+            }
+        }
+        return events;
+    };
+}
+
+ConsoleKeyDownQuery productionConsoleKeyDownQuery()
+{
+    return [](ConsoleKey key) {
+        const int virtualKey = key == ConsoleKey::H ? 'H' : 'P';
+        return (GetAsyncKeyState(virtualKey) & 0x8000) != 0;
+    };
+}
+
 }  // namespace
 
 BilliardApp::BilliardApp()
@@ -114,34 +158,80 @@ BilliardApp::BilliardApp(BilliardAppRunTestSeam seam)
 }
 #endif
 
+namespace {
+std::optional<OfflineStepStatus> requireRobotAdapterSuccess(
+    const RobotAdapterResult& result)
+{
+    if (result.status == RobotAdapterStatus::UnknownUnsafe) {
+        return OfflineStepStatus::UnknownUnsafe;
+    }
+    if (!result.succeeded()) return OfflineStepStatus::Failure;
+    return std::nullopt;
+}
+}  // namespace
+
+OfflineStepResult BilliardApp::confirmRobotReadyReadOnly(
+    RobotController& robot,
+    const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config)
+{
+    if (!robot.isConnected()) return {OfflineStepStatus::Failure};
+    const RobotAdapterResult stopped = robot.confirmStopped();
+    if (stopped.status == RobotAdapterStatus::UnknownUnsafe) {
+        return {OfflineStepStatus::UnknownUnsafe};
+    }
+    if (!stopped.succeeded()) return {OfflineStepStatus::Failure};
+    const RobotBoolAdapterResult doOff = robot.confirmPneumaticOutputsOff(config);
+    if (doOff.status == RobotAdapterStatus::UnknownUnsafe) {
+        return {OfflineStepStatus::UnknownUnsafe};
+    }
+    if (doOff.status != RobotAdapterStatus::Success || !doOff.value || !*doOff.value) {
+        return {OfflineStepStatus::Failure};
+    }
+    return {OfflineStepStatus::Success};
+}
+
+OfflineStepResult BilliardApp::prepareRobotHardwareForMotion(
+    RobotController& robot,
+    const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config)
+{
+    if (const auto bad = requireRobotAdapterSuccess(robot.establishSafeOutputsOff(config))) {
+        return {*bad};
+    }
+    if (const auto bad = requireRobotAdapterSuccess(robot.clearAlarm())) return {*bad};
+    if (const auto bad =
+            requireRobotAdapterSuccess(robot.activateConfiguredToolAndBase(config))) {
+        return {*bad};
+    }
+    if (const auto bad = requireRobotAdapterSuccess(robot.setMotorState(1))) return {*bad};
+    if (const auto bad = requireRobotAdapterSuccess(
+            robot.setOverrideRatio(BilliardConfig::NORMAL_SPEED_RATIO))) {
+        return {*bad};
+    }
+    return {OfflineStepStatus::Success};
+}
+
 ExecutionCycleResult BilliardApp::runRealSingleCycle(
     OfflineExecutionRuntime& runtime,
+    std::uint64_t cycleIdentity,
     RobotController& robotController,
     const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config,
-    const RealExecutionCycleServices& services)
+    const RealExecutionCycleServices& services,
+    const ShotDeadlineClock& deadline)
 {
     if (runtime.state != ExecutionCycleState::WaitingForStart ||
-        runtime.nextCycleIdentity == 0) {
+        cycleIdentity == 0) {
         return {ExecutionCycleStatus::StartRejected, std::nullopt,
             ExecutionCycleDiagnostic{
-                runtime.nextCycleIdentity == 0
+                cycleIdentity == 0
                     ? ExecutionCycleFailureReason::CycleIdentityExhausted
                     : ExecutionCycleFailureReason::CycleAlreadyActive,
                 runtime.state}};
     }
-    bool rankedSelectionAvailable =
-        services.currentPlanningResult && services.buildExecutionPlanForShot;
-#ifdef BILLIARDS_P2_03_TEST_SEAM
-    const bool testOnlyLegacySelection =
-        services.testOnlyAllowSinglePlanCompatibility &&
-        services.buildExecutionPlan;
-#else
-    const bool testOnlyLegacySelection = false;
-#endif
     if (!services.settleCamera || !services.flushStaleVisionBuffer ||
         !services.resetCycleAccumulation || !services.openCaptureWindow ||
-        !services.runPhase1 ||
-        (!rankedSelectionAvailable && !testOnlyLegacySelection) ||
+        !services.runPhase1 || !services.isVisionConnected ||
+        !services.connectVision || !services.currentPlanningResult ||
+        !services.buildExecutionPlanForShot ||
         !RobotController::validateRealHardwareConfiguration(config).succeeded()) {
         return {ExecutionCycleStatus::SafeFailure, std::nullopt,
             ExecutionCycleDiagnostic{
@@ -152,48 +242,59 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
         !robotController.connect(BilliardConfig::ARM_IP)) {
         return {ExecutionCycleStatus::SafeFailure, std::nullopt,
             ExecutionCycleDiagnostic{
-                ExecutionCycleFailureReason::HardwareConnectionFailed,
+                ExecutionCycleFailureReason::PreparationCheckFailed,
                 runtime.state}};
     }
-    const RobotAdapterResult startupOutputs =
-        robotController.establishSafeOutputsOff(config);
-    if (!startupOutputs.succeeded()) {
-        if (startupOutputs.status == RobotAdapterStatus::UnknownUnsafe ||
-            startupOutputs.status == RobotAdapterStatus::SdkFailure ||
-            startupOutputs.status == RobotAdapterStatus::NotConnected) {
-            runtime.state = ExecutionCycleState::UnknownUnsafe;
-            return {ExecutionCycleStatus::UnknownUnsafe, std::nullopt,
-                ExecutionCycleDiagnostic{
-                    ExecutionCycleFailureReason::PneumaticStateUnknown,
-                    ExecutionCycleState::UnknownUnsafe}};
-        }
-        return {ExecutionCycleStatus::SafeFailure, std::nullopt,
-            ExecutionCycleDiagnostic{
-                ExecutionCycleFailureReason::InvalidExecutionPlan,
-                runtime.state}};
-    }
-    if (!robotController.clearAlarm().succeeded() ||
-        !robotController.activateConfiguredToolAndBase(config).succeeded() ||
-        !robotController.setMotorState(1).succeeded() ||
-        !robotController.setOverrideRatio(
-             BilliardConfig::NORMAL_SPEED_RATIO).succeeded()) {
-        return {ExecutionCycleStatus::SafeFailure, std::nullopt,
-            ExecutionCycleDiagnostic{
-                ExecutionCycleFailureReason::InvalidExecutionPlan,
-                runtime.state}};
-    }
+    // 注意：establishSafeOutputsOff／clearAlarm／activateConfiguredToolAndBase／
+    // setMotorState／setOverrideRatio刻意不在此處執行——這些都會寫入硬體狀態
+    // （DO、alarm、tool/base、motor、speed），依核准流程必須排在read-only的
+    // 「確認Robot connected、已停止、DO1/DO2 OFF、非UnknownUnsafe」與
+    // 「STANDBY_JOINT_REFERENCE已核准」兩道門檻都通過之後才能執行，因此改由
+    // seam.prepareHardwareForMotion單獨負責，且排在confirmStandbyReferenceApproved
+    // 之後才呼叫；未核准revision時完全不會走到這裡、不會改變任何硬體狀態。
+
     std::optional<ExecutionPlan> activePlan;
     std::optional<RobotPoseABC> postStrikeActual;
     bool pullExtendCommandCompleted = false;
     bool pullRetractCommandCompleted = false;
     bool pullPreparationUnknownUnsafe = false;
     const auto step = [](const RobotAdapterResult& result) {
-        return OfflineStepResult{result.succeeded()
-            ? OfflineStepStatus::Success
-            : OfflineStepStatus::Failure};
+        return OfflineStepResult{
+            result.status == RobotAdapterStatus::UnknownUnsafe
+                ? OfflineStepStatus::UnknownUnsafe
+                : (result.succeeded()
+                      ? OfflineStepStatus::Success
+                      : OfflineStepStatus::Failure)};
     };
 
     OfflineExecutionSeam seam;
+    seam.confirmPreparedForCycle = [&] {
+        return BilliardApp::confirmRobotReadyReadOnly(robotController, config);
+    };
+    seam.confirmStandbyReferenceApproved = [&]() -> OfflineStepResult {
+        return {BilliardConfig::STANDBY_JOINT_REFERENCE.isValid()
+            ? OfflineStepStatus::Success
+            : OfflineStepStatus::Failure};
+    };
+    seam.prepareHardwareForMotion = [&] {
+        return BilliardApp::prepareRobotHardwareForMotion(robotController, config);
+    };
+    seam.isAtStandby = [&]() -> std::optional<bool> {
+        const RobotBoolAdapterResult result = robotController.isAtConfiguredJoint(
+            BilliardConfig::STANDBY_JOINT_REFERENCE.jointDeg,
+            BilliardConfig::STANDBY_JOINT_TOLERANCE_DEG);
+        if (result.status != RobotAdapterStatus::Success || !result.value) {
+            return std::nullopt;
+        }
+        return *result.value;
+    };
+    seam.returnToStandby = [&] {
+        return step(robotController.checkedConfiguredJointPtp(
+            BilliardConfig::STANDBY_JOINT_REFERENCE.jointDeg, config));
+    };
+    seam.confirmStandbyStopped = [&] {
+        return step(robotController.confirmStopped());
+    };
     seam.moveToCameraPose = [&] {
         return step(robotController.checkedConfiguredJointPtp(
             BilliardConfig::CAMERA_JOINT, config));
@@ -202,101 +303,198 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
         return step(robotController.confirmStopped());
     };
     seam.settleCamera = services.settleCamera;
-    seam.flushStaleVisionBuffer = services.flushStaleVisionBuffer;
-    seam.resetCycleAccumulation = services.resetCycleAccumulation;
-    seam.openCaptureWindow = services.openCaptureWindow;
-    seam.runPhase1 = services.runPhase1;
-    seam.buildExecutionPlan = [&] {
-        if (services.currentPlanningResult &&
-            services.buildExecutionPlanForShot) {
-            const PlanningResult* phase1 = services.currentPlanningResult();
-            if (!phase1 || !phase1->isValid()) {
-                activePlan.reset();
-                return ExecutionPlanResult::rejected(
-                    ExecutionPlanStatus::InvalidExecutionPlan,
-                    ExecutionPlanFailureReason::InvalidExecutionPlanValue);
+    // 三態：CameraPose是否確認安全（read-only）。共用於「重連後再開capture
+    // window前」與「重試截止後決定收尾」兩處，語意完全相同，不應各自實作。
+    enum class CameraPoseSafetyCheck { AllSafe, ManualRecoveryRequired, UnknownUnsafe };
+    const auto confirmSafeAtCameraPose = [&]() -> CameraPoseSafetyCheck {
+        const RobotBoolAdapterResult atCamera = robotController.isAtConfiguredJoint(
+            BilliardConfig::CAMERA_JOINT, BilliardConfig::CAMERA_JOINT_TOLERANCE_DEG);
+        if (atCamera.status == RobotAdapterStatus::UnknownUnsafe) {
+            return CameraPoseSafetyCheck::UnknownUnsafe;
+        }
+        const RobotAdapterResult stopped = robotController.confirmStopped();
+        if (stopped.status == RobotAdapterStatus::UnknownUnsafe) {
+            return CameraPoseSafetyCheck::UnknownUnsafe;
+        }
+        const RobotBoolAdapterResult doOff =
+            robotController.confirmPneumaticOutputsOff(config);
+        if (doOff.status == RobotAdapterStatus::UnknownUnsafe) {
+            return CameraPoseSafetyCheck::UnknownUnsafe;
+        }
+        const bool poseKnownWrong = atCamera.status == RobotAdapterStatus::Success &&
+            atCamera.value && !*atCamera.value;
+        const bool doKnownOn = doOff.status == RobotAdapterStatus::Success &&
+            doOff.value && !*doOff.value;
+        if (poseKnownWrong || doKnownOn) {
+            return CameraPoseSafetyCheck::ManualRecoveryRequired;
+        }
+        const bool allConfirmedSafe =
+            atCamera.status == RobotAdapterStatus::Success && atCamera.value &&
+            *atCamera.value && stopped.succeeded() &&
+            doOff.status == RobotAdapterStatus::Success && doOff.value && *doOff.value;
+        return allConfirmedSafe
+            ? CameraPoseSafetyCheck::AllSafe
+            : CameraPoseSafetyCheck::UnknownUnsafe;
+    };
+    seam.acquireExecutionPlan = [&]() -> PlanningPhaseResult {
+        const unsigned long retryCutoffMs =
+            BilliardConfig::SHOT_CYCLE_TIMING.planningRetryCutoffMs;
+        const auto pastCutoff = [&] {
+            return deadline.elapsedMs().count() >=
+                static_cast<long long>(retryCutoffMs);
+        };
+        const auto safeEndOrRecoveryAfterCutoff = [&]() -> PlanningPhaseResult {
+            switch (confirmSafeAtCameraPose()) {
+            case CameraPoseSafetyCheck::AllSafe:
+                return {PlanningPhaseStatus::NoPlanSafeEnd, std::nullopt};
+            case CameraPoseSafetyCheck::ManualRecoveryRequired:
+                return {PlanningPhaseStatus::ManualRecoveryRequired, std::nullopt};
+            default:
+                return {PlanningPhaseStatus::UnknownUnsafe, std::nullopt};
+            }
+        };
+
+        while (true) {
+            while (!services.isVisionConnected()) {
+                if (pastCutoff()) return safeEndOrRecoveryAfterCutoff();
+                const VisionConnectResult attempt = services.connectVision();
+                if (attempt.status == VisionConnectStatus::Connected) break;
+                if (attempt.status == VisionConnectStatus::NonRetriable) {
+                    return {PlanningPhaseStatus::Failure, std::nullopt};
+                }
+                if (services.sleepMs) {
+                    services.sleepMs(BilliardConfig::VISION_RECONNECT_POLL_INTERVAL_MS);
+                }
+                if (pastCutoff()) return safeEndOrRecoveryAfterCutoff();
+            }
+            if (pastCutoff()) return safeEndOrRecoveryAfterCutoff();
+
+            // 6.2：連線已知（初次或重連）後，重開capture window前必須
+            // read-only重新確認CameraPose／已停止／DO OFF，不可假設沒動過。
+            switch (confirmSafeAtCameraPose()) {
+            case CameraPoseSafetyCheck::AllSafe:
+                break;
+            case CameraPoseSafetyCheck::ManualRecoveryRequired:
+                return {PlanningPhaseStatus::ManualRecoveryRequired, std::nullopt};
+            default:
+                return {PlanningPhaseStatus::UnknownUnsafe, std::nullopt};
+            }
+
+            if (!services.flushStaleVisionBuffer().succeeded() ||
+                !services.resetCycleAccumulation().succeeded() ||
+                !services.openCaptureWindow(cycleIdentity).succeeded()) {
+                return {PlanningPhaseStatus::Failure, std::nullopt};
+            }
+
+            const OfflinePhase1Result phase1 = services.runPhase1();
+            if (!phase1.isValid()) {
+                return {PlanningPhaseStatus::Failure, std::nullopt};
+            }
+            if (phase1.status == OfflinePhase1Status::PipelineFailure) {
+                if (phase1.failureKind == OfflinePhase1FailureKind::RetryWindowExpired) {
+                    return safeEndOrRecoveryAfterCutoff();
+                }
+                if (phase1.failureKind != OfflinePhase1FailureKind::TransportDisruption) {
+                    return {PlanningPhaseStatus::Failure, std::nullopt};
+                }
+                if (pastCutoff()) return safeEndOrRecoveryAfterCutoff();
+                continue;
+            }
+            if (phase1.status == OfflinePhase1Status::NoPlan) {
+                const PlanningResult* current = services.currentPlanningResult();
+                const NoPlan* noPlan = current && current->isValid()
+                    ? std::get_if<NoPlan>(&current->value())
+                    : nullptr;
+                if (!noPlan) {
+                    return {PlanningPhaseStatus::Failure, std::nullopt};
+                }
+                if (noPlan->reason == NoPlanReason::NoEligibleTarget) {
+                    return {PlanningPhaseStatus::NoPlanSafeEnd, std::nullopt};
+                }
+                if (noPlan->reason == NoPlanReason::InvalidBrainConfiguration ||
+                    noPlan->reason == NoPlanReason::NumericalPlanningFailure) {
+                    return {PlanningPhaseStatus::Failure, std::nullopt};
+                }
+                if (pastCutoff()) {
+                    return {PlanningPhaseStatus::NoPlanSafeEnd, std::nullopt};
+                }
+                continue;
+            }
+
+            const PlanningResult* phase1Result = services.currentPlanningResult();
+            if (!phase1Result || !phase1Result->isValid()) {
+                return {PlanningPhaseStatus::Failure, std::nullopt};
             }
             const Phase1ExecutionCandidates& candidates =
-                phase1->executionCandidates();
+                phase1Result->executionCandidates();
+            std::optional<ExecutionPlan> found;
+            bool hardFailure = false;
+            bool candidateUnknownUnsafe = false;
             const auto tryCandidates = [&](const std::vector<ShotPlan>& plans,
-                                           bool potsExhausted)
-                -> std::optional<ExecutionPlanResult> {
+                                           bool potsExhausted) {
                 for (const ShotPlan& shot : plans) {
                     const ExecutionPlanResult planned =
-                        services.buildExecutionPlanForShot(
-                            shot, potsExhausted);
-                    if (!planned.isValid()) return planned;
+                        services.buildExecutionPlanForShot(shot, potsExhausted);
+                    if (!planned.isValid()) {
+                        hardFailure = true;
+                        return;
+                    }
                     if (planned.status() != ExecutionPlanStatus::Success ||
                         !planned.value()) {
-                        const ExecutionPlanFailureReason reason =
-                            planned.diagnostic()
+                        const ExecutionPlanFailureReason reason = planned.diagnostic()
                             ? planned.diagnostic()->reason
-                            : ExecutionPlanFailureReason::
-                                  InvalidExecutionPlanValue;
+                            : ExecutionPlanFailureReason::InvalidExecutionPlanValue;
                         if (reason == ExecutionPlanFailureReason::
                                 FixedForceEnvelopeRejected ||
                             reason == ExecutionPlanFailureReason::
                                 NoAcceptedPoseCandidate) {
                             continue;
                         }
-                        return planned;
+                        hardFailure = true;
+                        return;
                     }
                     const RobotAdapterResult preflight =
-                        robotController.preflightExecution(
-                            *planned.value(), config);
+                        robotController.preflightExecution(*planned.value(), config);
                     if (preflight.status == RobotAdapterStatus::NotReachable) {
                         continue;
                     }
-                    if (!preflight.succeeded()) {
-                        return ExecutionPlanResult::rejected(
-                            ExecutionPlanStatus::InvalidExecutionPlan,
-                            ExecutionPlanFailureReason::
-                                InvalidExecutionPlanValue);
+                    if (preflight.status == RobotAdapterStatus::UnknownUnsafe) {
+                        candidateUnknownUnsafe = true;
+                        return;
                     }
-                    activePlan = *planned.value();
-                    return planned;
+                    if (!preflight.succeeded()) {
+                        hardFailure = true;
+                        return;
+                    }
+                    found = *planned.value();
+                    return;
                 }
-                return std::nullopt;
             };
-            if (const auto selected =
-                    tryCandidates(candidates.rankedPotPlans, false)) {
-                return *selected;
+            tryCandidates(candidates.rankedPotPlans, false);
+            if (!found && !hardFailure && !candidateUnknownUnsafe) {
+                tryCandidates(candidates.legalContactPlans, true);
             }
-            if (const auto selected =
-                    tryCandidates(candidates.legalContactPlans, true)) {
-                return *selected;
+            if (candidateUnknownUnsafe) {
+                return {PlanningPhaseStatus::UnknownUnsafe, std::nullopt};
             }
-            activePlan.reset();
-            return ExecutionPlanResult::rejected(
-                ExecutionPlanStatus::NoExecutablePlan,
-                ExecutionPlanFailureReason::NoAcceptedPoseCandidate);
+            if (hardFailure) {
+                return {PlanningPhaseStatus::Failure, std::nullopt};
+            }
+            if (!found) {
+                if (pastCutoff()) {
+                    return {PlanningPhaseStatus::NoPlanSafeEnd, std::nullopt};
+                }
+                continue;
+            }
+            if (deadline.remainingMs(BilliardConfig::SHOT_CYCLE_TIMING.shotDeadlineMs)
+                    .count() <
+                static_cast<long long>(
+                    BilliardConfig::SHOT_CYCLE_TIMING.minimumExecutionReserveMs)) {
+                return {PlanningPhaseStatus::NoPlanSafeEnd, std::nullopt};
+            }
+            activePlan = found;
+            return {PlanningPhaseStatus::PlanReady, found};
         }
-#ifdef BILLIARDS_P2_03_TEST_SEAM
-        if (!services.testOnlyAllowSinglePlanCompatibility) {
-            activePlan.reset();
-            return ExecutionPlanResult::rejected(
-                ExecutionPlanStatus::InvalidExecutionPlan,
-                ExecutionPlanFailureReason::InvalidExecutionPlanValue);
-        }
-        const ExecutionPlanResult planned = services.buildExecutionPlan();
-        if (!planned.isValid() ||
-            planned.status() != ExecutionPlanStatus::Success ||
-            !planned.value() ||
-            !RobotController::validateRealExecutionConfiguration(
-                 *planned.value(), config).succeeded()) {
-            activePlan.reset();
-            return ExecutionPlanResult::rejected(
-                ExecutionPlanStatus::InvalidExecutionPlan,
-                ExecutionPlanFailureReason::InvalidExecutionPlanValue);
-        }
-        activePlan = *planned.value();
-        return planned;
-#else
-        activePlan.reset();
-        return ExecutionPlanResult::rejected(
-            ExecutionPlanStatus::InvalidExecutionPlan,
-            ExecutionPlanFailureReason::InvalidExecutionPlanValue);
-#endif
     };
     seam.validateStrikeReady = [&](const ExecutionPlan& plan) {
         const RobotAdapterResult activated =
@@ -327,26 +525,31 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
         pullExtendCommandCompleted = true;
         return step(robotController.waitDirectionChangeDelay(plan, config));
     };
-    seam.moveToStrikeReady = [&](const ExecutionPlan& plan) {
-        if (!robotController.checkedJointPtp(
-                plan, plan.transitJointReference, config).succeeded() ||
-            !robotController.checkedPtp(
-                plan, plan.safeApproachPose, config).succeeded()) {
-            return OfflineStepResult{OfflineStepStatus::Failure};
+    seam.moveToStrikeReady = [&](const ExecutionPlan& plan) -> OfflineStepResult {
+        const RobotAdapterResult approach =
+            robotController.checkedPtp(plan, plan.safeApproachPose, config);
+        if (approach.status == RobotAdapterStatus::UnknownUnsafe) {
+            return {OfflineStepStatus::UnknownUnsafe};
         }
+        if (!approach.succeeded()) return {OfflineStepStatus::Failure};
         const RobotPoseAdapterResult actual =
             robotController.readActualPose(plan, config);
-        if (!actual.isValid() || !actual.value ||
-            !robotController.checkedLin(
-                plan, *actual.value, plan.strikeReadyPose, config).succeeded()) {
-            return OfflineStepResult{OfflineStepStatus::Failure};
+        if (!actual.isValid() || !actual.value) {
+            return {actual.status == RobotAdapterStatus::UnknownUnsafe
+                ? OfflineStepStatus::UnknownUnsafe
+                : OfflineStepStatus::Failure};
         }
-        return OfflineStepResult{OfflineStepStatus::Success};
+        const RobotAdapterResult lin = robotController.checkedLin(
+            plan, *actual.value, plan.strikeReadyPose, config);
+        if (lin.status == RobotAdapterStatus::UnknownUnsafe) {
+            return {OfflineStepStatus::UnknownUnsafe};
+        }
+        return {lin.succeeded() ? OfflineStepStatus::Success : OfflineStepStatus::Failure};
     };
     seam.confirmStrikeReadyStopped = [&] {
         return step(robotController.confirmStopped());
     };
-    seam.runPneumatic = [&](const ExecutionPlan& plan) {
+    seam.runPneumatic = [&](const ExecutionPlan& plan) -> PneumaticCompletionResult {
         if (plan.strikeMode == StrikeMode::Pull) {
             const RealPneumaticResult retracted =
                 robotController.pulseRetract(plan, config);
@@ -357,6 +560,9 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
             }
             const RobotAdapterResult wait =
                 robotController.waitMechanismCompletion(plan, config);
+            if (wait.status == RobotAdapterStatus::UnknownUnsafe) {
+                return {PneumaticCompletionStatus::UnknownUnsafe, std::nullopt};
+            }
             return wait.succeeded()
                 ? mapRealPneumaticResult(retracted)
                 : PneumaticCompletionResult{
@@ -369,6 +575,9 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
         }
         const RobotAdapterResult directionWait =
             robotController.waitDirectionChangeDelay(plan, config);
+        if (directionWait.status == RobotAdapterStatus::UnknownUnsafe) {
+            return {PneumaticCompletionStatus::UnknownUnsafe, std::nullopt};
+        }
         if (!directionWait.succeeded()) {
             return PneumaticCompletionResult{
                 PneumaticCompletionStatus::Failure, std::nullopt};
@@ -380,17 +589,25 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
         }
         const RobotAdapterResult completionWait =
             robotController.waitMechanismCompletion(plan, config);
+        if (completionWait.status == RobotAdapterStatus::UnknownUnsafe) {
+            return {PneumaticCompletionStatus::UnknownUnsafe, std::nullopt};
+        }
         return completionWait.succeeded()
             ? mapRealPneumaticResult(retracted)
             : PneumaticCompletionResult{
                 PneumaticCompletionStatus::Failure, std::nullopt};
     };
-    seam.readActualPose = [&]() -> std::optional<RobotPoseABC> {
-        if (!activePlan) return std::nullopt;
+    seam.readActualPose = [&]() -> RobotPoseAdapterResult {
+        if (!activePlan) {
+            return {RobotAdapterStatus::InvalidConfiguration, -1, std::nullopt};
+        }
         const RobotPoseAdapterResult actual =
             robotController.readActualPose(*activePlan, config);
-        postStrikeActual = actual.isValid() ? actual.value : std::nullopt;
-        return postStrikeActual;
+        postStrikeActual =
+            actual.isValid() && actual.status == RobotAdapterStatus::Success
+                ? actual.value
+                : std::nullopt;
+        return actual;
     };
     seam.checkSafeLiftLinearPath = [&](const RobotPoseABC& actual,
                                        const RobotPoseABC& target) {
@@ -399,9 +616,11 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
         }
         const RobotAdapterResult result = robotController.checkVerticalSafeLift(
             *activePlan, actual, target, config);
+        if (result.status == RobotAdapterStatus::UnknownUnsafe) {
+            return LinearPathCheckResult{LinearPathCheckStatus::UnknownUnsafe, false};
+        }
         return LinearPathCheckResult{
             result.status == RobotAdapterStatus::SdkFailure ||
-                    result.status == RobotAdapterStatus::UnknownUnsafe ||
                     result.status == RobotAdapterStatus::NotConnected
                 ? LinearPathCheckStatus::ApiFailure
                 : LinearPathCheckStatus::Success,
@@ -417,14 +636,14 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
     seam.confirmSafeLiftStopped = [&](const RobotPoseABC&) {
         return step(robotController.confirmStopped());
     };
-    seam.returnToCameraPose = [&](const ExecutionPlan& plan) {
+    seam.returnToStandbyAfterStrike = [&](const ExecutionPlan& plan) {
         return step(robotController.checkedJointPtp(
-            plan, plan.cameraJointReference, config));
+            plan, plan.standbyJointReference, config));
     };
-    seam.confirmReturnCameraStopped = [&] {
+    seam.confirmStandbyReturnStopped = [&] {
         return step(robotController.confirmStopped());
     };
-    ExecutionCycleResult result = runOfflineSingleCycle(runtime, seam);
+    ExecutionCycleResult result = runOfflineSingleCycle(runtime, cycleIdentity, seam);
     if (pullPreparationUnknownUnsafe) {
         runtime.state = ExecutionCycleState::UnknownUnsafe;
         return {ExecutionCycleStatus::UnknownUnsafe, std::nullopt,
@@ -468,14 +687,10 @@ bool BilliardApp::initialize() {
         return false;
     }
 
-    cout << "[系統] 等待 Python 連線..." << endl;
-    while (visionClient.connectToServerResult(
-               BilliardConfig::VISION_SERVER_IP,
-               BilliardConfig::VISION_SERVER_PORT)
-               .status != SocketConnectStatus::Success) {
-        Sleep(1000);
-    }
-    cout << "[系統] 與 Python 服務連線成功！" << endl;
+    // initialize()只做本地設定檢查，不得在H/P可用之前無限等待Python連線；
+    // Python連線改在H進入CameraPose階段時，依同一shot deadline建立／確認。
+    cout << "[系統] 本地設定檢查完成。H/P立即可用；Python連線將於H進入"
+         << "CameraPose階段時依shot deadline建立或確認。" << endl;
     return true;
 }
 
@@ -493,10 +708,11 @@ void BilliardApp::run()
     std::optional<BilliardConfig::RealHardwareExecutionConfig> realConfig =
         BilliardConfig::REAL_HARDWARE_EXECUTION_CONFIG;
     RobotController* cycleRobot = &robot;
-    std::function<bool()> startRequested = [this] {
-        return waitForStartRequest();
-    };
     std::optional<RealExecutionCycleServices> realServices;
+    ConsoleKeyPoll effectiveKeyPoll = productionConsoleKeyPoll();
+    ConsoleKeyDownQuery effectiveKeyQuery = productionConsoleKeyDownQuery();
+    ShotDeadlineClock deadline;
+    deadline.now = [] { return std::chrono::steady_clock::now(); };
 
     if (BilliardConfig::MOTION_PLANNING_CONFIG) {
         motionPlanningPolicyMode =
@@ -515,7 +731,6 @@ void BilliardApp::run()
             runTestSeam->legalContactExecutionAuthorized;
         realConfig = runTestSeam->realConfig;
         cycleRobot = runTestSeam->robot;
-        startRequested = runTestSeam->startRequested;
         realServices = runTestSeam->realServices;
         if (runTestSeam->motionPlanningConfig) {
             motionPlanningConfig = runTestSeam->motionPlanningConfig;
@@ -524,10 +739,15 @@ void BilliardApp::run()
             tableGeometryConfig = runTestSeam->tableGeometryConfig;
         }
         motionPlanningPolicyMode = runTestSeam->motionPlanningPolicyMode;
+        if (runTestSeam->consoleKeyPoll) effectiveKeyPoll = runTestSeam->consoleKeyPoll;
+        if (runTestSeam->consoleKeyDownQuery) {
+            effectiveKeyQuery = runTestSeam->consoleKeyDownQuery;
+        }
+        if (runTestSeam->fakeNow) deadline.now = runTestSeam->fakeNow;
     }
 #endif
 
-    if (!policyMode || !startRequested) {
+    if (!policyMode) {
         return;
     }
 
@@ -554,12 +774,10 @@ void BilliardApp::run()
                     pendingPlanningResult.reset();
                     return OfflineStepResult{OfflineStepStatus::Success};
                 };
-                services.openCaptureWindow = [&] {
-                    if (nextShotCycleIdentity == 0) {
+                services.openCaptureWindow = [&](ShotCycleIdentity cycleIdentity) {
+                    if (cycleIdentity == 0) {
                         return OfflineStepResult{OfflineStepStatus::Failure};
                     }
-                    const ShotCycleIdentity cycleIdentity =
-                        nextShotCycleIdentity++;
                     receiveEventFactory.beginCycle(
                         visionClient.connectionIdentity(), cycleIdentity);
                     return OfflineStepResult{
@@ -570,31 +788,63 @@ void BilliardApp::run()
                 };
                 services.runPhase1 = [&] {
                     while (true) {
+                        // runPhase1本身可能持續收到資料但一直不穩定，若不在
+                        // 此內部迴圈檢查deadline，外層只能等它return才檢查，
+                        // 可能讓整輪超過15秒／10秒門檻而不自知。
+                        if (deadline.elapsedMs().count() >=
+                            static_cast<long long>(
+                                BilliardConfig::SHOT_CYCLE_TIMING
+                                    .planningRetryCutoffMs)) {
+                            return OfflinePhase1Result{
+                                OfflinePhase1Status::PipelineFailure,
+                                OfflinePhase1FailureKind::RetryWindowExpired};
+                        }
                         const SocketReceiveResult received =
                             visionClient.receiveFrame();
-                        if (!received.isValid() ||
-                            received.status != SocketReceiveStatus::FrameReady ||
-                            !received.frame) {
+                        if (!received.isValid()) {
                             return OfflinePhase1Result{
-                                OfflinePhase1Status::PipelineFailure};
+                                OfflinePhase1Status::PipelineFailure,
+                                OfflinePhase1FailureKind::NonRetriable};
+                        }
+                        if (received.status != SocketReceiveStatus::FrameReady ||
+                            !received.frame) {
+                            const bool transport =
+                                received.status == SocketReceiveStatus::CleanClose ||
+                                received.status == SocketReceiveStatus::SocketError ||
+                                received.status == SocketReceiveStatus::NotConnected ||
+                                received.status == SocketReceiveStatus::TimedOut;
+                            return OfflinePhase1Result{
+                                OfflinePhase1Status::PipelineFailure,
+                                transport
+                                    ? OfflinePhase1FailureKind::TransportDisruption
+                                    : OfflinePhase1FailureKind::NonRetriable};
                         }
                         const ReceiveEventResult eventResult =
                             receiveEventFactory.accept(
                                 *received.frame,
                                 visionClient.connectionIdentity(),
                                 chrono::steady_clock::now());
-                        if (!eventResult.isValid() ||
-                            eventResult.status() !=
-                                ReceiveEventStatus::Success ||
-                            !eventResult.value()) {
+                        if (!eventResult.isValid()) {
                             return OfflinePhase1Result{
-                                OfflinePhase1Status::PipelineFailure};
+                                OfflinePhase1Status::PipelineFailure,
+                                OfflinePhase1FailureKind::NonRetriable};
+                        }
+                        if (eventResult.status() != ReceiveEventStatus::Success ||
+                            !eventResult.value()) {
+                            // ConnectionMismatch在正常流程理論上不該發生
+                            // （每次accept都用當下connectionIdentity()），
+                            // 出現代表identity一致性有問題，不是單純transport
+                            // 中斷，必須fail closed而非重試。
+                            return OfflinePhase1Result{
+                                OfflinePhase1Status::PipelineFailure,
+                                OfflinePhase1FailureKind::NonRetriable};
                         }
                         if (!processReceiveEvent(*eventResult.value())) {
                             if (!pendingPlanningResult ||
                                 !pendingPlanningResult->isValid()) {
                                 return OfflinePhase1Result{
-                                    OfflinePhase1Status::PipelineFailure};
+                                    OfflinePhase1Status::PipelineFailure,
+                                    OfflinePhase1FailureKind::NonRetriable};
                             }
                             const auto& candidates =
                                 pendingPlanningResult->executionCandidates();
@@ -608,6 +858,37 @@ void BilliardApp::run()
                         }
                     }
                 };
+                services.isVisionConnected = [&] {
+                    return visionClient.isConnected();
+                };
+                services.connectVision = [&]() -> VisionConnectResult {
+                    // connect()上限＝min(VISION_RECEIVE_TIMEOUT_MS,
+                    // 距離planning retry cutoff的剩餘時間)，沿用同一個
+                    // ShotDeadlineClock換算，不建立第二個獨立deadline。
+                    std::optional<unsigned long> boundMs;
+                    if (BilliardConfig::VISION_RECEIVE_TIMEOUT_MS) {
+                        const auto remaining = deadline.remainingMs(
+                            BilliardConfig::SHOT_CYCLE_TIMING.planningRetryCutoffMs);
+                        boundMs = (std::min)(
+                            *BilliardConfig::VISION_RECEIVE_TIMEOUT_MS,
+                            static_cast<unsigned long>(remaining.count()));
+                    }
+                    const SocketConnectResult result =
+                        visionClient.connectToServerResult(
+                            BilliardConfig::VISION_SERVER_IP,
+                            BilliardConfig::VISION_SERVER_PORT,
+                            boundMs);
+                    if (result.status == SocketConnectStatus::Success) {
+                        return {VisionConnectStatus::Connected, 0};
+                    }
+                    const bool retriable =
+                        result.status == SocketConnectStatus::ConnectError;
+                    return {
+                        retriable ? VisionConnectStatus::Retriable
+                                  : VisionConnectStatus::NonRetriable,
+                        result.socketError};
+                };
+                services.sleepMs = [](unsigned long ms) { Sleep(ms); };
         }
 #ifdef BILLIARDS_P2_03_TEST_SEAM
         if (runTestSeam && !runTestSeam->currentCycleFrames.empty() &&
@@ -625,12 +906,11 @@ void BilliardApp::run()
                 pendingPlanningResult.reset();
                 return OfflineStepResult{OfflineStepStatus::Success};
             };
-            services.openCaptureWindow = [&, connectionIdentity] {
-                if (nextShotCycleIdentity == 0) {
+            services.openCaptureWindow =
+                [&, connectionIdentity](ShotCycleIdentity cycleIdentity) {
+                if (cycleIdentity == 0) {
                     return OfflineStepResult{OfflineStepStatus::Failure};
                 }
-                const ShotCycleIdentity cycleIdentity =
-                    nextShotCycleIdentity++;
                 receiveEventFactory.beginCycle(
                     connectionIdentity, cycleIdentity);
                 return OfflineStepResult{
@@ -651,13 +931,15 @@ void BilliardApp::run()
                         eventResult.status() != ReceiveEventStatus::Success ||
                         !eventResult.value()) {
                         return OfflinePhase1Result{
-                            OfflinePhase1Status::PipelineFailure};
+                            OfflinePhase1Status::PipelineFailure,
+                            OfflinePhase1FailureKind::NonRetriable};
                     }
                     if (!processReceiveEvent(*eventResult.value())) {
                         if (!pendingPlanningResult ||
                             !pendingPlanningResult->isValid()) {
                             return OfflinePhase1Result{
-                                OfflinePhase1Status::PipelineFailure};
+                                OfflinePhase1Status::PipelineFailure,
+                                OfflinePhase1FailureKind::NonRetriable};
                         }
                         const auto& candidates =
                             pendingPlanningResult->executionCandidates();
@@ -671,8 +953,14 @@ void BilliardApp::run()
                     }
                 }
                 return OfflinePhase1Result{
-                    OfflinePhase1Status::PipelineFailure};
+                    OfflinePhase1Status::PipelineFailure,
+                    OfflinePhase1FailureKind::NonRetriable};
             };
+            services.isVisionConnected = [] { return true; };
+            services.connectVision = [] {
+                return VisionConnectResult{VisionConnectStatus::Connected, 0};
+            };
+            services.sleepMs = [](unsigned long) {};
         }
 #endif
         if (!services.currentPlanningResult && !injectedServices) {
@@ -742,8 +1030,77 @@ void BilliardApp::run()
         return services;
     };
 
-    while (startRequested()) {
+    // H與P共用confirmRobotReadyReadOnly／prepareRobotHardwareForMotion，
+    // 且順序完全一致：連線→read-only確認→standby revision核准門檻→
+    // 才寫入硬體（alarm／tool-base／motor／speed）→才PTP，避免兩套流程
+    // 各自實作、日後又漂移出不一致的前置順序或門檻。
+    const auto runPOnly = [&] {
+        if (executionRuntime.state != ExecutionCycleState::WaitingForStart ||
+            !cycleRobot) {
+            return;
+        }
+        if (!cycleRobot->isConnected() &&
+            !cycleRobot->connect(BilliardConfig::ARM_IP)) {
+            return;
+        }
+        const OfflineStepResult readOnly =
+            BilliardApp::confirmRobotReadyReadOnly(*cycleRobot, realConfig);
+        if (readOnly.status == OfflineStepStatus::UnknownUnsafe) {
+            executionRuntime.state = ExecutionCycleState::UnknownUnsafe;
+            return;
+        }
+        if (!readOnly.succeeded()) return;
+        // P不依賴H先跑過、不依賴Python，但仍受核准的standby joint reference
+        // 門檻限制：未核准前不得寫入任何硬體狀態、不得移動。
+        if (!BilliardConfig::STANDBY_JOINT_REFERENCE.isValid()) return;
+        const OfflineStepResult prepared =
+            BilliardApp::prepareRobotHardwareForMotion(*cycleRobot, realConfig);
+        if (prepared.status == OfflineStepStatus::UnknownUnsafe) {
+            executionRuntime.state = ExecutionCycleState::UnknownUnsafe;
+            return;
+        }
+        if (!prepared.succeeded()) return;
+        const RobotAdapterResult ptp = cycleRobot->checkedConfiguredJointPtp(
+            BilliardConfig::STANDBY_JOINT_REFERENCE.jointDeg, realConfig);
+        if (ptp.status == RobotAdapterStatus::UnknownUnsafe) {
+            executionRuntime.state = ExecutionCycleState::UnknownUnsafe;
+            return;
+        }
+        if (!ptp.succeeded()) return;
+        const RobotAdapterResult confirmed = cycleRobot->confirmStopped();
+        if (confirmed.status == RobotAdapterStatus::UnknownUnsafe) {
+            executionRuntime.state = ExecutionCycleState::UnknownUnsafe;
+            return;
+        }
+        // confirmed.succeeded()若為false（例如NotStopped），P不宣稱完成，
+        // 也不特別處理；operator可再次嘗試P，或改用完整H流程。
+    };
+
+    while (executionRuntime.state == ExecutionCycleState::WaitingForStart) {
+        const StartControlEvent event =
+            pollStartControl(startControlGates, effectiveKeyPoll);
+        if (event.standbyEdge) {
+            runPOnly();
+            if (executionRuntime.state != ExecutionCycleState::WaitingForStart) {
+                break;
+            }
+        }
+        if (!event.startEdge) {
+            Sleep(BilliardConfig::MOTION_POLL_INTERVAL_MS);
+            continue;
+        }
+        if (nextShotCycleIdentity == 0) {
+            cout << "[系統] shot-cycle identity已耗盡，fail closed，需重啟程式。"
+                 << endl;
+            break;
+        }
+        const std::uint64_t cycleIdentity = nextShotCycleIdentity++;
+        // 計時從接受H的瞬間開始，不是稍後才進入RealHardware分支的時刻。
+        deadline.startedAt = deadline.now
+            ? deadline.now()
+            : std::chrono::steady_clock::time_point{};
         RealExecutionCycleServices services = productionServices();
+
         if (*policyMode == BilliardConfig::ExecutionPolicyMode::PlanningTest) {
             if (!motionPlanningPolicyMode ||
                 *motionPlanningPolicyMode !=
@@ -757,7 +1114,8 @@ void BilliardApp::run()
                 services.settleCamera().status != OfflineStepStatus::Success ||
                 services.flushStaleVisionBuffer().status != OfflineStepStatus::Success ||
                 services.resetCycleAccumulation().status != OfflineStepStatus::Success ||
-                services.openCaptureWindow().status != OfflineStepStatus::Success) {
+                services.openCaptureWindow(cycleIdentity).status !=
+                    OfflineStepStatus::Success) {
                 cout << "final status=PipelineFailure" << endl;
                 cout << "NO HARDWARE EXECUTION" << endl;
                 return;
@@ -771,6 +1129,8 @@ void BilliardApp::run()
                 cout << "CycleCompleted" << endl;
                 cout << "WaitingForStart" << endl;
                 invalidateVisionCycle(ReceiveEventInvalidationReason::CycleChanged);
+                resyncStartControlToIdle(
+                    startControlGates, effectiveKeyPoll, effectiveKeyQuery);
                 continue;
             }
             if (phase1.status != OfflinePhase1Status::ShotPlanReady) {
@@ -820,6 +1180,8 @@ void BilliardApp::run()
                 cout << "CycleCompleted" << endl;
                 cout << "WaitingForStart" << endl;
                 invalidateVisionCycle(ReceiveEventInvalidationReason::CycleChanged);
+                resyncStartControlToIdle(
+                    startControlGates, effectiveKeyPoll, effectiveKeyQuery);
                 continue;
             }
             const ExecutionPlan& plan = *planResult.value();
@@ -846,6 +1208,8 @@ void BilliardApp::run()
             cout << "CycleCompleted" << endl;
             cout << "WaitingForStart" << endl;
             invalidateVisionCycle(ReceiveEventInvalidationReason::CycleChanged);
+            resyncStartControlToIdle(
+                startControlGates, effectiveKeyPoll, effectiveKeyQuery);
             continue;
         }
 
@@ -862,23 +1226,20 @@ void BilliardApp::run()
                  realConfig).succeeded()) {
             return;
         }
-        const ExecutionCycleResult result = runRealSingleCycle(
-            executionRuntime, *cycleRobot, realConfig, services);
-        invalidateVisionCycle(ReceiveEventInvalidationReason::CycleChanged);
-        if (!result.isValid() ||
-            result.status != ExecutionCycleStatus::Completed) {
-            return;
-        }
-    }
-}
 
-bool BilliardApp::waitForStartRequest()
-{
-    cout << "\n[WaitingForStart] 請確認本次shot cycle可安全開始，"
-         << "並在【此視窗】按下 [Enter]：";
-    cin.clear();
-    string input;
-    return static_cast<bool>(getline(cin, input));
+        const ExecutionCycleResult result = runRealSingleCycle(
+            executionRuntime, cycleIdentity, *cycleRobot, realConfig, services,
+            deadline);
+        invalidateVisionCycle(ReceiveEventInvalidationReason::CycleChanged);
+        resyncStartControlToIdle(
+            startControlGates, effectiveKeyPoll, effectiveKeyQuery);
+        if (!result.isValid()) {
+            break;
+        }
+        // executionRuntime.state已由runOfflineSingleCycle正確設定：
+        // WaitingForStart可繼續迴圈；ManualRecoveryRequired／UnknownUnsafe
+        // 會讓while條件自然結束，不再接受下一次H。
+    }
 }
 
 bool BilliardApp::processReceiveEvent(const ReceiveEvent& event)

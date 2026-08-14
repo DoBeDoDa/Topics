@@ -8,6 +8,26 @@
 
 #include "BilliardConfig.h"
 
+namespace {
+// connect()／SO_ERROR回報的錯誤碼裡，只有明確代表「對方尚未接受連線」的
+// transport層錯誤才可重試（可能只是Python還沒啟動）；WSAEINVAL、
+// WSAENOTSOCK、WSAENOBUFS等本機錯誤即使出現在同一個錯誤碼欄位，也不代表
+// transport問題，不得被這裡誤判成可重試。
+bool isRetriableTransportError(int error) noexcept
+{
+    switch (error) {
+    case WSAECONNREFUSED:
+    case WSAETIMEDOUT:
+    case WSAEHOSTUNREACH:
+    case WSAENETUNREACH:
+    case WSAECONNRESET:
+        return true;
+    default:
+        return false;
+    }
+}
+}  // namespace
+
 NewlineFrameBuffer::NewlineFrameBuffer(std::size_t maximumFrameBytes)
     : maximumFrameBytes_(maximumFrameBytes)
 {
@@ -189,7 +209,10 @@ bool SocketClient::connectToServer(const std::string& ip, int port)
     return connectToServerResult(ip, port).status == SocketConnectStatus::Success;
 }
 
-SocketConnectResult SocketClient::connectToServerResult(const std::string& ip, int port)
+SocketConnectResult SocketClient::connectToServerResult(
+    const std::string& ip,
+    int port,
+    std::optional<unsigned long> connectTimeoutMsOverride)
 {
     closeConnection();
     if (configurationStatus_ == SocketConfigurationStatus::ConfigurationMissing) {
@@ -214,14 +237,96 @@ SocketConnectResult SocketClient::connectToServerResult(const std::string& ip, i
         return {SocketConnectStatus::InvalidAddress, 0};
     }
 
+    // connect()在blocking socket上沒有上限，OS預設timeout可能長達20秒以上；
+    // 呼叫端（BilliardApp的shot deadline）需要有界行為，因此暫時切成
+    // non-blocking並用select()等待完成，之後才切回blocking——語意不變，
+    // 只是加上界。上界預設是receiveTimeoutMs_，呼叫端可傳入
+    // connectTimeoutMsOverride改用剩餘shot deadline時間（不建立第二個
+    // 獨立deadline，只是把既有deadline換算成這一次connect()的上限）。
+    // connectToServerResult()進入此處之前configurationStatus_必為Valid，
+    // receiveTimeoutMs_保證>0；若override顯式傳0，代表呼叫端已無時間
+    // 預算，select()會立即以逾時形式返回，屬正確行為。
+    const unsigned long connectTimeoutMs =
+        connectTimeoutMsOverride.value_or(receiveTimeoutMs_);
+    u_long nonBlocking = 1;
+    if (ioctlsocket(clientSocket_, FIONBIO, &nonBlocking) == SOCKET_ERROR) {
+        const int socketError = WSAGetLastError();
+        closesocket(clientSocket_);
+        clientSocket_ = INVALID_SOCKET;
+        return {SocketConnectStatus::SocketApiError, socketError};
+    }
     if (connect(
             clientSocket_,
             reinterpret_cast<sockaddr*>(&serverAddress),
             sizeof(serverAddress)) == SOCKET_ERROR) {
+        const int connectError = WSAGetLastError();
+        if (connectError != WSAEWOULDBLOCK) {
+            closesocket(clientSocket_);
+            clientSocket_ = INVALID_SOCKET;
+            return {
+                isRetriableTransportError(connectError)
+                    ? SocketConnectStatus::ConnectError
+                    : SocketConnectStatus::SocketApiError,
+                connectError};
+        }
+        fd_set writeSet;
+        FD_ZERO(&writeSet);
+        FD_SET(clientSocket_, &writeSet);
+        fd_set errorSet;
+        FD_ZERO(&errorSet);
+        FD_SET(clientSocket_, &errorSet);
+        timeval waitTime{};
+        waitTime.tv_sec = static_cast<long>(connectTimeoutMs / 1000);
+        waitTime.tv_usec = static_cast<long>((connectTimeoutMs % 1000) * 1000);
+        const int selectResult = select(0, nullptr, &writeSet, &errorSet, &waitTime);
+        if (selectResult < 0) {
+            // select()本身呼叫失敗：本機socket API問題，與Python是否已啟動
+            // 無關，重試不會自行恢復，必須立即fail closed。
+            const int socketError = WSAGetLastError();
+            closesocket(clientSocket_);
+            clientSocket_ = INVALID_SOCKET;
+            return {SocketConnectStatus::SocketApiError, socketError};
+        }
+        if (selectResult == 0) {
+            // 逾時：對方可能尚未啟動，屬連線層失敗，可重試。
+            closesocket(clientSocket_);
+            clientSocket_ = INVALID_SOCKET;
+            return {SocketConnectStatus::ConnectError, WSAETIMEDOUT};
+        }
+        // selectResult > 0：socket出現在writeSet或errorSet，兩種情況都必須
+        // 用getsockopt(SO_ERROR)取得真正原因，不可預設猜測是哪一種。
+        int connectSocketError = 0;
+        int errorLength = sizeof(connectSocketError);
+        if (getsockopt(
+                clientSocket_, SOL_SOCKET, SO_ERROR,
+                reinterpret_cast<char*>(&connectSocketError), &errorLength) ==
+                SOCKET_ERROR) {
+            // getsockopt()本身呼叫失敗：本機socket API問題，不可重試。
+            const int socketError = WSAGetLastError();
+            closesocket(clientSocket_);
+            clientSocket_ = INVALID_SOCKET;
+            return {SocketConnectStatus::SocketApiError, socketError};
+        }
+        if (connectSocketError != 0) {
+            // getsockopt成功回報真正的連線層錯誤；只有明確transport錯誤
+            // （例如連線被拒）才可重試，其餘一律SocketApiError。
+            closesocket(clientSocket_);
+            clientSocket_ = INVALID_SOCKET;
+            return {
+                isRetriableTransportError(connectSocketError)
+                    ? SocketConnectStatus::ConnectError
+                    : SocketConnectStatus::SocketApiError,
+                connectSocketError};
+        }
+    }
+    u_long blocking = 0;
+    if (ioctlsocket(clientSocket_, FIONBIO, &blocking) == SOCKET_ERROR) {
+        // 連線已成功，只是恢復blocking模式失敗：本機socket API問題，
+        // 不可重試。
         const int socketError = WSAGetLastError();
         closesocket(clientSocket_);
         clientSocket_ = INVALID_SOCKET;
-        return {SocketConnectStatus::ConnectError, socketError};
+        return {SocketConnectStatus::SocketApiError, socketError};
     }
 
     const DWORD timeout = receiveTimeoutMs_;

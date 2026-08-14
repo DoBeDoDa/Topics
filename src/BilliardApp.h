@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <initializer_list>
@@ -16,18 +17,102 @@
 #include "SocketClient.h"
 #include "VisionDataParser.h"
 
+// ============================================================
+// H/P鍵盤edge gate
+// ============================================================
+
+enum class ConsoleKey {
+    H,
+    P
+};
+
+struct ConsoleKeyEvent {
+    ConsoleKey key;
+    bool keyDown;
+};
+
+// Production：讀取Windows console尚未處理的KEY_EVENT，不阻塞、不用
+// getline()。test seam可注入合成序列。
+using ConsoleKeyPoll = std::function<std::vector<ConsoleKeyEvent>()>;
+// Production：查詢按鍵目前實際物理狀態（非事件）。只在WaitingForStart
+// 重新開始監聽時，用來把edge gate與真實物理狀態重新同步，避免長按跨過
+// 一輪邊界時被誤判成新的一次down。
+using ConsoleKeyDownQuery = std::function<bool(ConsoleKey)>;
+
+class KeyEdgeGate {
+public:
+    // 回傳true代表一次全新的up->down邊緣；同一次長按產生的後續down事件
+    // 回傳false；收到up事件才重新arm，回傳false。
+    bool onKeyDown(bool keyDown) noexcept
+    {
+        if (keyDown) {
+            if (down_) return false;
+            down_ = true;
+            return true;
+        }
+        down_ = false;
+        return false;
+    }
+
+    void resyncPhysicalState(bool currentlyDown) noexcept { down_ = currentlyDown; }
+    [[nodiscard]] bool isDown() const noexcept { return down_; }
+
+private:
+    bool down_ = false;
+};
+
+struct StartControlEvent {
+    bool startEdge = false;
+    bool standbyEdge = false;
+};
+
+struct StartControlGates {
+    KeyEdgeGate start;
+    KeyEdgeGate standby;
+};
+
+// ============================================================
+// Shot-cycle競賽計時：production authority為steady_clock，可注入fake clock。
+// ============================================================
+
+using SteadyClockNow = std::function<std::chrono::steady_clock::time_point()>;
+
+struct ShotDeadlineClock {
+    SteadyClockNow now;
+    std::chrono::steady_clock::time_point startedAt{};
+
+    [[nodiscard]] std::chrono::milliseconds elapsedMs() const
+    {
+        // 括號寫法刻意避開Windows.h在未定義NOMINMAX時的max()巨集展開；
+        // main.cpp在包含BilliardApp.h前先include了未加NOMINMAX保護的
+        // winsock2.h，此檔案不在核准範圍內、不得修改，因此改在此處防禦。
+        if (!now) return (std::chrono::milliseconds::max)();
+        const auto elapsed = now() - startedAt;
+        return elapsed.count() < 0
+            ? std::chrono::milliseconds(0)
+            : std::chrono::duration_cast<std::chrono::milliseconds>(elapsed);
+    }
+
+    [[nodiscard]] std::chrono::milliseconds remainingMs(unsigned long deadlineMs) const
+    {
+        const auto elapsed = elapsedMs();
+        const auto deadline = std::chrono::milliseconds(deadlineMs);
+        return elapsed >= deadline ? std::chrono::milliseconds(0) : deadline - elapsed;
+    }
+};
+
 enum class ExecutionCycleState {
     WaitingForStart,
     StartRequested,
+    PreparationReturn,
     CameraPose,
     CameraSettling,
-    CaptureWindow,
     Planning,
     StrikeReady,
     Pneumatic,
     PostStrikeActualPose,
     SafeLift,
-    CameraReturn,
+    StandbyReturn,
     CycleCompleted,
     ManualRecoveryRequired,
     UnknownUnsafe
@@ -35,7 +120,8 @@ enum class ExecutionCycleState {
 
 enum class OfflineStepStatus {
     Success,
-    Failure
+    Failure,
+    UnknownUnsafe
 };
 
 struct OfflineStepResult {
@@ -53,14 +139,27 @@ enum class OfflinePhase1Status {
     PipelineFailure
 };
 
+// PipelineFailure必須區分成因：只有Vision transport本身中斷（socket
+// timeout／斷線）才可在CameraPose內重拍；parser failure、invalid
+// event/result、config/numerical failure、connection identity不一致
+// 等一律不可重試；重試視窗本身到期則是獨立語意，不可誤標成transport中斷。
+enum class OfflinePhase1FailureKind {
+    TransportDisruption,
+    NonRetriable,
+    RetryWindowExpired
+};
+
 struct OfflinePhase1Result {
     OfflinePhase1Status status;
+    std::optional<OfflinePhase1FailureKind> failureKind;
 
     [[nodiscard]] bool isValid() const noexcept
     {
-        return status == OfflinePhase1Status::ShotPlanReady ||
-            status == OfflinePhase1Status::NoPlan ||
-            status == OfflinePhase1Status::PipelineFailure;
+        return (status == OfflinePhase1Status::PipelineFailure) ==
+                failureKind.has_value() &&
+            (status == OfflinePhase1Status::ShotPlanReady ||
+                status == OfflinePhase1Status::NoPlan ||
+                status == OfflinePhase1Status::PipelineFailure);
     }
 };
 
@@ -94,7 +193,8 @@ struct PneumaticCompletionResult {
 
 enum class LinearPathCheckStatus {
     Success,
-    ApiFailure
+    ApiFailure,
+    UnknownUnsafe
 };
 
 struct LinearPathCheckResult {
@@ -104,6 +204,26 @@ struct LinearPathCheckResult {
     [[nodiscard]] bool isValid() const noexcept
     {
         return status == LinearPathCheckStatus::Success || !reachable;
+    }
+};
+
+// Planning狀態內部（capture＋Algorithm＋MotionPlanner姿態搜尋，含CameraPose
+// 內重拍與Vision reconnect）的定案結果。PlanReady才附帶ExecutionPlan。
+enum class PlanningPhaseStatus {
+    PlanReady,
+    NoPlanSafeEnd,
+    Failure,
+    ManualRecoveryRequired,
+    UnknownUnsafe
+};
+
+struct PlanningPhaseResult {
+    PlanningPhaseStatus status;
+    std::optional<ExecutionPlan> plan;
+
+    [[nodiscard]] bool isValid() const noexcept
+    {
+        return (status == PlanningPhaseStatus::PlanReady) == plan.has_value();
     }
 };
 
@@ -119,17 +239,15 @@ enum class ExecutionCycleFailureReason {
     CycleAlreadyActive,
     CycleIdentityExhausted,
     MissingFakeAdapter,
-    HardwareConnectionFailed,
+    PreparationCheckFailed,
+    PreparationReturnMotionFailed,
+    PreparationReturnNotStopped,
     CameraPoseMotionFailed,
     CameraPoseNotStopped,
     CameraSettleFailed,
-    VisionFlushFailed,
-    VisionResetFailed,
-    CaptureWindowOpenFailed,
-    Phase1PipelineFailed,
-    InvalidPhase1Result,
+    CaptureAndPlanFailed,
+    VisionReconnectManualRecoveryRequired,
     InvalidExecutionPlan,
-    NoExecutablePlan,
     ExecutionPlanCycleMismatch,
     StrikeReadyValidationFailed,
     StrikeReadyMotionFailed,
@@ -142,8 +260,8 @@ enum class ExecutionCycleFailureReason {
     SafeLiftPathUnreachable,
     SafeLiftMotionFailed,
     SafeLiftNotConfirmed,
-    CameraReturnFailed,
-    CameraReturnNotStopped
+    StandbyReturnMotionFailed,
+    StandbyReturnNotStopped
 };
 
 struct ExecutionCycleAudit {
@@ -155,17 +273,31 @@ struct ExecutionCycleAudit {
 
     [[nodiscard]] bool isValid() const noexcept
     {
+        if (states.size() < 2 ||
+            states.front() != ExecutionCycleState::WaitingForStart ||
+            states.back() != ExecutionCycleState::WaitingForStart ||
+            states[1] != ExecutionCycleState::StartRequested) {
+            return false;
+        }
+        // PreparationReturn只在Robot按H時不在準備姿態才會出現，屬選配步驟；
+        // 比對固定模板前先移除，其餘序列必須完全固定。
+        std::vector<ExecutionCycleState> core = states;
+        const auto prepIt = core.begin() + 2;
+        if (prepIt != core.end() &&
+            *prepIt == ExecutionCycleState::PreparationReturn) {
+            core.erase(prepIt);
+        }
         const auto matches = [&](std::initializer_list<ExecutionCycleState> expected) {
-            return states.size() == expected.size() &&
-                std::equal(states.begin(), states.end(), expected.begin());
+            return core.size() == expected.size() &&
+                std::equal(core.begin(), core.end(), expected.begin());
         };
         const bool noPlanTrace = matches({
             ExecutionCycleState::WaitingForStart,
             ExecutionCycleState::StartRequested,
             ExecutionCycleState::CameraPose,
             ExecutionCycleState::CameraSettling,
-            ExecutionCycleState::CaptureWindow,
             ExecutionCycleState::Planning,
+            ExecutionCycleState::StandbyReturn,
             ExecutionCycleState::CycleCompleted,
             ExecutionCycleState::WaitingForStart});
         const bool shotTrace = matches({
@@ -173,13 +305,12 @@ struct ExecutionCycleAudit {
             ExecutionCycleState::StartRequested,
             ExecutionCycleState::CameraPose,
             ExecutionCycleState::CameraSettling,
-            ExecutionCycleState::CaptureWindow,
             ExecutionCycleState::Planning,
             ExecutionCycleState::StrikeReady,
             ExecutionCycleState::Pneumatic,
             ExecutionCycleState::PostStrikeActualPose,
             ExecutionCycleState::SafeLift,
-            ExecutionCycleState::CameraReturn,
+            ExecutionCycleState::StandbyReturn,
             ExecutionCycleState::CycleCompleted,
             ExecutionCycleState::WaitingForStart});
         return cycleIdentity != 0 &&
@@ -216,34 +347,58 @@ struct ExecutionCycleResult {
              (diagnostic &&
               diagnostic->stoppedState == ExecutionCycleState::UnknownUnsafe));
     }
+
 };
 
 struct OfflineExecutionRuntime {
     ExecutionCycleState state = ExecutionCycleState::WaitingForStart;
-    std::uint64_t nextCycleIdentity = 1;
 };
 
 struct OfflineExecutionSeam {
+    std::function<OfflineStepResult()> confirmPreparedForCycle;
+    // 純設定檢查（非hardware read）：STANDBY_JOINT_REFERENCE尚未核准
+    // revision時必須Failure（不latch），不得繞過此門檻直接PTP。
+    std::function<OfflineStepResult()> confirmStandbyReferenceApproved;
+    // 寫入動作（establishSafeOutputsOff／clearAlarm／activateConfiguredToolAndBase／
+    // setMotorState／setOverrideRatio）：只能排在confirmPreparedForCycle與
+    // confirmStandbyReferenceApproved都通過之後才呼叫，不得提前改變硬體狀態。
+    std::function<OfflineStepResult()> prepareHardwareForMotion;
+    // nullopt代表無法確認（fail closed，呼叫端須進UnknownUnsafe）。
+    std::function<std::optional<bool>()> isAtStandby;
+    std::function<OfflineStepResult()> returnToStandby;
+    std::function<OfflineStepResult()> confirmStandbyStopped;
     std::function<OfflineStepResult()> moveToCameraPose;
     std::function<OfflineStepResult()> confirmCameraPoseStopped;
     std::function<OfflineStepResult()> settleCamera;
-    std::function<OfflineStepResult()> flushStaleVisionBuffer;
-    std::function<OfflineStepResult()> resetCycleAccumulation;
-    std::function<OfflineStepResult()> openCaptureWindow;
-    std::function<OfflinePhase1Result()> runPhase1;
-    std::function<ExecutionPlanResult()> buildExecutionPlan;
+    std::function<PlanningPhaseResult()> acquireExecutionPlan;
     std::function<OfflineStepResult(const ExecutionPlan&)> validateStrikeReady;
     std::function<OfflineStepResult(const ExecutionPlan&)> moveToStrikeReady;
     std::function<OfflineStepResult()> confirmStrikeReadyStopped;
     std::function<PneumaticCompletionResult(const ExecutionPlan&)> runPneumatic;
-    std::function<std::optional<RobotPoseABC>()> readActualPose;
+    // UnknownUnsafe必須完整保留，不得壓成單純nullopt讀取失敗。
+    std::function<RobotPoseAdapterResult()> readActualPose;
     std::function<LinearPathCheckResult(
         const RobotPoseABC&,
         const RobotPoseABC&)> checkSafeLiftLinearPath;
     std::function<OfflineStepResult(const RobotPoseABC&)> moveSafeLiftLinear;
     std::function<OfflineStepResult(const RobotPoseABC&)> confirmSafeLiftStopped;
-    std::function<OfflineStepResult(const ExecutionPlan&)> returnToCameraPose;
-    std::function<OfflineStepResult()> confirmReturnCameraStopped;
+    std::function<OfflineStepResult(const ExecutionPlan&)> returnToStandbyAfterStrike;
+    std::function<OfflineStepResult()> confirmStandbyReturnStopped;
+};
+
+// connect()失敗原因必須區分：只有transport層真的可能自行恢復的失敗
+// （目前僅ConnectError，例如Python尚未啟動、連線被拒、逾時）才可在
+// retry cutoff內重試；設定/位址/socket建立層級的失敗永久不會恢復，
+// 必須立即fail closed，不得浪費整個重試視窗。
+enum class VisionConnectStatus {
+    Connected,
+    Retriable,
+    NonRetriable
+};
+
+struct VisionConnectResult {
+    VisionConnectStatus status;
+    int socketError;
 };
 
 // P2-03 僅提供非硬體生命週期依賴；Robot/DO 一律由既有 RobotController 承接。
@@ -251,13 +406,20 @@ struct RealExecutionCycleServices {
     std::function<OfflineStepResult()> settleCamera;
     std::function<OfflineStepResult()> flushStaleVisionBuffer;
     std::function<OfflineStepResult()> resetCycleAccumulation;
-    std::function<OfflineStepResult()> openCaptureWindow;
+    // 呼叫端必須每次都傳入同一個已配置cycleIdentity，本函式不得自行配置。
+    std::function<OfflineStepResult(ShotCycleIdentity)> openCaptureWindow;
     std::function<OfflinePhase1Result()> runPhase1;
-    std::function<ExecutionPlanResult()> buildExecutionPlan;
+    std::function<bool()> isVisionConnected;
+    // 單次連線嘗試；重試／deadline由呼叫端負責。
+    std::function<VisionConnectResult()> connectVision;
     std::function<const PlanningResult*()> currentPlanningResult;
     std::function<ExecutionPlanResult(
         const ShotPlan&,
         bool)> buildExecutionPlanForShot;
+    // PlanningTest診斷模式使用：單一計畫入口（挑選第一順位候選），
+    // 不含retry／reconnect，只服務不動硬體的診斷輸出。
+    std::function<ExecutionPlanResult()> buildExecutionPlan;
+    std::function<void(unsigned long)> sleepMs;
 #ifdef BILLIARDS_P2_03_TEST_SEAM
     // 舊單計畫入口僅供既有離線adapter fixtures；production不可啟用。
     bool testOnlyAllowSinglePlanCompatibility = false;
@@ -271,7 +433,10 @@ struct BilliardAppRunTestSeam {
     std::optional<bool> legalContactExecutionAuthorized;
     RobotController* robot;
     std::optional<BilliardConfig::RealHardwareExecutionConfig> realConfig;
-    std::function<bool()> startRequested;
+    // 注入原始key事件，讓production的pollStartControl／resyncStartControlToIdle
+    // 邏輯本身受測，而不是繞過edge gate另開一條路徑。
+    ConsoleKeyPoll consoleKeyPoll;
+    ConsoleKeyDownQuery consoleKeyDownQuery;
     std::optional<RealExecutionCycleServices> realServices;
     std::optional<BilliardConfig::ExecutionPolicyMode> motionPlanningPolicyMode;
     std::optional<BilliardConfig::MotionPlanningConfig> motionPlanningConfig;
@@ -282,6 +447,7 @@ struct BilliardAppRunTestSeam {
     std::optional<BilliardConfig::BrainConfig> brainConfig;
     std::optional<ConnectionIdentity> connectionIdentity;
     std::vector<std::string> currentCycleFrames;
+    SteadyClockNow fakeNow;
     std::function<void(const PlanningResult&)> planningResultObserved;
     std::function<void(const ExecutionPlanResult&)> executionPlanObserved;
 };
@@ -298,6 +464,7 @@ private:
     MotionPlanner motionPlanner;
     std::optional<MotionPlanningChecks> offlineMotionPlanningChecks;
     ShotCycleIdentity nextShotCycleIdentity;
+    StartControlGates startControlGates;
 #ifdef BILLIARDS_P2_03_TEST_SEAM
     std::optional<BilliardAppRunTestSeam> runTestSeam;
 #endif
@@ -313,19 +480,40 @@ public:
     void run();
     [[nodiscard]] static ExecutionCycleResult runOfflineSingleCycle(
         OfflineExecutionRuntime& runtime,
+        std::uint64_t cycleIdentity,
         const OfflineExecutionSeam& seam);
     [[nodiscard]] static ExecutionCycleResult runRealSingleCycle(
         OfflineExecutionRuntime& runtime,
+        std::uint64_t cycleIdentity,
         RobotController& robot,
         const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config,
-        const RealExecutionCycleServices& services);
+        const RealExecutionCycleServices& services,
+        const ShotDeadlineClock& deadline);
     [[nodiscard]] static PneumaticCompletionResult mapRealPneumaticResult(
         const RealPneumaticResult& result) noexcept;
+    [[nodiscard]] static StartControlEvent pollStartControl(
+        StartControlGates& gates,
+        const ConsoleKeyPoll& poll);
+    // WaitingForStart重新開始監聽前呼叫：drain累積事件、丟棄其中任何edge，
+    // 並把gate與目前真實物理按鍵狀態重新同步，避免長按跨過一輪邊界時
+    // 被誤判成新的一次down、也避免busy期間累積的press被排隊成下一輪Start。
+    static void resyncStartControlToIdle(
+        StartControlGates& gates,
+        const ConsoleKeyPoll& poll,
+        const ConsoleKeyDownQuery& query);
 
 private:
-    bool waitForStartRequest();
     bool processReceiveEvent(const ReceiveEvent& event);
     void invalidateVisionCycle(ReceiveEventInvalidationReason reason);
+    // H與P共用同一套「先read-only確認、通過才寫入硬體」流程，避免各自
+    // 維護一份、日後又漂移出不一致的前置順序。純read-only，不寫任何狀態。
+    [[nodiscard]] static OfflineStepResult confirmRobotReadyReadOnly(
+        RobotController& robot,
+        const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config);
+    // 寫入動作：只能在confirmRobotReadyReadOnly通過後呼叫。
+    [[nodiscard]] static OfflineStepResult prepareRobotHardwareForMotion(
+        RobotController& robot,
+        const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config);
 };
 
 inline PneumaticCompletionResult BilliardApp::mapRealPneumaticResult(
@@ -347,8 +535,45 @@ inline PneumaticCompletionResult BilliardApp::mapRealPneumaticResult(
     }
 }
 
+inline StartControlEvent BilliardApp::pollStartControl(
+    StartControlGates& gates,
+    const ConsoleKeyPoll& poll)
+{
+    StartControlEvent event;
+    if (!poll) return event;
+    for (const ConsoleKeyEvent& raw : poll()) {
+        if (raw.key == ConsoleKey::H) {
+            if (gates.start.onKeyDown(raw.keyDown)) event.startEdge = true;
+        } else if (raw.key == ConsoleKey::P) {
+            if (gates.standby.onKeyDown(raw.keyDown)) event.standbyEdge = true;
+        }
+    }
+    return event;
+}
+
+inline void BilliardApp::resyncStartControlToIdle(
+    StartControlGates& gates,
+    const ConsoleKeyPoll& poll,
+    const ConsoleKeyDownQuery& query)
+{
+    if (poll) {
+        for (const ConsoleKeyEvent& raw : poll()) {
+            if (raw.key == ConsoleKey::H) {
+                (void)gates.start.onKeyDown(raw.keyDown);
+            } else if (raw.key == ConsoleKey::P) {
+                (void)gates.standby.onKeyDown(raw.keyDown);
+            }
+        }
+    }
+    if (query) {
+        gates.start.resyncPhysicalState(query(ConsoleKey::H));
+        gates.standby.resyncPhysicalState(query(ConsoleKey::P));
+    }
+}
+
 inline ExecutionCycleResult BilliardApp::runOfflineSingleCycle(
     OfflineExecutionRuntime& runtime,
+    std::uint64_t cycleIdentity,
     const OfflineExecutionSeam& seam)
 {
     if (runtime.state != ExecutionCycleState::WaitingForStart) {
@@ -359,7 +584,7 @@ inline ExecutionCycleResult BilliardApp::runOfflineSingleCycle(
                 ExecutionCycleFailureReason::CycleAlreadyActive,
                 runtime.state}};
     }
-    if (runtime.nextCycleIdentity == 0) {
+    if (cycleIdentity == 0) {
         return {
             ExecutionCycleStatus::StartRejected,
             std::nullopt,
@@ -368,7 +593,6 @@ inline ExecutionCycleResult BilliardApp::runOfflineSingleCycle(
                 runtime.state}};
     }
 
-    const std::uint64_t cycleIdentity = runtime.nextCycleIdentity++;
     std::vector<ExecutionCycleState> states{
         ExecutionCycleState::WaitingForStart,
         ExecutionCycleState::StartRequested};
@@ -384,6 +608,13 @@ inline ExecutionCycleResult BilliardApp::runOfflineSingleCycle(
             ExecutionCycleStatus::SafeFailure,
             std::nullopt,
             ExecutionCycleDiagnostic{reason, stopped}};
+    };
+    const auto unknownUnsafe = [&](ExecutionCycleFailureReason reason) {
+        runtime.state = ExecutionCycleState::UnknownUnsafe;
+        return ExecutionCycleResult{
+            ExecutionCycleStatus::UnknownUnsafe,
+            std::nullopt,
+            ExecutionCycleDiagnostic{reason, ExecutionCycleState::UnknownUnsafe}};
     };
     const auto missing = [&]() {
         return safeFailure(ExecutionCycleFailureReason::MissingFakeAdapter);
@@ -408,155 +639,226 @@ inline ExecutionCycleResult BilliardApp::runOfflineSingleCycle(
                 states},
             std::nullopt};
     };
+    // 三態step結果的共用分派：UnknownUnsafe必須維持獨立終止路徑，
+    // 不得被壓成一般safeFailure。
+    const auto dispatchStep = [&](const OfflineStepResult& result,
+                                  ExecutionCycleFailureReason failReason)
+        -> std::optional<ExecutionCycleResult> {
+        if (result.status == OfflineStepStatus::UnknownUnsafe) {
+            return unknownUnsafe(failReason);
+        }
+        if (!result.succeeded()) {
+            return safeFailure(failReason);
+        }
+        return std::nullopt;
+    };
+
+    if (!seam.confirmPreparedForCycle) return missing();
+    if (const auto stop = dispatchStep(
+            seam.confirmPreparedForCycle(),
+            ExecutionCycleFailureReason::PreparationCheckFailed)) {
+        return *stop;
+    }
+
+    if (!seam.confirmStandbyReferenceApproved) return missing();
+    if (const auto stop = dispatchStep(
+            seam.confirmStandbyReferenceApproved(),
+            ExecutionCycleFailureReason::PreparationCheckFailed)) {
+        return *stop;
+    }
+
+    if (!seam.prepareHardwareForMotion) return missing();
+    if (const auto stop = dispatchStep(
+            seam.prepareHardwareForMotion(),
+            ExecutionCycleFailureReason::PreparationCheckFailed)) {
+        return *stop;
+    }
+
+    if (!seam.isAtStandby) return missing();
+    const std::optional<bool> atStandby = seam.isAtStandby();
+    if (!atStandby) {
+        return unknownUnsafe(ExecutionCycleFailureReason::PreparationCheckFailed);
+    }
+    if (!*atStandby) {
+        enter(ExecutionCycleState::PreparationReturn);
+        if (!seam.returnToStandby) return missing();
+        if (const auto stop = dispatchStep(
+                seam.returnToStandby(),
+                ExecutionCycleFailureReason::PreparationReturnMotionFailed)) {
+            return *stop;
+        }
+        if (!seam.confirmStandbyStopped) return missing();
+        if (const auto stop = dispatchStep(
+                seam.confirmStandbyStopped(),
+                ExecutionCycleFailureReason::PreparationReturnNotStopped)) {
+            return *stop;
+        }
+    }
 
     enter(ExecutionCycleState::CameraPose);
     if (!seam.moveToCameraPose) return missing();
-    if (!seam.moveToCameraPose().succeeded()) {
-        return safeFailure(ExecutionCycleFailureReason::CameraPoseMotionFailed);
+    if (const auto stop = dispatchStep(
+            seam.moveToCameraPose(),
+            ExecutionCycleFailureReason::CameraPoseMotionFailed)) {
+        return *stop;
     }
     if (!seam.confirmCameraPoseStopped) return missing();
-    if (!seam.confirmCameraPoseStopped().succeeded()) {
-        return safeFailure(ExecutionCycleFailureReason::CameraPoseNotStopped);
+    if (const auto stop = dispatchStep(
+            seam.confirmCameraPoseStopped(),
+            ExecutionCycleFailureReason::CameraPoseNotStopped)) {
+        return *stop;
     }
 
     enter(ExecutionCycleState::CameraSettling);
     if (!seam.settleCamera) return missing();
-    if (!seam.settleCamera().succeeded()) {
-        return safeFailure(ExecutionCycleFailureReason::CameraSettleFailed);
+    if (const auto stop = dispatchStep(
+            seam.settleCamera(),
+            ExecutionCycleFailureReason::CameraSettleFailed)) {
+        return *stop;
     }
-    if (!seam.flushStaleVisionBuffer) return missing();
-    if (!seam.flushStaleVisionBuffer().succeeded()) {
-        return safeFailure(ExecutionCycleFailureReason::VisionFlushFailed);
-    }
-    if (!seam.resetCycleAccumulation) return missing();
-    if (!seam.resetCycleAccumulation().succeeded()) {
-        return safeFailure(ExecutionCycleFailureReason::VisionResetFailed);
-    }
-    if (!seam.openCaptureWindow) return missing();
-    if (!seam.openCaptureWindow().succeeded()) {
-        return safeFailure(ExecutionCycleFailureReason::CaptureWindowOpenFailed);
-    }
-    enter(ExecutionCycleState::CaptureWindow);
 
     enter(ExecutionCycleState::Planning);
-    if (!seam.runPhase1) return missing();
-    const OfflinePhase1Result phase1 = seam.runPhase1();
-    if (!phase1.isValid()) {
-        return safeFailure(ExecutionCycleFailureReason::InvalidPhase1Result);
+    if (!seam.acquireExecutionPlan) return missing();
+    const PlanningPhaseResult planning = seam.acquireExecutionPlan();
+    if (!planning.isValid()) {
+        return unknownUnsafe(ExecutionCycleFailureReason::CaptureAndPlanFailed);
     }
-    if (phase1.status == OfflinePhase1Status::PipelineFailure) {
-        return safeFailure(ExecutionCycleFailureReason::Phase1PipelineFailed);
-    }
-    if (phase1.status == OfflinePhase1Status::NoPlan) {
-        return completed(false, std::nullopt, std::nullopt);
-    }
-
-    if (!seam.buildExecutionPlan) return missing();
-    const ExecutionPlanResult planned = seam.buildExecutionPlan();
-    if (!planned.isValid() || planned.status() != ExecutionPlanStatus::Success ||
-        !planned.value()) {
-        return safeFailure(
-            planned.isValid() &&
-                    planned.status() == ExecutionPlanStatus::NoExecutablePlan
-                ? ExecutionCycleFailureReason::NoExecutablePlan
-                : ExecutionCycleFailureReason::InvalidExecutionPlan);
-    }
-    const ExecutionPlan& plan = *planned.value();
-    if (plan.sourcePlanIdentity.shotCycleIdentity != cycleIdentity) {
-        return safeFailure(
-            ExecutionCycleFailureReason::ExecutionPlanCycleMismatch);
-    }
-
-    enter(ExecutionCycleState::StrikeReady);
-    if (!seam.validateStrikeReady) return missing();
-    if (!seam.validateStrikeReady(plan).succeeded()) {
-        return safeFailure(
-            ExecutionCycleFailureReason::StrikeReadyValidationFailed);
-    }
-    if (!seam.moveToStrikeReady) return missing();
-    if (!seam.moveToStrikeReady(plan).succeeded()) {
-        return safeFailure(ExecutionCycleFailureReason::StrikeReadyMotionFailed);
-    }
-    if (!seam.confirmStrikeReadyStopped) return missing();
-    if (!seam.confirmStrikeReadyStopped().succeeded()) {
-        return safeFailure(ExecutionCycleFailureReason::StrikeReadyNotStopped);
-    }
-
-    enter(ExecutionCycleState::Pneumatic);
-    if (!seam.runPneumatic) return missing();
-    const PneumaticCompletionResult pneumatic = seam.runPneumatic(plan);
-    if (!pneumatic.isValid()) {
-        runtime.state = ExecutionCycleState::UnknownUnsafe;
-        return {
-            ExecutionCycleStatus::UnknownUnsafe,
+    bool planFound = false;
+    ExecutionPlan plan{};
+    switch (planning.status) {
+    case PlanningPhaseStatus::UnknownUnsafe:
+        return unknownUnsafe(ExecutionCycleFailureReason::CaptureAndPlanFailed);
+    case PlanningPhaseStatus::ManualRecoveryRequired: {
+        runtime.state = ExecutionCycleState::ManualRecoveryRequired;
+        return ExecutionCycleResult{
+            ExecutionCycleStatus::SafeFailure,
             std::nullopt,
             ExecutionCycleDiagnostic{
-                ExecutionCycleFailureReason::PneumaticStateUnknown,
-                ExecutionCycleState::UnknownUnsafe}};
+                ExecutionCycleFailureReason::VisionReconnectManualRecoveryRequired,
+                ExecutionCycleState::ManualRecoveryRequired}};
     }
-    if (pneumatic.status == PneumaticCompletionStatus::UnknownUnsafe) {
-        runtime.state = ExecutionCycleState::UnknownUnsafe;
-        return {
-            ExecutionCycleStatus::UnknownUnsafe,
-            std::nullopt,
-            ExecutionCycleDiagnostic{
-                ExecutionCycleFailureReason::PneumaticStateUnknown,
-                ExecutionCycleState::UnknownUnsafe}};
-    }
-    postStrikeRecoveryRequired = true;
-    if (pneumatic.status == PneumaticCompletionStatus::Failure) {
-        return safeFailure(ExecutionCycleFailureReason::PneumaticFailed);
-    }
-
-    enter(ExecutionCycleState::PostStrikeActualPose);
-    if (!seam.readActualPose) return missing();
-    const std::optional<RobotPoseABC> actualPose = seam.readActualPose();
-    if (!actualPose) {
-        return safeFailure(ExecutionCycleFailureReason::ActualPoseReadFailed);
-    }
-    if (!actualPose->isFinite() || !plan.safeLiftRule.isValid()) {
-        return safeFailure(ExecutionCycleFailureReason::InvalidActualPose);
-    }
-    RobotPoseABC safeLift = *actualPose;
-    safeLift.z += plan.safeLiftRule.heightMm;
-    if (!safeLift.isFinite() || safeLift.x != actualPose->x ||
-        safeLift.y != actualPose->y || safeLift.a != actualPose->a ||
-        safeLift.b != actualPose->b || safeLift.c != actualPose->c ||
-        safeLift.z <= actualPose->z) {
-        return safeFailure(ExecutionCycleFailureReason::InvalidActualPose);
+    case PlanningPhaseStatus::Failure:
+        return safeFailure(ExecutionCycleFailureReason::CaptureAndPlanFailed);
+    case PlanningPhaseStatus::NoPlanSafeEnd:
+        planFound = false;
+        break;
+    case PlanningPhaseStatus::PlanReady:
+        if (!planning.plan) return safeFailure(ExecutionCycleFailureReason::InvalidExecutionPlan);
+        plan = *planning.plan;
+        if (plan.sourcePlanIdentity.shotCycleIdentity != cycleIdentity) {
+            return safeFailure(ExecutionCycleFailureReason::ExecutionPlanCycleMismatch);
+        }
+        planFound = true;
+        break;
     }
 
-    enter(ExecutionCycleState::SafeLift);
-    if (!seam.checkSafeLiftLinearPath) return missing();
-    const LinearPathCheckResult path =
-        seam.checkSafeLiftLinearPath(*actualPose, safeLift);
-    if (!path.isValid() || path.status == LinearPathCheckStatus::ApiFailure) {
-        return safeFailure(ExecutionCycleFailureReason::SafeLiftPathCheckFailed);
-    }
-    if (!path.reachable) {
-        return safeFailure(ExecutionCycleFailureReason::SafeLiftPathUnreachable);
-    }
-    if (!seam.moveSafeLiftLinear) return missing();
-    if (!seam.moveSafeLiftLinear(safeLift).succeeded()) {
-        return safeFailure(ExecutionCycleFailureReason::SafeLiftMotionFailed);
-    }
-    if (!seam.confirmSafeLiftStopped) return missing();
-    if (!seam.confirmSafeLiftStopped(safeLift).succeeded()) {
-        return safeFailure(ExecutionCycleFailureReason::SafeLiftNotConfirmed);
-    }
-    postStrikeRecoveryRequired = false;
+    PneumaticCompletionResult pneumatic{PneumaticCompletionStatus::Failure, std::nullopt};
+    if (planFound) {
+        enter(ExecutionCycleState::StrikeReady);
+        if (!seam.validateStrikeReady) return missing();
+        if (const auto stop = dispatchStep(
+                seam.validateStrikeReady(plan),
+                ExecutionCycleFailureReason::StrikeReadyValidationFailed)) {
+            return *stop;
+        }
+        if (!seam.moveToStrikeReady) return missing();
+        if (const auto stop = dispatchStep(
+                seam.moveToStrikeReady(plan),
+                ExecutionCycleFailureReason::StrikeReadyMotionFailed)) {
+            return *stop;
+        }
+        if (!seam.confirmStrikeReadyStopped) return missing();
+        if (const auto stop = dispatchStep(
+                seam.confirmStrikeReadyStopped(),
+                ExecutionCycleFailureReason::StrikeReadyNotStopped)) {
+            return *stop;
+        }
 
-    enter(ExecutionCycleState::CameraReturn);
-    if (!seam.returnToCameraPose) return missing();
-    if (!seam.returnToCameraPose(plan).succeeded()) {
-        return safeFailure(ExecutionCycleFailureReason::CameraReturnFailed);
+        enter(ExecutionCycleState::Pneumatic);
+        if (!seam.runPneumatic) return missing();
+        pneumatic = seam.runPneumatic(plan);
+        if (!pneumatic.isValid() ||
+            pneumatic.status == PneumaticCompletionStatus::UnknownUnsafe) {
+            return unknownUnsafe(ExecutionCycleFailureReason::PneumaticStateUnknown);
+        }
+        postStrikeRecoveryRequired = true;
+        if (pneumatic.status == PneumaticCompletionStatus::Failure) {
+            return safeFailure(ExecutionCycleFailureReason::PneumaticFailed);
+        }
+
+        enter(ExecutionCycleState::PostStrikeActualPose);
+        if (!seam.readActualPose) return missing();
+        const RobotPoseAdapterResult actualPoseResult = seam.readActualPose();
+        if (!actualPoseResult.isValid() ||
+            actualPoseResult.status == RobotAdapterStatus::UnknownUnsafe) {
+            return unknownUnsafe(ExecutionCycleFailureReason::ActualPoseReadFailed);
+        }
+        if (!actualPoseResult.value) {
+            return safeFailure(ExecutionCycleFailureReason::ActualPoseReadFailed);
+        }
+        const RobotPoseABC actualPose = *actualPoseResult.value;
+        const RobotPoseABC safeLift =
+            buildSafeLiftTarget(actualPose, plan.safeApproachPose.z);
+        if (!isValidSafeLiftTarget(actualPose, plan.safeApproachPose.z, safeLift)) {
+            return safeFailure(ExecutionCycleFailureReason::InvalidActualPose);
+        }
+
+        enter(ExecutionCycleState::SafeLift);
+        if (!seam.checkSafeLiftLinearPath) return missing();
+        const LinearPathCheckResult path =
+            seam.checkSafeLiftLinearPath(actualPose, safeLift);
+        if (!path.isValid() ||
+            path.status == LinearPathCheckStatus::UnknownUnsafe) {
+            return unknownUnsafe(ExecutionCycleFailureReason::SafeLiftPathCheckFailed);
+        }
+        if (path.status == LinearPathCheckStatus::ApiFailure) {
+            return safeFailure(ExecutionCycleFailureReason::SafeLiftPathCheckFailed);
+        }
+        if (!path.reachable) {
+            return safeFailure(ExecutionCycleFailureReason::SafeLiftPathUnreachable);
+        }
+        if (!seam.moveSafeLiftLinear) return missing();
+        if (const auto stop = dispatchStep(
+                seam.moveSafeLiftLinear(safeLift),
+                ExecutionCycleFailureReason::SafeLiftMotionFailed)) {
+            return *stop;
+        }
+        if (!seam.confirmSafeLiftStopped) return missing();
+        if (const auto stop = dispatchStep(
+                seam.confirmSafeLiftStopped(safeLift),
+                ExecutionCycleFailureReason::SafeLiftNotConfirmed)) {
+            return *stop;
+        }
+        postStrikeRecoveryRequired = false;
     }
-    if (!seam.confirmReturnCameraStopped) return missing();
-    if (!seam.confirmReturnCameraStopped().succeeded()) {
-        return safeFailure(ExecutionCycleFailureReason::CameraReturnNotStopped);
+
+    enter(ExecutionCycleState::StandbyReturn);
+    if (planFound) {
+        if (!seam.returnToStandbyAfterStrike) return missing();
+        if (const auto stop = dispatchStep(
+                seam.returnToStandbyAfterStrike(plan),
+                ExecutionCycleFailureReason::StandbyReturnMotionFailed)) {
+            return *stop;
+        }
+    } else {
+        if (!seam.returnToStandby) return missing();
+        if (const auto stop = dispatchStep(
+                seam.returnToStandby(),
+                ExecutionCycleFailureReason::StandbyReturnMotionFailed)) {
+            return *stop;
+        }
     }
+    if (!seam.confirmStandbyReturnStopped) return missing();
+    if (const auto stop = dispatchStep(
+            seam.confirmStandbyReturnStopped(),
+            ExecutionCycleFailureReason::StandbyReturnNotStopped)) {
+        return *stop;
+    }
+
     return completed(
-        true,
-        std::optional<Phase1PlanIdentity>{plan.sourcePlanIdentity},
-        pneumatic.evidence);
+        planFound,
+        planFound
+            ? std::optional<Phase1PlanIdentity>{plan.sourcePlanIdentity}
+            : std::nullopt,
+        planFound ? pneumatic.evidence : std::nullopt);
 }

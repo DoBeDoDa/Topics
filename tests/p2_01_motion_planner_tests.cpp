@@ -32,6 +32,8 @@ BilliardConfig::TableGeometryConfig tableConfig()
         }}};
 }
 
+const std::optional<BilliardConfig::TableGeometryConfig> geometryConfig = tableConfig();
+
 std::array<Point, 6> pocketCenters()
 {
     return {{{0.0, 0.0}, {500.0, 0.0}, {1000.0, 0.0},
@@ -80,7 +82,7 @@ StableTableState kickStateForRebound(
         (rail.segment.start.x + rail.segment.end.x) / 2.0,
         (rail.segment.start.y + rail.segment.end.y) / 2.0};
     const auto& pocket = geometry.pockets[pocketIndex];
-    const auto& bounds = geometry.playableBallCenterRegion.bounds;
+    const auto& bounds = tableConfig().physicalPlayingSurface;
     const Point tableCenter{
         (bounds.minX + bounds.maxX) / 2.0, (bounds.minY + bounds.maxY) / 2.0};
     const Vector2D inwardRaw{
@@ -190,11 +192,11 @@ BilliardConfig::MotionPlanningConfig motionConfig()
     config.calibrationRevision = "p2-01-motion-v1";
     config.base0PlanarCalibrationRevision = "p2-01-base0-v1";
     config.cueForwardAxisCalibrationRevision = "tool1-axis-test-v1";
-    config.primaryToolControllerCalibrationRevision = "tool1-controller-test-v1";
+    config.tool1ControllerCalibrationRevision = "tool1-controller-test-v1";
     config.strikeZMm = -216.0;
     config.safeApproachZMm = -160.0;
     config.readyGapMm = 15.0;
-    config.safeLiftHeightMm = 50.0;
+    config.strikePositionBiasMm = 0.0;
     config.a0Deg = 0.0;
     config.b0Deg = 0.0;
     config.deltaADeg = 1.0;
@@ -205,7 +207,9 @@ BilliardConfig::MotionPlanningConfig motionConfig()
     config.axisOffsetOrder = BilliardConfig::AxisOffsetOrder::LowerThenHigher;
     config.tieBreak = BilliardConfig::PoseTieBreak::FirstInApprovedSearchOrder;
     config.cToolOffsetDeg = 7.0;
-    config.cueForwardAxisTool = std::array<double, 3>{0.0, 1.0, 0.0};
+    // 已確認Tool1 local +X（見docs/specs與BilliardConfig.h註解），
+    // validConfig()直接檢查此值必須逼近(1,0,0)，不是任意單位向量。
+    config.cueForwardAxisTool = std::array<double, 3>{1.0, 0.0, 0.0};
     config.maxCueDirectionErrorDeg = 0.01;
     config.directionUnitTolerance = 1e-9;
     config.executionPolicyRevision = "execution-policy-test-v1";
@@ -231,15 +235,25 @@ MotionPlanningChecks alignedChecks(double cOffsetDeg)
 {
     return {
         [](const RobotPoseABC&) { return std::optional<bool>{true}; },
+        // 與BilliardApp.cpp production的offlineMotionPlanningChecksFor()同一套
+        // push/pull正負號模型：Push查詢confirmed +X本身，Pull查詢其反向。
         [cOffsetDeg](
             const RobotPoseABC& pose,
             const std::array<double, 3>& axis) -> std::optional<Vector2D> {
-            if (axis != std::array<double, 3>{0.0, 1.0, 0.0}) {
-                return std::nullopt;
-            }
+            const std::array<double, 3> pushAxis{1.0, 0.0, 0.0};
+            const std::array<double, 3> pullAxis{-1.0, 0.0, 0.0};
+            const double axisSign = axis == pushAxis
+                ? 1.0
+                : (axis == pullAxis ? -1.0 : 0.0);
+            if (axisSign == 0.0) return std::nullopt;
             const double angle = (pose.c - cOffsetDeg) *
                 3.14159265358979323846 / 180.0;
-            return Vector2D{std::cos(angle), std::sin(angle)};
+            return Vector2D{
+                axisSign * std::cos(angle), axisSign * std::sin(angle)};
+        },
+        [](const RobotPoseABC& approach, const RobotPoseABC& ready) {
+            return std::optional<bool>{
+                approach.isFinite() && ready.isFinite()};
         }};
 }
 }
@@ -247,6 +261,49 @@ MotionPlanningChecks alignedChecks(double cOffsetDeg)
 int main()
 {
     TestHarness tests;
+
+    // STANDBY_JOINT_REFERENCE已由使用者核准；若之後又回到nullopt，
+    // 這裡會先失敗，提醒之後的整段測試都會卡在同一道gate。
+    tests.expectTrue(BilliardConfig::STANDBY_JOINT_REFERENCE.isValid(),
+        "STANDBY_JOINT_REFERENCE must be approved for the rest of this file to "
+        "exercise createExecutionPlan()'s real geometry/search logic");
+
+    // buildSafeLiftTarget／isValidSafeLiftTarget是safe-lift唯一權威的
+    // 兩個自由函式，不依賴ExecutionPlan，獨立測試其契約。
+    const RobotPoseABC postStrikeActual{10.0, 20.0, -200.0, 1.0, 2.0, 3.0};
+    const RobotPoseABC liftTarget = buildSafeLiftTarget(postStrikeActual, -160.0);
+    tests.expectTrue(
+        liftTarget.x == postStrikeActual.x && liftTarget.y == postStrikeActual.y &&
+        liftTarget.a == postStrikeActual.a && liftTarget.b == postStrikeActual.b &&
+        liftTarget.c == postStrikeActual.c && liftTarget.z == -160.0,
+        "buildSafeLiftTarget keeps actual XYABC and sets Z to safeApproachPose.z");
+    tests.expectTrue(
+        isValidSafeLiftTarget(postStrikeActual, -160.0, liftTarget),
+        "isValidSafeLiftTarget accepts its own builder's output");
+    RobotPoseABC lateralTarget = liftTarget;
+    lateralTarget.x += 1.0;
+    tests.expectFalse(
+        isValidSafeLiftTarget(postStrikeActual, -160.0, lateralTarget),
+        "isValidSafeLiftTarget rejects any XY drift from actual pose");
+    RobotPoseABC rotatedTarget = liftTarget;
+    rotatedTarget.c += 1.0;
+    tests.expectFalse(
+        isValidSafeLiftTarget(postStrikeActual, -160.0, rotatedTarget),
+        "isValidSafeLiftTarget rejects any ABC drift from actual pose");
+    RobotPoseABC wrongHeightTarget = liftTarget;
+    wrongHeightTarget.z = -161.0;
+    tests.expectFalse(
+        isValidSafeLiftTarget(postStrikeActual, -160.0, wrongHeightTarget),
+        "isValidSafeLiftTarget rejects a Z that does not equal safeApproachPose.z");
+    RobotPoseABC belowActualTarget{
+        postStrikeActual.x, postStrikeActual.y, postStrikeActual.z - 1.0,
+        postStrikeActual.a, postStrikeActual.b, postStrikeActual.c};
+    tests.expectFalse(
+        isValidSafeLiftTarget(postStrikeActual, postStrikeActual.z - 1.0,
+            belowActualTarget),
+        "isValidSafeLiftTarget rejects a target at or below actual Z even if it "
+        "matches safeApproachPose.z (fail closed instead of lifting downward)");
+
     const auto resolved = BilliardPhysics::resolveTableGeometry(
         pocketCenters(), tableConfig());
     tests.expectTrue(resolved.value().has_value(), "P2-01 geometry fixture resolves");
@@ -264,7 +321,7 @@ int main()
     const auto config = motionConfig();
     const auto checks = alignedChecks(*config.cToolOffsetDeg);
     const ExecutionPlanResult directResult = planner.createExecutionPlan(
-        *direct, config, checks);
+        *direct, geometryConfig, config, checks);
     tests.expectTrue(
         directResult.isValid() && directResult.value() &&
         directResult.value()->sourceShotType == ShotPlanType::DirectPot,
@@ -294,10 +351,25 @@ int main()
         TOLERANCE,
         "C is atan2(shotDirection)+configured Tool offset");
     tests.expectTrue(
-        directPlan.safeLiftRule.derivation ==
-            SafeLiftDerivation::RuntimeActualPoseKeepXYABCIncreaseZ &&
-        directPlan.safeLiftRule.heightMm == *config.safeLiftHeightMm,
-        "ExecutionPlan records only the runtime-actual-pose safe-lift derivation rule");
+        directPlan.safeApproachPose.z > directPlan.strikeReadyPose.z,
+        "safeApproachPose sits strictly above strikeReadyPose (approach-from-above "
+        "geometry, checkpoint 1 invariant)");
+    tests.expectTrue(
+        directPlan.standbyJointCalibrationRevision ==
+            BilliardConfig::STANDBY_JOINT_REFERENCE.calibrationRevision &&
+        directPlan.standbyJointReference ==
+            BilliardConfig::STANDBY_JOINT_REFERENCE.jointDeg,
+        "ExecutionPlan carries the single approved standby joint reference, not a "
+        "second copy");
+    tests.expectTrue(
+        directPlan.motionIntents.size() == 4 &&
+        directPlan.motionIntents[0] == PlannedMotionIntent::CartesianPtpToSafeApproach &&
+        directPlan.motionIntents[1] == PlannedMotionIntent::LinearToStrikeReady &&
+        directPlan.motionIntents[2] ==
+            PlannedMotionIntent::RuntimeActualPoseVerticalSafeLift &&
+        directPlan.motionIntents[3] == PlannedMotionIntent::JointPtpToStandby,
+        "ExecutionPlan has exactly four stages: no transit hop, final stage "
+        "returns to standby, not CameraPose");
     tests.expectTrue(
         directPlan.fixedForceEnvelope.isValid() &&
         directPlan.fixedForceEnvelope.calibrationRevision ==
@@ -321,6 +393,16 @@ int main()
         std::numeric_limits<double>::quiet_NaN();
     tests.expectFalse(nonFinitePose.isValid(),
         "ExecutionPlan invariant rejects a non-finite Robot Pose");
+    ExecutionPlan invertedLift = directPlan;
+    invertedLift.safeApproachPose.z = directPlan.strikeReadyPose.z;
+    tests.expectFalse(invertedLift.isValid(),
+        "ExecutionPlan invariant rejects safeApproachPose.z <= strikeReadyPose.z "
+        "even when every other field is otherwise valid");
+    ExecutionPlan wrongStandbyRevision = directPlan;
+    wrongStandbyRevision.standbyJointCalibrationRevision = "some-other-revision";
+    tests.expectFalse(wrongStandbyRevision.isValid(),
+        "ExecutionPlan invariant rejects a standby revision that does not match "
+        "the single approved BilliardConfig source");
     const ExecutionPlanResult validFactory =
         ExecutionPlanResult::success(directPlan);
     tests.expectTrue(
@@ -341,7 +423,7 @@ int main()
         "ExecutionPlan invariant rejects an unknown policy mode");
 
     const ExecutionPlanResult repeated = planner.createExecutionPlan(
-        *direct, config, checks);
+        *direct, geometryConfig, config, checks);
     tests.expectTrue(repeated.value() &&
         repeated.value()->strikeReadyPose.a == directPlan.strikeReadyPose.a &&
         repeated.value()->strikeReadyPose.b == directPlan.strikeReadyPose.b &&
@@ -349,7 +431,7 @@ int main()
         "same ShotPlan and calibration produce deterministic ExecutionPlan");
 
     const ExecutionPlanResult kickResult = planner.createExecutionPlan(
-        *kick, config, checks);
+        *kick, geometryConfig, config, checks);
     const ShotPlan& kickShot = std::get<ShotPlan>(kick->value());
     tests.expectTrue(kickResult.value() &&
         kickResult.value()->sourceShotType == ShotPlanType::KickPot &&
@@ -381,7 +463,7 @@ int main()
     ShotPlan zeroDirection = directShot;
     zeroDirection.shotDirectionXY = {0.0, 0.0};
     const auto zeroResult = planner.createExecutionPlan(
-        PlanningResult::shotPlan(zeroDirection), config, checks);
+        PlanningResult::shotPlan(zeroDirection), geometryConfig, config, checks);
     tests.expectTrue(
         zeroResult.status() == ExecutionPlanStatus::InvalidShotPlan &&
         !zeroResult.value(),
@@ -390,7 +472,7 @@ int main()
     nonFiniteDirection.shotDirectionXY.x =
         std::numeric_limits<double>::quiet_NaN();
     const auto nonFiniteResult = planner.createExecutionPlan(
-        PlanningResult::shotPlan(nonFiniteDirection), config, checks);
+        PlanningResult::shotPlan(nonFiniteDirection), geometryConfig, config, checks);
     tests.expectTrue(
         nonFiniteResult.status() == ExecutionPlanStatus::InvalidShotPlan &&
         !nonFiniteResult.value(),
@@ -398,80 +480,89 @@ int main()
 
     auto missingStrikeZ = config;
     missingStrikeZ.strikeZMm.reset();
-    tests.expectTrue(planner.createExecutionPlan(*direct, missingStrikeZ, checks).status() ==
+    tests.expectTrue(planner.createExecutionPlan(
+        *direct, geometryConfig, missingStrikeZ, checks).status() ==
         ExecutionPlanStatus::ConfigurationMissing,
         "missing Strike Z is ConfigurationMissing");
     auto missingA = config;
     missingA.a0Deg.reset();
-    tests.expectTrue(planner.createExecutionPlan(*direct, missingA, checks).status() ==
+    tests.expectTrue(planner.createExecutionPlan(
+        *direct, geometryConfig, missingA, checks).status() ==
         ExecutionPlanStatus::ConfigurationMissing,
         "missing A baseline is ConfigurationMissing");
     auto missingRange = config;
     missingRange.deltaBDeg.reset();
-    tests.expectTrue(planner.createExecutionPlan(*direct, missingRange, checks).status() ==
+    tests.expectTrue(planner.createExecutionPlan(
+        *direct, geometryConfig, missingRange, checks).status() ==
         ExecutionPlanStatus::ConfigurationMissing,
         "missing A/B range is ConfigurationMissing");
     auto missingStep = config;
     missingStep.stepADeg.reset();
-    tests.expectTrue(planner.createExecutionPlan(*direct, missingStep, checks).status() ==
+    tests.expectTrue(planner.createExecutionPlan(
+        *direct, geometryConfig, missingStep, checks).status() ==
         ExecutionPlanStatus::ConfigurationMissing,
         "missing A/B step is ConfigurationMissing");
     auto missingAxis = config;
     missingAxis.cueForwardAxisTool.reset();
-    tests.expectTrue(planner.createExecutionPlan(*direct, missingAxis, checks).status() ==
+    tests.expectTrue(planner.createExecutionPlan(
+        *direct, geometryConfig, missingAxis, checks).status() ==
         ExecutionPlanStatus::ConfigurationMissing,
         "missing Tool forward-axis calibration is ConfigurationMissing");
     auto missingEnvelope = config;
     missingEnvelope.fixedForceEnvelope.reset();
     tests.expectTrue(planner.createExecutionPlan(
-        *direct, missingEnvelope, checks).status() ==
+        *direct, geometryConfig, missingEnvelope, checks).status() ==
         ExecutionPlanStatus::ConfigurationMissing,
         "missing fixed-force envelope is ConfigurationMissing");
     auto missingTiming = config;
     missingTiming.pneumaticTimingProfile.reset();
     tests.expectTrue(planner.createExecutionPlan(
-        *direct, missingTiming, checks).status() ==
+        *direct, geometryConfig, missingTiming, checks).status() ==
         ExecutionPlanStatus::ConfigurationMissing,
         "missing pneumatic timing reference is ConfigurationMissing");
     auto missingPolicyRevision = config;
     missingPolicyRevision.executionPolicyRevision.reset();
     tests.expectTrue(planner.createExecutionPlan(
-        *direct, missingPolicyRevision, checks).status() ==
+        *direct, geometryConfig, missingPolicyRevision, checks).status() ==
         ExecutionPlanStatus::ConfigurationMissing,
         "missing ExecutionPolicy revision is ConfigurationMissing");
     auto emptyPolicyRevision = config;
     emptyPolicyRevision.executionPolicyRevision = "";
     tests.expectTrue(planner.createExecutionPlan(
-        *direct, emptyPolicyRevision, checks).status() ==
+        *direct, geometryConfig, emptyPolicyRevision, checks).status() ==
         ExecutionPlanStatus::InvalidConfiguration,
         "empty ExecutionPolicy revision is InvalidConfiguration");
     auto directOutsideEnvelope = config;
     directOutsideEnvelope.fixedForceEnvelope->directPot.maxTotalPathLengthMm = 1.0;
     tests.expectTrue(planner.createExecutionPlan(
-        *direct, directOutsideEnvelope, checks).status() ==
+        *direct, geometryConfig, directOutsideEnvelope, checks).status() ==
         ExecutionPlanStatus::NoExecutablePlan,
         "geometrically valid plan outside fixed-force envelope is not executable");
     auto kickEnvelopeTooWide = config;
     kickEnvelopeTooWide.fixedForceEnvelope->kickPot.maxExecutableKickRailAngleDeg =
         90.0;
     tests.expectTrue(planner.createExecutionPlan(
-        *kick, kickEnvelopeTooWide, checks).status() ==
+        *kick, geometryConfig, kickEnvelopeTooWide, checks).status() ==
         ExecutionPlanStatus::InvalidConfiguration,
         "Phase 2 Kick envelope cannot be wider than Phase 1 geometry gate");
     const MotionPlanningChecks missingProjector{
         [](const RobotPoseABC&) { return std::optional<bool>{true}; }, {}};
     tests.expectTrue(planner.createExecutionPlan(
-        *direct, config, missingProjector).status() ==
+        *direct, geometryConfig, config, missingProjector).status() ==
         ExecutionPlanStatus::ConfigurationMissing,
         "missing approved Tool-axis projection semantics is ConfigurationMissing");
 
+    const auto alwaysReachableLin = [](const RobotPoseABC&, const RobotPoseABC&) {
+        return std::optional<bool>{true};
+    };
     const MotionPlanningChecks mismatchedDirection{
         [](const RobotPoseABC&) { return std::optional<bool>{true}; },
         [](const RobotPoseABC&, const std::array<double, 3>&) {
             return std::optional<Vector2D>{{0.0, 1.0}};
-        }};
+        },
+        alwaysReachableLin};
     const auto mismatch = planner.createExecutionPlan(
-        *direct, config, mismatchedDirection);
+        *direct, geometryConfig, config, mismatchedDirection);
     tests.expectTrue(
         mismatch.status() == ExecutionPlanStatus::NoExecutablePlan &&
         mismatch.diagnostic() &&
@@ -482,24 +573,41 @@ int main()
         [](const RobotPoseABC&) { return std::optional<bool>{true}; },
         [](const RobotPoseABC&, const std::array<double, 3>&) {
             return std::optional<Vector2D>{{0.0, 0.0}};
-        }};
-    tests.expectTrue(planner.createExecutionPlan(*direct, config, zeroProjection).status() ==
+        },
+        alwaysReachableLin};
+    tests.expectTrue(planner.createExecutionPlan(
+        *direct, geometryConfig, config, zeroProjection).status() ==
         ExecutionPlanStatus::NoExecutablePlan,
         "zero projected Tool direction fails closed");
 
     auto invalidPoseConfig = config;
     invalidPoseConfig.strikeZMm = std::numeric_limits<double>::infinity();
     tests.expectTrue(planner.createExecutionPlan(
-        *direct, invalidPoseConfig, checks).status() ==
+        *direct, geometryConfig, invalidPoseConfig, checks).status() ==
         ExecutionPlanStatus::InvalidConfiguration,
         "non-finite Pose calibration is rejected");
+    auto invertedApproachConfig = config;
+    invertedApproachConfig.safeApproachZMm = *config.strikeZMm;
+    tests.expectTrue(planner.createExecutionPlan(
+        *direct, geometryConfig, invertedApproachConfig, checks).status() ==
+        ExecutionPlanStatus::InvalidConfiguration,
+        "safeApproachZMm at or below strikeZMm is rejected before any pose search "
+        "(checkpoint 1 review fix: approach-from-above geometry)");
+    auto belowApproachConfig = config;
+    belowApproachConfig.safeApproachZMm = *config.strikeZMm - 1.0;
+    tests.expectTrue(planner.createExecutionPlan(
+        *direct, geometryConfig, belowApproachConfig, checks).status() ==
+        ExecutionPlanStatus::InvalidConfiguration,
+        "safeApproachZMm below strikeZMm is rejected, not just equal");
 
     const MotionPlanningChecks boundedChecks{
         [](const RobotPoseABC& pose) {
             return std::optional<bool>{pose.a == -1.0 && pose.b == 1.0};
         },
-        checks.projectCueForwardAxisToBase0XY};
-    const auto bounded = planner.createExecutionPlan(*direct, config, boundedChecks);
+        checks.projectCueForwardAxisToBase0XY,
+        alwaysReachableLin};
+    const auto bounded = planner.createExecutionPlan(
+        *direct, geometryConfig, config, boundedChecks);
     tests.expectTrue(bounded.value() &&
         bounded.value()->selectedADeg == -1.0 &&
         bounded.value()->selectedBDeg == 1.0 &&
@@ -520,12 +628,15 @@ int main()
     }
     const MotionPlanningChecks noPoseChecks{
         [](const RobotPoseABC&) { return std::optional<bool>{false}; },
-        checks.projectCueForwardAxisToBase0XY};
-    tests.expectTrue(planner.createExecutionPlan(*direct, config, noPoseChecks).status() ==
+        checks.projectCueForwardAxisToBase0XY,
+        alwaysReachableLin};
+    tests.expectTrue(planner.createExecutionPlan(
+        *direct, geometryConfig, config, noPoseChecks).status() ==
         ExecutionPlanStatus::NoExecutablePlan,
         "all rejected A/B candidates return NoExecutablePlan without fallback");
 
-    const auto legalBlocked = planner.createExecutionPlan(*legal, config, checks);
+    const auto legalBlocked = planner.createExecutionPlan(
+        *legal, geometryConfig, config, checks);
     tests.expectTrue(
         legalBlocked.status() == ExecutionPlanStatus::NoExecutablePlan &&
         legalBlocked.diagnostic() &&
@@ -536,7 +647,7 @@ int main()
     auto authorizedLegalConfig = config;
     authorizedLegalConfig.legalContactExecutionAuthorized = true;
     const auto authorizedLegal = planner.createExecutionPlan(
-        *legal, authorizedLegalConfig, checks);
+        *legal, geometryConfig, authorizedLegalConfig, checks);
     tests.expectTrue(authorizedLegal.value() &&
         authorizedLegal.value()->policyDecision ==
             ExecutionPolicyDecision::LegalContactExplicitlyAuthorized &&
@@ -546,42 +657,42 @@ int main()
     authorizedLegalConfig.policyMode =
         BilliardConfig::ExecutionPolicyMode::RealHardware;
     tests.expectTrue(planner.createExecutionPlan(
-        *legal, authorizedLegalConfig, checks).status() ==
+        *legal, geometryConfig, authorizedLegalConfig, checks).status() ==
         ExecutionPlanStatus::NoExecutablePlan,
         "P2-01 cannot authorize LegalContact for real hardware");
 
     auto revisionMismatch = config;
     revisionMismatch.base0PlanarCalibrationRevision = "wrong-base0-revision";
     tests.expectTrue(planner.createExecutionPlan(
-        *direct, revisionMismatch, checks).status() ==
+        *direct, geometryConfig, revisionMismatch, checks).status() ==
         ExecutionPlanStatus::InvalidConfiguration,
         "Base0 calibration revision mismatch rejects ExecutionPlan");
 
     ShotPlan missingConnection = directShot;
     missingConnection.source.planIdentity.connectionIdentity = 0;
     tests.expectTrue(planner.createExecutionPlan(
-        PlanningResult::shotPlan(missingConnection), config, checks).status() ==
-        ExecutionPlanStatus::InvalidShotPlan,
+        PlanningResult::shotPlan(missingConnection), geometryConfig, config,
+        checks).status() == ExecutionPlanStatus::InvalidShotPlan,
         "missing source connection identity rejects ExecutionPlan");
     ShotPlan missingCycle = directShot;
     missingCycle.source.planIdentity.shotCycleIdentity = 0;
     tests.expectTrue(planner.createExecutionPlan(
-        PlanningResult::shotPlan(missingCycle), config, checks).status() ==
-        ExecutionPlanStatus::InvalidShotPlan,
+        PlanningResult::shotPlan(missingCycle), geometryConfig, config,
+        checks).status() == ExecutionPlanStatus::InvalidShotPlan,
         "missing source shot-cycle identity rejects ExecutionPlan");
     ShotPlan inconsistentEvents = directShot;
     inconsistentEvents.source.sourceEvents[1].eventId =
         inconsistentEvents.source.sourceEvents[0].eventId;
     tests.expectTrue(planner.createExecutionPlan(
-        PlanningResult::shotPlan(inconsistentEvents), config, checks).status() ==
-        ExecutionPlanStatus::InvalidShotPlan,
+        PlanningResult::shotPlan(inconsistentEvents), geometryConfig, config,
+        checks).status() == ExecutionPlanStatus::InvalidShotPlan,
         "inconsistent source event IDs reject ExecutionPlan");
 
     const auto expectMalformedVariantRejected = [&](ShotPlan malformed,
                                                      const char* message) {
         tests.expectTrue(planner.createExecutionPlan(
-            PlanningResult::shotPlan(std::move(malformed)), config, checks).status() ==
-            ExecutionPlanStatus::InvalidShotPlan,
+            PlanningResult::shotPlan(std::move(malformed)), geometryConfig, config,
+            checks).status() == ExecutionPlanStatus::InvalidShotPlan,
             message);
     };
     ShotPlan malformedDirect = directShot;
@@ -603,7 +714,7 @@ int main()
     ShotPlan unknownType = directShot;
     unknownType.type = static_cast<ShotPlanType>(99);
     const auto unknownTypeResult = planner.createExecutionPlan(
-        PlanningResult::shotPlan(unknownType), config, checks);
+        PlanningResult::shotPlan(unknownType), geometryConfig, config, checks);
     tests.expectTrue(
         unknownTypeResult.status() == ExecutionPlanStatus::InvalidShotPlan &&
         !unknownTypeResult.value(),
@@ -614,7 +725,8 @@ int main()
         state({500.0, 250.0}, noBalls),
         std::optional<BilliardConfig::TableGeometryConfig>{tableConfig()},
         brainConfig());
-    tests.expectTrue(planner.createExecutionPlan(noPlanInput, config, checks).status() ==
+    tests.expectTrue(planner.createExecutionPlan(
+        noPlanInput, geometryConfig, config, checks).status() ==
         ExecutionPlanStatus::InvalidShotPlan,
         "Phase 1 NoPlan cannot be revived into an ExecutionPlan");
 

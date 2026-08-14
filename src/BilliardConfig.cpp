@@ -11,7 +11,25 @@
 
 #include "BilliardConfig.h"
 
+#include <algorithm>
+#include <cmath>
+
 namespace BilliardConfig {
+
+bool StandbyJointReference::isValid() const noexcept
+{
+    return calibrationRevision.has_value() && !calibrationRevision->empty() &&
+        std::all_of(jointDeg.begin(), jointDeg.end(), [](double value) {
+            return std::isfinite(value);
+        });
+}
+
+bool ShotCycleTimingConfig::isValid() const noexcept
+{
+    return shotDeadlineMs > 0 && minimumExecutionReserveMs > 0 &&
+        planningRetryCutoffMs > 0 && shotDeadlineMs >= planningRetryCutoffMs &&
+        (shotDeadlineMs - planningRetryCutoffMs) >= minimumExecutionReserveMs;
+}
 
 // [人工設定]：部署環境改變時由人修改
 // [需實測]  ：必須由實際球桌、相機或機械手臂量測/標定後才能填
@@ -60,7 +78,6 @@ const int NORMAL_SPEED_RATIO = 20;
 
 // [人工設定 / 實機確認]
 // 使用控制器中的 Tool 編號。
-// 目前使用 Tool 1，且 Tool1 TCP 應設定在球桿尖端。
 // 若控制器 Tool 設定改變，此值必須同步修改。
 const int TOOL_NUMBER = 1;
 
@@ -106,7 +123,7 @@ const double MIN_AIM_DISTANCE_MM = 3.0;
 // 允許使用的最大手臂工作半徑。
 // 不應只按照理論 reach 填值；需考慮實際 Tool、姿態與安全空間。
 // Phase 2 最終仍應依 motion_reachable / path check 判斷。
-const double MAX_REACH_RADIUS_MM = 850.0;
+const double MAX_REACH_RADIUS_MM = 800.0;
 
 
 // ============================================================
@@ -131,8 +148,13 @@ const std::optional<unsigned long> VISION_RECEIVE_TIMEOUT_MS = 2000;
 // 這不是球桌 playable region，而是「合理可能收到的 Base0 XY」。
 // 需要根據實際相機視野＋Base0 校正範圍取得。
 // 尚未核准前保持 nullopt。
-const std::optional<AxisAlignedBounds2D>
-    VISION_OBSERVATION_BOUNDS = std::nullopt;
+const std::optional<AxisAlignedBounds2D> VISION_OBSERVATION_BOUNDS =
+    AxisAlignedBounds2D{
+        -750.0,  // minX
+         750.0,  // maxX
+         150.0,  // minY
+        900.0   // maxY
+    };
 
 
 // ============================================================
@@ -145,14 +167,14 @@ const std::optional<AxisAlignedBounds2D>
 // 建議先讓球完全靜止，記錄 20～30 次 Vision Base0 XY 抖動，
 // 再依真實 noise 決定，而不是猜 1 mm、5 mm 等值。
 const std::optional<double>
-    STABLE_FRAME_TOLERANCE_MM = 7.0;
+    STABLE_FRAME_TOLERANCE_MM = 3.0;
 
 
 // 六個袋口在三次偵測中允許的最大位置偏差，單位 mm。
 // 袋口理論上固定，因此可利用實際 YOLO + Homography 抖動資料標定。
 // 同樣不可直接猜值。
 const std::optional<double>
-    POCKET_STABILITY_TOLERANCE_MM = 7.0;
+    POCKET_STABILITY_TOLERANCE_MM = 5.0;
 
 
 // 相鄰兩筆有效 ReceiveEvent 最大允許時間間隔，單位 ms。
@@ -193,7 +215,11 @@ const std::optional<TableGeometryConfig>
 //   入射角與反射角允許的角度誤差。
 //
 const std::optional<KickGeometryConfig>
-    KICK_GEOMETRY = std::nullopt;
+    KICK_GEOMETRY = KickGeometryConfig{
+        /* maxKickRailAngleDeg */          65.0,
+        /* reflectionDirectionTolerance */ 3.0,
+        /* reflectionAngleToleranceDeg */  1e-4
+    };
 
 // ============================================================
 // 8. Phase 1 評分設定
@@ -273,7 +299,31 @@ const ScoringWeights INITIAL_EXPERIMENTAL_SCORING_WEIGHTS = {
 //       不等於 SafetyShot；real hardware 預設不可直接執行。
 //
 const std::optional<ScoringConfig>
-    SCORING_CONFIG = std::nullopt;
+    SCORING_CONFIG = ScoringConfig{
+        /* rawWeights */
+        INITIAL_EXPERIMENTAL_SCORING_WEIGHTS,
+
+        /* effectiveWeightSumTolerance */
+        1e-9,
+
+        /* maxCutAngleDeg */
+        90.0,
+
+        /* minDistanceMm */
+        0.0,
+
+        /* maxDistanceMm */
+        1400.0,  // TODO: 依實際 P1~P6 球桌尺度與一次 Kick 最大合理總路徑設定
+
+        /* preferredClearanceMm */
+        70.0,  // TODO: 必須 > ballDiameterMm + collisionMarginMm
+
+        /* tieEpsilon */
+        1e-9,
+
+        /* planningMode */
+        PlanningMode::ManualResearch
+    };
 
 
 // ============================================================
@@ -290,7 +340,7 @@ const std::optional<ScoringConfig>
 // 但名稱必須由你實際建立的標定版本決定，不能現在隨便填。
 // 32-value wire 本身不帶 revision，所以這是部署管理資訊。
 const std::optional<std::string>
-    BASE0_PLANAR_CALIBRATION_REVISION = std::nullopt;
+    BASE0_PLANAR_CALIBRATION_REVISION = "base0-planar-v1";
 
 
 // ============================================================
@@ -316,12 +366,7 @@ const BrainConfig BRAIN_CONFIG = {
 // Robot 到達 CameraPose 並停止後，等待相機與畫面穩定的時間。
 // 800 ms 應透過實際影像測試確認：
 // 手臂停止後相機震動、曝光、自動對焦等是否已穩定。
-const unsigned long CAMERA_SETTLE_MS = 800;
-
-// [需實測]
-// Robot 到 Transit pose 後的額外穩定等待時間。
-// 應依實際手臂停止震動時間確認。
-const unsigned long TRANSIT_SETTLE_MS = 500;
+const unsigned long CAMERA_SETTLE_MS = 1000;
 
 // [人工設定 / 安全參數]
 // Robot motion命令送出後，確認控制器離開停止狀態的最長等待時間。
@@ -354,34 +399,43 @@ const unsigned long MOTION_POLL_INTERVAL_MS = 50;
 //
 // 若相機、支架、Robot Base、球桌位置改變，通常需要重新教導。
 const std::array<double, 6> CAMERA_JOINT = {
-    0.0,
-    -11.049,
-    28.921,
-    0.0,
-    -15.574,
-    -90.0
+    -3.5,
+    -25.8,
+    54.0,
+    12.2,
+    -28.3,
+    -100.0
 };
 
 // [人工可調 / 實驗參數]
 // 六軸都在此誤差內時，視為已位於CameraPose，不重送相同PTP命令。
 const double CAMERA_JOINT_TOLERANCE_DEG = 0.2;
 
+// [已核准 / 人工可調研究值]
+// standby姿態專用容差，獨立於CameraPose；初始值與CAMERA_JOINT_TOLERANCE_DEG
+// 相同純屬巧合（同屬controller停止震動量級），未來各自實測校正時可分開調整。
+const double STANDBY_JOINT_TOLERANCE_DEG = 0.2;
+
+// [已核准 / 人工可調研究值]
+// Vision reconnect gate每次重試連線之間的等待間隔。
+const unsigned long VISION_RECONNECT_POLL_INTERVAL_MS = 200;
+
 
 // ============================================================
-// 14. Transit Pose
+// 14. Standby（準備姿態）Pose
 // ============================================================
 
-// [需人工教導 / 實機確認]
-// CameraPose 與擊球區域之間使用的中繼 Joint pose。
-// 必須確認整條移動路徑不撞球桌、相機、氣管或其他設備。
-// 不可因為單一 pose reachable 就宣稱 PTP path 安全。
-const std::array<double, 6> TRANSIT_JOINT = {
-    -5.0,
-    -53.0,
-    8.0,
-    -3.62,
-    -46.497,
-    0.0
+// [已核准]
+// Robot準備姿態，H/P流程PTP的唯一權威joint reference。
+// CameraPose到擊球點正上方（safeApproachPose）不再經過任何中繼pose；
+// 此姿態只在WaitingForStart前置確認、P人工功能，以及擊球後safe lift
+// 完成時使用。
+// jointDeg數值為使用者已於計畫2.1節確認。calibrationRevision由使用者於
+// Phase 2核准為"standby-joint-2026-08-v1"，解除checkpoint 1的fail-closed
+// 狀態；之後若重新教導準備姿態，必須同步核准新版號，不得沿用舊字串。
+const StandbyJointReference STANDBY_JOINT_REFERENCE = {
+    std::string{"standby-joint-2026-08-v1"},
+    {0.0, 0.0, 90.0, 0.0, 0.0, -90.0}
 };
 
 
@@ -397,13 +451,13 @@ const MotionProfile PRODUCTION_MOTION = {
     // [需實測]
     // 真正擊球時 Tool1 TCP / 球桿尖端所需的 Z 高度。
     // 必須依桌面高度、球半徑、球桿中心高度及 Tool1 TCP 實測。
-    -216.0,
+    -220.0,
 
     // [需實測]
     // 正式擊球前使用的安全／預備 Z 高度。
     // 名稱與 Phase 2 真正「post-strike safe lift Z」要避免混淆。
     // 必須確認 Base0 +Z 的實體方向與安全上方後才能正式啟用。
-    -160.0,
+    -180.0,
 
     // [需實機標定]
     // Robot pose 中對應的 RX / A 類姿態設定。
@@ -439,7 +493,7 @@ const MotionProfile TEST_MOTION = {
 
     // [需人工確認]
     // 測試時使用較高的 Z，不下降到實際擊球高度。
-    -140.0,
+    -180.0,
 
     // [需人工確認]
     // 測試模式的安全高度。
@@ -447,11 +501,11 @@ const MotionProfile TEST_MOTION = {
 
     // [需人工確認]
     // 測試 Robot 姿態 RX。
-    -10.0,
+    -180.0,
 
     // [需人工確認]
-    // 測試 Robot 姿態 RY / tilt。
-    0.0,
+    // 測試 Robot 姿態 RY / tilt。  
+    0.5,
 
     // [保持 0，除非另行核准]
     // 測試 backward motion。
@@ -472,8 +526,8 @@ const MotionProfile TEST_MOTION = {
 // strikePositionBiasMm初始值固定為0.0 mm；非零值只由人工調適。
 // pullModeMinBottomDistanceMm初始研究值為300.0 mm，不是固定機械規格。
 // 球桌往下方向已確認為Base0 Y-，且Robot正對球桌長邊、無平面旋轉偏移。
-const std::optional<MotionPlanningConfig> MOTION_PLANNING_CONFIG = std::nullopt;
-const ExecutionPolicyMode PRODUCTION_RUNTIME_MODE = ExecutionPolicyMode::PlanningTest;
+const std::optional<MotionPlanningConfig> MOTION_PLANNING_CONFIG =std::nullopt;
+const ExecutionPolicyMode PRODUCTION_RUNTIME_MODE = ExecutionPolicyMode::RealHardware;
 
 // ============================================================
 // 18. P2-03 Real Hardware Authorization / Calibration
@@ -481,7 +535,121 @@ const ExecutionPolicyMode PRODUCTION_RUNTIME_MODE = ExecutionPolicyMode::Plannin
 
 // ABC↔HRSDK RX/RY/RZ、唯一Tool1/Base0 revision、Base0 +Z安全方向與
 // DO1/DO2 timing尚未完成受控實機核准；不得以測試值代替production值。
-const std::optional<RealHardwareExecutionConfig>
-    REAL_HARDWARE_EXECUTION_CONFIG = std::nullopt;
+// ============================================================
+// 18. P2-03 Real Hardware Authorization / Calibration
+// ============================================================
 
-}
+// 真機 motion / DO 尚未完整驗收前保持停用。
+const std::optional<RealHardwareExecutionConfig>
+    REAL_HARDWARE_EXECUTION_CONFIG =
+        RealHardwareExecutionConfig{
+
+            // 1. 真機執行授權版本
+            /* authorizationRevision */
+            "real-hardware-v1",
+
+            // 2. 真機總開關
+            /* realHardwareExecutionEnabled */
+            true,
+
+            // 3. Robot Base 編號
+            /* baseNumber */
+            0,
+
+            // 4. Tool1 編號
+            /* tool1Number */
+            1,
+
+            // 5. Base0 controller calibration 版本
+            /* base0CalibrationRevision */
+            "base0-controller-v1",
+
+            // 6. Tool1 controller / TCP calibration 版本
+            /* tool1ControllerCalibrationRevision */
+            "tool1-controller-v1",
+
+            // 7. A/B/C → HRSDK RX/RY/RZ 映射
+            /* angleMapping */
+            HrSdkAngleMappingConfig{
+                /* calibrationRevision */
+                "abc-hrsdk-mapping-v1",
+
+                /* rxRyRzSources */
+                {
+                    RobotAngleComponent::A,  // TODO: 實際驗證 RX
+                    RobotAngleComponent::B,  // TODO: 實際驗證 RY
+                    RobotAngleComponent::C   // TODO: 實際驗證 RZ
+                },
+
+                /* scales */
+                {
+                    1.0,  // TODO: 實機驗證正負方向
+                    1.0,
+                    1.0
+                },
+
+                /* offsetsDeg */
+                {
+                    0.0,  // TODO: 實機標定
+                    0.0,
+                    0.0
+                }
+            },
+
+            // 8. Safe-Up 校正版本
+            /* safeUpCalibrationRevision */
+            "safe-up-v1",
+
+            // 9. 執行政策要求的 Tool1 calibration
+            /* requiredTool1CalibrationRevision */
+            "tool1-controller-v1",
+
+            // 10. 執行政策要求的 ABC mapping
+            /* requiredAbcMappingRevision */
+            "abc-hrsdk-mapping-v1",
+
+            // 11. 執行政策要求的 Safe-Up calibration
+            /* requiredSafeUpCalibrationRevision */
+            "safe-up-v1",
+
+            // 12. 是否已實機確認 Base0 +Z 是安全抬升方向
+            /* base0PositiveZSafeConfirmed */
+            true,
+
+            // 13. Striker 伸出 DO
+            /* extendDoIndex */
+            1,  // TODO: 依實際接線確認
+
+            // 14. Striker 收回 DO
+            /* retractDoIndex */
+            2,  // TODO: 依實際接線確認
+
+            // 15. 已核准的氣動 timing
+            /* approvedTimingProfile */
+            PneumaticTimingProfileReference{
+                /* calibrationRevision */
+                "pneumatic-timing-v1",
+
+                /* pneumaticPulseMs */
+                500,  // TODO: 實測
+
+                /* directionChangeDelayMs */
+                500,  // TODO: 實測
+
+                /* mechanismCompletionWaitMs */
+                500   // TODO: 實測
+            }
+        };
+
+// ============================================================
+// 19. Shot-Cycle競賽計時
+// ============================================================
+
+// [依比賽規則 / 已核准]
+// shotDeadlineMs：15000ms，超過15秒未出桿視為犯規，計時從接受H／Start瞬間開始。
+// minimumExecutionReserveMs：5000ms，剩餘時間低於此值不得開始執行（Pull
+// pre-extend或前往safeApproachPose）。
+// planningRetryCutoffMs：10000ms，超過此值仍無方案時安全結束，不強制擊球。
+const ShotCycleTimingConfig SHOT_CYCLE_TIMING = {15000, 5000, 10000};
+
+}  // namespace BilliardConfig
