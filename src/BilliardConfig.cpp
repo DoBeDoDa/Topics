@@ -187,11 +187,27 @@ const std::optional<unsigned long>
 // ============================================================
 // 6. 球桌 / 袋口 / 庫邊完整幾何設定
 // ============================================================
-// 桌面幾何（含calibrationRevision、playing-surface邊界、球半徑/直徑、
-// 碰撞安全距離與六段庫邊exclusion）尚未完成實機標定核准，保持nullopt並
-// fail closed。實測後再由使用者填入正式TableGeometryConfig。
+// [已核准 2026-08] 使用者提供實測值。physicalPlayingSurface刻意與
+// VISION_OBSERVATION_BOUNDS使用同一組邊界（使用者確認）。
+// cushionInsetMm為保守暫定值（未實測緩衝墊壓縮量），與collisionMarginMm
+// 是兩個不同用途的欄位：collisionMarginMm是泛用碰撞安全緩衝，
+// cushionInsetMm只用在Kick一次碰庫反彈點計算。
 const std::optional<TableGeometryConfig>
-    TABLE_GEOMETRY = std::nullopt;
+    TABLE_GEOMETRY = TableGeometryConfig{
+        "table-2026-08-v1",
+        AxisAlignedBounds2D{-750.0, 750.0, 150.0, 900.0},
+        24.76,  // ballRadiusMm = 49.52 / 2
+        49.52,  // ballDiameterMm
+        5.0,    // collisionMarginMm
+        {{
+            {RailId::Rail1, PocketId::Pocket1, PocketId::Pocket2, 20.0, 20.0, 3.0},
+            {RailId::Rail2, PocketId::Pocket2, PocketId::Pocket3, 20.0, 20.0, 3.0},
+            {RailId::Rail3, PocketId::Pocket3, PocketId::Pocket4, 20.0, 20.0, 3.0},
+            {RailId::Rail4, PocketId::Pocket4, PocketId::Pocket5, 20.0, 20.0, 3.0},
+            {RailId::Rail5, PocketId::Pocket5, PocketId::Pocket6, 20.0, 20.0, 3.0},
+            {RailId::Rail6, PocketId::Pocket6, PocketId::Pocket1, 20.0, 20.0, 3.0}
+        }}
+    };
 
 // ============================================================
 // 7. 一次碰庫 Kick 幾何
@@ -526,7 +542,56 @@ const MotionProfile TEST_MOTION = {
 // strikePositionBiasMm初始值固定為0.0 mm；非零值只由人工調適。
 // pullModeMinBottomDistanceMm初始研究值為300.0 mm，不是固定機械規格。
 // 球桌往下方向已確認為Base0 Y-，且Robot正對球桌長邊、無平面旋轉偏移。
-const std::optional<MotionPlanningConfig> MOTION_PLANNING_CONFIG =std::nullopt;
+// [已核准 2026-08] 使用者提供實測/決定值。
+// fixedForceEnvelope的directPot/directLegalContact/kickLegalContact範圍為
+// 保守暫定值（固定氣動力道不可調，尚未逐一實測不同距離/角度的可靠範圍），
+// 之後實測後應收斂調整，不宜任意放寬。kickPot暫時關閉（未測試一次碰庫）。
+// productionLegalContactFallbackAuthorized=true：只在所有進袋候選都試過、
+// 確認沒有可行方案時，才允許退而求其次打防守安全球；
+// legalContactExecutionAuthorized維持false：不允許在有進袋機會時主動選擇
+// 防守球。
+const std::optional<MotionPlanningConfig> MOTION_PLANNING_CONFIG = [] {
+    MotionPlanningConfig config;
+    config.calibrationRevision = "motion-2026-08-v1";
+    config.base0PlanarCalibrationRevision = BASE0_PLANAR_CALIBRATION_REVISION;
+    config.cueForwardAxisCalibrationRevision = "tool-axis-2026-08-v1";
+    config.strikeZMm = -220.0;
+    config.safeApproachZMm = -190.0;
+    config.readyGapMm = 60.0;
+    config.strikePositionBiasMm = 0.0;
+    config.pullModeMinBottomDistanceMm = 300.0;
+    config.a0Deg = -179.0;
+    config.b0Deg = -1.0;
+    config.deltaADeg = 5.0;
+    config.deltaBDeg = 5.0;
+    config.stepADeg = 1.0;
+    config.stepBDeg = 1.0;
+    config.searchOrder = PoseSearchOrder::AThenB;
+    config.axisOffsetOrder = AxisOffsetOrder::LowerThenHigher;
+    config.tieBreak = PoseTieBreak::FirstInApprovedSearchOrder;
+    // [待實測] Tool1的C=0參考方向與Base0角度0參考方向間的固定offset；
+    // 使用者確認Tool1相對法蘭無ABC安裝偏差，但這是軟體角度參考系的獨立
+    // 校正，暫定0待實機量測後修正。
+    config.cToolOffsetDeg = 0.0;
+    config.cueForwardAxisTool = std::array<double, 3>{1.0, 0.0, 0.0};
+    config.maxCueDirectionErrorDeg = 0.5;
+    config.directionUnitTolerance = 1e-8;
+    config.executionPolicyRevision = "real-hardware-v1";
+    config.policyMode = ExecutionPolicyMode::RealHardware;
+    config.legalContactExecutionAuthorized = false;
+    config.productionLegalContactFallbackAuthorized = true;
+    config.fixedForceEnvelope = FixedForceEnvelopeConfig{
+        "force-envelope-2026-08-v1",
+        FixedForceEnvelopeLimits{true, 100.0, 600.0, 45.0, std::nullopt},
+        FixedForceEnvelopeLimits{false, 0.0, 9999.0, std::nullopt, std::nullopt},
+        FixedForceEnvelopeLimits{true, 100.0, 600.0, std::nullopt, std::nullopt},
+        FixedForceEnvelopeLimits{true, 100.0, 600.0, std::nullopt, 65.0}
+    };
+    config.pneumaticTimingProfile = PneumaticTimingProfileReference{
+        "pneumatic-timing-v1", 500, 500, 500};
+    config.tool1ControllerCalibrationRevision = "tool1-controller-v1";
+    return config;
+}();
 const ExecutionPolicyMode PRODUCTION_RUNTIME_MODE = ExecutionPolicyMode::RealHardware;
 
 // ============================================================
@@ -620,12 +685,14 @@ const std::optional<RealHardwareExecutionConfig>
             true,
 
             // 13. Striker 伸出 DO
+            // [已核准] 使用者已依實際接線確認：DO1為伸出。
             /* extendDoIndex */
-            1,  // TODO: 依實際接線確認
+            1,
 
             // 14. Striker 收回 DO
+            // [已核准] 使用者已依實際接線確認：DO2為收回。
             /* retractDoIndex */
-            2,  // TODO: 依實際接線確認
+            2,
 
             // 15. 已核准的氣動 timing
             /* approvedTimingProfile */
