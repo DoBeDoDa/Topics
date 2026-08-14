@@ -217,7 +217,7 @@ const std::optional<TableGeometryConfig>
 const std::optional<KickGeometryConfig>
     KICK_GEOMETRY = KickGeometryConfig{
         /* maxKickRailAngleDeg */          65.0,
-        /* reflectionDirectionTolerance */ 3.0,
+        /* reflectionDirectionTolerance */ 2.0,
         /* reflectionAngleToleranceDeg */  1e-4
     };
 
@@ -569,6 +569,9 @@ const std::optional<RealHardwareExecutionConfig>
             "tool1-controller-v1",
 
             // 7. A/B/C → HRSDK RX/RY/RZ 映射
+            // [已核准] 使用者確認：只要正確選到Tool1（activateConfiguredToolAndBase
+            // 已切換），HRSDK的RX/RY/RZ座標定義本身就與此codebase的A/B/C語意一致，
+            // 不需換位置、不需反號、無零點偏移。
             /* angleMapping */
             HrSdkAngleMappingConfig{
                 /* calibrationRevision */
@@ -576,21 +579,21 @@ const std::optional<RealHardwareExecutionConfig>
 
                 /* rxRyRzSources */
                 {
-                    RobotAngleComponent::A,  // TODO: 實際驗證 RX
-                    RobotAngleComponent::B,  // TODO: 實際驗證 RY
-                    RobotAngleComponent::C   // TODO: 實際驗證 RZ
+                    RobotAngleComponent::A,  // 已核准：Tool1下A對應RX
+                    RobotAngleComponent::B,  // 已核准：Tool1下B對應RY
+                    RobotAngleComponent::C   // 已核准：Tool1下C對應RZ
                 },
 
                 /* scales */
                 {
-                    1.0,  // TODO: 實機驗證正負方向
+                    1.0,  // 已核准：方向一致，不需反號
                     1.0,
                     1.0
                 },
 
                 /* offsetsDeg */
                 {
-                    0.0,  // TODO: 實機標定
+                    0.0,  // 已核准：無零點偏移
                     0.0,
                     0.0
                 }
