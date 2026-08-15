@@ -87,6 +87,8 @@ const int TOOL_NUMBER = 1;
 // 若改 Base，Python 校正也必須重新建立，不能只改這個數字。
 const int BASE_NUMBER = 0;
 
+const int START_BUTTON_DI_INDEX = 1;
+
 // [人工設定 / Phase 2 硬體確認]
 // 氣動擊球使用的 Digital Output 編號。
 // 實際 DO wiring、DO1/DO2 定義仍需依控制器接線確認。

@@ -243,6 +243,7 @@ extern const int CALIBRATION_SERVER_PORT;  // 標定服務連接埠。
 extern const int NORMAL_SPEED_RATIO;
 extern const int TOOL_NUMBER;
 extern const int BASE_NUMBER;
+extern const int START_BUTTON_DI_INDEX;
 extern const int PNEUMATIC_OUTPUT;
 
 extern const double BALL_DIAMETER_MM;
