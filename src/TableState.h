@@ -33,8 +33,10 @@ struct TableState {
     std::array<DetectedPoint, 6> pockets;
 };
 
-// P1-03嚴格輸入邊界使用的單幀型別。缺失編號球只能以nullopt表示；
-// 母球與六袋在ValidatedVisionFrame中必定存在。
+// P1-03嚴格輸入邊界使用的單幀型別。缺失編號球、母球或袋口只能以nullopt
+// 表示，單幀缺席都不拒絕整幀——是否收斂為必要值統一交給
+// ThreeEventStability的三幀累積判斷（母球在StableTableState仍是必要
+// 欄位，只是不再靠單幀parse階段fail closed來保證）。
 struct ParsedVisionFrame {
     std::array<std::optional<Point>, 9> objectBalls;
     std::optional<Point> cueBall;
@@ -45,17 +47,17 @@ class ValidatedVisionFrame {
 public:
     ValidatedVisionFrame(
         std::array<std::optional<Point>, 9> numberedBalls,
-        Point requiredCueBall,
-        std::array<Point, 6> requiredPockets)
+        std::optional<Point> possibleCueBall,
+        std::array<std::optional<Point>, 6> possiblePockets)
         : objectBalls(std::move(numberedBalls)),
-          cueBall(requiredCueBall),
-          pockets(std::move(requiredPockets))
+          cueBall(possibleCueBall),
+          pockets(std::move(possiblePockets))
     {
     }
 
     std::array<std::optional<Point>, 9> objectBalls;
-    Point cueBall;
-    std::array<Point, 6> pockets;
+    std::optional<Point> cueBall;
+    std::array<std::optional<Point>, 6> pockets;
 };
 
 enum class SingleFrameStatus {
@@ -533,21 +535,28 @@ public:
                     StabilityStatus::TimedOut,
                     StabilityFailureReason::TimedOut);
             }
-            if (!samePresence(events_.front().frame, event.frame)) {
-                return rejectAndReset(
-                    StabilityStatus::Unstable,
-                    StabilityFailureReason::PresenceChanged);
-            }
+            // presence一致性檢查下放到buildStableState()逐物件個別判斷
+            // （見下方滑動視窗設計），這裡不再因單一物件（例如短暫閃爍的
+            // 球）presence不一致就整批reset。
         }
 
         events_.push_back(std::move(event));
+        if (events_.size() > 3) {
+            // 滑動視窗：捨棄最舊、保留最新3筆，不因單一物件這一輪還沒收斂
+            // 就把已經累積的其餘資料整批丟棄重來。
+            events_.erase(events_.begin());
+        }
         if (events_.size() < 3) {
             return StabilityResult::needMoreEvents(events_.size());
         }
 
         const auto stableState = buildStableState();
         if (!stableState.state) {
-            return rejectAndReset(StabilityStatus::Unstable, stableState.reason);
+            // 不reset：視窗繼續往前滑動，讓還沒收斂的物件（cueBall或袋口
+            // 未達容差）下一輪有機會追上；對呼叫端而言跟NeedMoreEvents
+            // 走同一條「繼續餵事件、不中止本次capture」路徑。
+            return StabilityResult::failure(
+                StabilityStatus::NeedMoreEvents, stableState.reason, events_.size());
         }
 
         StableTableState result = std::move(*stableState.state);
@@ -607,7 +616,10 @@ private:
     [[nodiscard]] static bool validEvent(const ReceiveEvent& event) noexcept
     {
         if (event.connectionIdentity == 0 || event.shotCycleIdentity == 0 ||
-            event.eventId == 0 || !finitePoint(event.frame.cueBall)) {
+            event.eventId == 0) {
+            return false;
+        }
+        if (event.frame.cueBall && !finitePoint(*event.frame.cueBall)) {
             return false;
         }
         for (const auto& ball : event.frame.objectBalls) {
@@ -615,21 +627,8 @@ private:
                 return false;
             }
         }
-        for (const Point pocket : event.frame.pockets) {
-            if (!finitePoint(pocket)) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    [[nodiscard]] static bool samePresence(
-        const ValidatedVisionFrame& first,
-        const ValidatedVisionFrame& current) noexcept
-    {
-        for (std::size_t index = 0; index < first.objectBalls.size(); ++index) {
-            if (first.objectBalls[index].has_value() !=
-                current.objectBalls[index].has_value()) {
+        for (const auto& pocket : event.frame.pockets) {
+            if (pocket && !finitePoint(*pocket)) {
                 return false;
             }
         }
@@ -663,7 +662,21 @@ private:
     {
         std::array<std::optional<Point>, 9> balls{};
         for (std::size_t index = 0; index < balls.size(); ++index) {
-            if (!events_[0].frame.objectBalls[index]) {
+            const bool allAbsent =
+                !events_[0].frame.objectBalls[index] &&
+                !events_[1].frame.objectBalls[index] &&
+                !events_[2].frame.objectBalls[index];
+            if (allAbsent) {
+                balls[index] = std::nullopt;
+                continue;
+            }
+            const bool allPresent =
+                events_[0].frame.objectBalls[index] &&
+                events_[1].frame.objectBalls[index] &&
+                events_[2].frame.objectBalls[index];
+            if (!allPresent) {
+                // 這3幀內presence不一致（閃爍）：這顆球這一輪先不送出，
+                // 不當成「確定不在桌上」，也不讓它拖垮其餘物件或整批結果。
                 balls[index] = std::nullopt;
                 continue;
             }
@@ -671,25 +684,35 @@ private:
                 *events_[0].frame.objectBalls[index],
                 *events_[1].frame.objectBalls[index],
                 *events_[2].frame.objectBalls[index]);
+            bool withinAll = true;
             for (const ReceiveEvent& event : events_) {
-                if (!event.frame.objectBalls[index] ||
-                    !withinTolerance(
+                if (!withinTolerance(
                         *event.frame.objectBalls[index],
                         center,
                         *config_.stableFrameToleranceMm)) {
-                    return {std::nullopt, StabilityFailureReason::BallMoved};
+                    withinAll = false;
+                    break;
                 }
             }
-            balls[index] = center;
+            balls[index] = withinAll ? std::optional<Point>{center} : std::nullopt;
         }
 
+        // 母球跟袋口一樣是StableTableState的必要（非optional）欄位：單幀
+        // 缺席（閃爍）不再讓整批結果作廢，而是這一輪還無法定案，走
+        // NeedMoreEvents讓視窗繼續往前滑，等母球在視窗內3筆都存在且
+        // 一致時才收斂送出。
+        const bool cueBallAllPresent = events_[0].frame.cueBall &&
+            events_[1].frame.cueBall && events_[2].frame.cueBall;
+        if (!cueBallAllPresent) {
+            return {std::nullopt, StabilityFailureReason::BallMoved};
+        }
         const Point cueBall = medianPoint(
-            events_[0].frame.cueBall,
-            events_[1].frame.cueBall,
-            events_[2].frame.cueBall);
+            *events_[0].frame.cueBall,
+            *events_[1].frame.cueBall,
+            *events_[2].frame.cueBall);
         for (const ReceiveEvent& event : events_) {
             if (!withinTolerance(
-                    event.frame.cueBall,
+                    *event.frame.cueBall,
                     cueBall,
                     *config_.stableFrameToleranceMm)) {
                 return {std::nullopt, StabilityFailureReason::BallMoved};
@@ -698,18 +721,30 @@ private:
 
         std::array<Point, 6> pockets{};
         for (std::size_t index = 0; index < pockets.size(); ++index) {
-            pockets[index] = medianPoint(
-                events_[0].frame.pockets[index],
-                events_[1].frame.pockets[index],
-                events_[2].frame.pockets[index]);
+            // 袋口是StableTableState的必要（非optional）欄位，跟cueBall一樣：
+            // 單幀缺席已在parse階段放行（跟編號球一樣可以先存），但這裡累積
+            // 收斂時仍要求視窗內3筆都存在且互相在容差內，否則這一輪還不能
+            // 定案——不當整批reset，而是走NeedMoreEvents繼續滑動。
+            const bool allPresent =
+                events_[0].frame.pockets[index] &&
+                events_[1].frame.pockets[index] &&
+                events_[2].frame.pockets[index];
+            if (!allPresent) {
+                return {std::nullopt, StabilityFailureReason::PocketMoved};
+            }
+            const Point center = medianPoint(
+                *events_[0].frame.pockets[index],
+                *events_[1].frame.pockets[index],
+                *events_[2].frame.pockets[index]);
             for (const ReceiveEvent& event : events_) {
                 if (!withinTolerance(
-                        event.frame.pockets[index],
-                        pockets[index],
+                        *event.frame.pockets[index],
+                        center,
                         *config_.pocketStabilityToleranceMm)) {
                     return {std::nullopt, StabilityFailureReason::PocketMoved};
                 }
             }
+            pockets[index] = center;
         }
 
         std::array<StableSourceEventMetadata, 3> sourceEvents{};

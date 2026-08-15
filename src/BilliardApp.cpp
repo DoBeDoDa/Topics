@@ -20,6 +20,93 @@ using namespace std;
 
 namespace {
 
+const char* executionCycleStateName(ExecutionCycleState state)
+{
+    switch (state) {
+    case ExecutionCycleState::WaitingForStart: return "WaitingForStart";
+    case ExecutionCycleState::StartRequested: return "StartRequested";
+    case ExecutionCycleState::PreparationReturn: return "PreparationReturn";
+    case ExecutionCycleState::CameraPose: return "CameraPose";
+    case ExecutionCycleState::CameraSettling: return "CameraSettling";
+    case ExecutionCycleState::Planning: return "Planning";
+    case ExecutionCycleState::StrikeReady: return "StrikeReady";
+    case ExecutionCycleState::Pneumatic: return "Pneumatic";
+    case ExecutionCycleState::PostStrikeActualPose: return "PostStrikeActualPose";
+    case ExecutionCycleState::SafeLift: return "SafeLift";
+    case ExecutionCycleState::StandbyReturn: return "StandbyReturn";
+    case ExecutionCycleState::CycleCompleted: return "CycleCompleted";
+    case ExecutionCycleState::ManualRecoveryRequired: return "ManualRecoveryRequired";
+    case ExecutionCycleState::UnknownUnsafe: return "UnknownUnsafe";
+    }
+    return "Unknown";
+}
+
+const char* executionCycleStatusName(ExecutionCycleStatus status)
+{
+    switch (status) {
+    case ExecutionCycleStatus::Completed: return "Completed";
+    case ExecutionCycleStatus::SafeFailure: return "SafeFailure";
+    case ExecutionCycleStatus::UnknownUnsafe: return "UnknownUnsafe";
+    case ExecutionCycleStatus::StartRejected: return "StartRejected";
+    }
+    return "Unknown";
+}
+
+const char* executionCycleFailureReasonName(ExecutionCycleFailureReason reason)
+{
+    switch (reason) {
+    case ExecutionCycleFailureReason::None: return "None";
+    case ExecutionCycleFailureReason::CycleAlreadyActive: return "CycleAlreadyActive";
+    case ExecutionCycleFailureReason::CycleIdentityExhausted:
+        return "CycleIdentityExhausted";
+    case ExecutionCycleFailureReason::MissingFakeAdapter: return "MissingFakeAdapter";
+    case ExecutionCycleFailureReason::PreparationCheckFailed:
+        return "PreparationCheckFailed";
+    case ExecutionCycleFailureReason::PreparationReturnMotionFailed:
+        return "PreparationReturnMotionFailed";
+    case ExecutionCycleFailureReason::PreparationReturnNotStopped:
+        return "PreparationReturnNotStopped";
+    case ExecutionCycleFailureReason::CameraPoseMotionFailed:
+        return "CameraPoseMotionFailed";
+    case ExecutionCycleFailureReason::CameraPoseNotStopped:
+        return "CameraPoseNotStopped";
+    case ExecutionCycleFailureReason::CameraSettleFailed: return "CameraSettleFailed";
+    case ExecutionCycleFailureReason::CaptureAndPlanFailed:
+        return "CaptureAndPlanFailed";
+    case ExecutionCycleFailureReason::VisionReconnectManualRecoveryRequired:
+        return "VisionReconnectManualRecoveryRequired";
+    case ExecutionCycleFailureReason::InvalidExecutionPlan:
+        return "InvalidExecutionPlan";
+    case ExecutionCycleFailureReason::ExecutionPlanCycleMismatch:
+        return "ExecutionPlanCycleMismatch";
+    case ExecutionCycleFailureReason::StrikeReadyValidationFailed:
+        return "StrikeReadyValidationFailed";
+    case ExecutionCycleFailureReason::StrikeReadyMotionFailed:
+        return "StrikeReadyMotionFailed";
+    case ExecutionCycleFailureReason::StrikeReadyNotStopped:
+        return "StrikeReadyNotStopped";
+    case ExecutionCycleFailureReason::PneumaticFailed: return "PneumaticFailed";
+    case ExecutionCycleFailureReason::PneumaticStateUnknown:
+        return "PneumaticStateUnknown";
+    case ExecutionCycleFailureReason::ActualPoseReadFailed:
+        return "ActualPoseReadFailed";
+    case ExecutionCycleFailureReason::InvalidActualPose: return "InvalidActualPose";
+    case ExecutionCycleFailureReason::SafeLiftPathCheckFailed:
+        return "SafeLiftPathCheckFailed";
+    case ExecutionCycleFailureReason::SafeLiftPathUnreachable:
+        return "SafeLiftPathUnreachable";
+    case ExecutionCycleFailureReason::SafeLiftMotionFailed:
+        return "SafeLiftMotionFailed";
+    case ExecutionCycleFailureReason::SafeLiftNotConfirmed:
+        return "SafeLiftNotConfirmed";
+    case ExecutionCycleFailureReason::StandbyReturnMotionFailed:
+        return "StandbyReturnMotionFailed";
+    case ExecutionCycleFailureReason::StandbyReturnNotStopped:
+        return "StandbyReturnNotStopped";
+    }
+    return "Unknown";
+}
+
 StabilityConfig productionStabilityConfig()
 {
     std::optional<std::chrono::milliseconds> maximumInterval;
@@ -123,6 +210,46 @@ ConsoleKeyDownQuery productionConsoleKeyDownQuery()
     };
 }
 
+// 競賽用實體Start按鈕（接在DI1）跟鍵盤H功能等同：兩者都只是把一個
+// down/up訊號餵進同一套pollStartControl／KeyEdgeGate，edge偵測、防重
+// 觸發完全共用既有機制，這裡不新增另一套判斷。DI讀取失敗（未連線、
+// SDK未提供、讀值非0/1）視為「這一輪沒偵測到訊號」，不latch
+// unknownUnsafeLatched——誤判成沒按鍵不是安全危害，頂多這一輪沒觸發。
+ConsoleKeyPoll combinedStartPoll(
+    ConsoleKeyPoll keyboardPoll,
+    RobotController& robot,
+    const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config)
+{
+    return [keyboardPoll, &robot, &config]() {
+        std::vector<ConsoleKeyEvent> events =
+            keyboardPoll ? keyboardPoll() : std::vector<ConsoleKeyEvent>{};
+        if (config && config->startDigitalInputIndex) {
+            if (const std::optional<bool> di1 =
+                    robot.readDigitalInput(*config->startDigitalInputIndex)) {
+                events.push_back({ConsoleKey::H, *di1});
+            }
+        }
+        return events;
+    };
+}
+
+ConsoleKeyDownQuery combinedStartQuery(
+    ConsoleKeyDownQuery keyboardQuery,
+    RobotController& robot,
+    const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config)
+{
+    return [keyboardQuery, &robot, &config](ConsoleKey key) {
+        const bool keyboardDown = keyboardQuery ? keyboardQuery(key) : false;
+        if (keyboardDown) return true;
+        if (key != ConsoleKey::H || !config || !config->startDigitalInputIndex) {
+            return false;
+        }
+        const std::optional<bool> di1 =
+            robot.readDigitalInput(*config->startDigitalInputIndex);
+        return di1 && *di1;
+    };
+}
+
 }  // namespace
 
 BilliardApp::BilliardApp()
@@ -175,7 +302,13 @@ OfflineStepResult BilliardApp::confirmRobotReadyReadOnly(
     const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config)
 {
     if (!robot.isConnected()) return {OfflineStepStatus::Failure};
-    const RobotAdapterResult stopped = robot.confirmStopped();
+    RobotAdapterResult stopped = robot.confirmStopped();
+    // NotStopped可能是控制器連線本身殘留的過期狀態（而非手臂真的在動），
+    // 重連一次拿全新連線狀態再確認；reconnect失敗或再次確認仍NotStopped
+    // 就照原本判斷失敗，不放寬confirmStopped()的判斷邏輯本身。
+    if (stopped.status == RobotAdapterStatus::NotStopped && robot.reconnect()) {
+        stopped = robot.confirmStopped();
+    }
     if (stopped.status == RobotAdapterStatus::UnknownUnsafe) {
         return {OfflineStepStatus::UnknownUnsafe};
     }
@@ -197,6 +330,12 @@ OfflineStepResult BilliardApp::prepareRobotHardwareForMotion(
     if (const auto bad = requireRobotAdapterSuccess(robot.establishSafeOutputsOff(config))) {
         return {*bad};
     }
+    // 馬達從上一輪擊球後會持續保持ON（只有disconnect()才會關），第二輪起
+    // 呼叫clearAlarm前控制器可能還在馬達ON狀態下拒絕清除（sdkCode=300，
+    // 即使get_alarm_code查無alarm）。清alarm前先確保馬達關閉，稍後才
+    // setMotorState(1)重新開啟，讓每一輪clearAlarm都在同樣的馬達OFF前提
+    // 下執行。
+    if (const auto bad = requireRobotAdapterSuccess(robot.setMotorState(0))) return {*bad};
     if (const auto bad = requireRobotAdapterSuccess(robot.clearAlarm())) return {*bad};
     if (const auto bad =
             requireRobotAdapterSuccess(robot.activateConfiguredToolAndBase(config))) {
@@ -747,6 +886,18 @@ void BilliardApp::run()
     }
 #endif
 
+    // DI1實體Start按鈕只在真正production路徑接上；P2-03 test seam已經
+    // 明確注入自己的consoleKeyPoll/consoleKeyDownQuery做決定性測試，
+    // 不應該再被DI讀取（通常對fake robot安全回傳nullopt/no-op，但刻意
+    // 排除更明確）。
+#ifdef BILLIARDS_P2_03_TEST_SEAM
+    if (!runTestSeam)
+#endif
+    {
+        effectiveKeyPoll = combinedStartPoll(effectiveKeyPoll, *cycleRobot, realConfig);
+        effectiveKeyQuery = combinedStartQuery(effectiveKeyQuery, *cycleRobot, realConfig);
+    }
+
     if (!policyMode) {
         return;
     }
@@ -772,6 +923,7 @@ void BilliardApp::run()
                 services.resetCycleAccumulation = [&] {
                     stability.reset(StabilityFailureReason::ExplicitReset);
                     pendingPlanningResult.reset();
+                    pendingResolvedTableGeometry.reset();
                     return OfflineStepResult{OfflineStepStatus::Success};
                 };
                 services.openCaptureWindow = [&](ShotCycleIdentity cycleIdentity) {
@@ -904,6 +1056,7 @@ void BilliardApp::run()
             services.resetCycleAccumulation = [&] {
                 stability.reset(StabilityFailureReason::ExplicitReset);
                 pendingPlanningResult.reset();
+                pendingResolvedTableGeometry.reset();
                 return OfflineStepResult{OfflineStepStatus::Success};
             };
             services.openCaptureWindow =
@@ -992,7 +1145,8 @@ void BilliardApp::run()
                     tableGeometryConfig,
                     motionPlanningConfig,
                     hardwareChecks,
-                    potsExhausted);
+                    potsExhausted,
+                    pendingResolvedTableGeometry);
             };
         }
         if (!services.buildExecutionPlan) {
@@ -1024,7 +1178,8 @@ void BilliardApp::run()
                     motionPlanningConfig,
                     offlineMotionPlanningChecks.value_or(
                         MotionPlanningChecks{}),
-                    potCandidatesExhausted);
+                    potCandidatesExhausted,
+                    pendingResolvedTableGeometry);
             };
         }
         return services;
@@ -1035,45 +1190,72 @@ void BilliardApp::run()
     // 才寫入硬體（alarm／tool-base／motor／speed）→才PTP，避免兩套流程
     // 各自實作、日後又漂移出不一致的前置順序或門檻。
     const auto runPOnly = [&] {
+        cout << "[P] 收到，準備回Standby..." << endl;
         if (executionRuntime.state != ExecutionCycleState::WaitingForStart ||
             !cycleRobot) {
+            cout << "[P] 忽略（狀態非WaitingForStart或無robot）" << endl;
             return;
         }
         if (!cycleRobot->isConnected() &&
             !cycleRobot->connect(BilliardConfig::ARM_IP)) {
+            cout << "[P] 失敗（連線失敗）" << endl;
             return;
         }
         const OfflineStepResult readOnly =
             BilliardApp::confirmRobotReadyReadOnly(*cycleRobot, realConfig);
         if (readOnly.status == OfflineStepStatus::UnknownUnsafe) {
+            cout << "[P] UnknownUnsafe（read-only確認失敗），latch。" << endl;
             executionRuntime.state = ExecutionCycleState::UnknownUnsafe;
             return;
         }
-        if (!readOnly.succeeded()) return;
+        if (!readOnly.succeeded()) {
+            cout << "[P] 失敗（confirmRobotReadyReadOnly未通過）" << endl;
+            return;
+        }
         // P不依賴H先跑過、不依賴Python，但仍受核准的standby joint reference
         // 門檻限制：未核准前不得寫入任何硬體狀態、不得移動。
-        if (!BilliardConfig::STANDBY_JOINT_REFERENCE.isValid()) return;
+        if (!BilliardConfig::STANDBY_JOINT_REFERENCE.isValid()) {
+            cout << "[P] 失敗（STANDBY_JOINT_REFERENCE未核准）" << endl;
+            return;
+        }
         const OfflineStepResult prepared =
             BilliardApp::prepareRobotHardwareForMotion(*cycleRobot, realConfig);
         if (prepared.status == OfflineStepStatus::UnknownUnsafe) {
+            cout << "[P] UnknownUnsafe（prepareRobotHardwareForMotion失敗），"
+                 << "latch。" << endl;
             executionRuntime.state = ExecutionCycleState::UnknownUnsafe;
             return;
         }
-        if (!prepared.succeeded()) return;
+        if (!prepared.succeeded()) {
+            cout << "[P] 失敗（prepareRobotHardwareForMotion未通過）" << endl;
+            return;
+        }
+        cout << "[P] 硬體準備完成，PTP回Standby joint..." << endl;
         const RobotAdapterResult ptp = cycleRobot->checkedConfiguredJointPtp(
             BilliardConfig::STANDBY_JOINT_REFERENCE.jointDeg, realConfig);
         if (ptp.status == RobotAdapterStatus::UnknownUnsafe) {
+            cout << "[P] UnknownUnsafe（PTP失敗），latch。" << endl;
             executionRuntime.state = ExecutionCycleState::UnknownUnsafe;
             return;
         }
-        if (!ptp.succeeded()) return;
+        if (!ptp.succeeded()) {
+            cout << "[P] 失敗（PTP未成功，status="
+                 << static_cast<int>(ptp.status) << "）" << endl;
+            return;
+        }
         const RobotAdapterResult confirmed = cycleRobot->confirmStopped();
         if (confirmed.status == RobotAdapterStatus::UnknownUnsafe) {
+            cout << "[P] UnknownUnsafe（confirmStopped失敗），latch。" << endl;
             executionRuntime.state = ExecutionCycleState::UnknownUnsafe;
             return;
         }
         // confirmed.succeeded()若為false（例如NotStopped），P不宣稱完成，
         // 也不特別處理；operator可再次嘗試P，或改用完整H流程。
+        cout << "[P] "
+             << (confirmed.succeeded() ? "已回Standby並確認停止。"
+                                        : "PTP完成但confirmStopped未過"
+                                          "（可再按一次P，或改用H）。")
+             << endl;
     };
 
     while (executionRuntime.state == ExecutionCycleState::WaitingForStart) {
@@ -1224,16 +1406,43 @@ void BilliardApp::run()
             *realConfig->authorizationRevision != *policyRevision ||
             !RobotController::validateRealHardwareConfiguration(
                  realConfig).succeeded()) {
+            cout << "[錯誤] RealHardware policy/config門檻未通過，"
+                 << "程式結束（不接受任何H）。" << endl;
             return;
         }
 
+        cout << "[H] cycle #" << cycleIdentity << " 開始，狀態=StartRequested"
+             << endl;
         const ExecutionCycleResult result = runRealSingleCycle(
             executionRuntime, cycleIdentity, *cycleRobot, realConfig, services,
             deadline);
         invalidateVisionCycle(ReceiveEventInvalidationReason::CycleChanged);
         resyncStartControlToIdle(
             startControlGates, effectiveKeyPoll, effectiveKeyQuery);
+        cout << "[cycle #" << cycleIdentity << "] status="
+             << executionCycleStatusName(result.status);
+        if (result.diagnostic) {
+            cout << " reason=" << executionCycleFailureReasonName(
+                        result.diagnostic->reason)
+                 << " stoppedState="
+                 << executionCycleStateName(result.diagnostic->stoppedState);
+        }
+        if (result.value) {
+            cout << " shotExecuted="
+                 << (result.value->shotExecuted ? "true" : "false")
+                 << " states=[";
+            for (std::size_t i = 0; i < result.value->states.size(); ++i) {
+                if (i) cout << "->";
+                cout << executionCycleStateName(result.value->states[i]);
+            }
+            cout << "]";
+        }
+        cout << endl;
+        cout << "[狀態] 下一次H要先恢復"
+             << executionCycleStateName(executionRuntime.state) << endl;
         if (!result.isValid()) {
+            cout << "[錯誤] ExecutionCycleResult內部不一致（isValid()==false），"
+                 << "程式結束。" << endl;
             break;
         }
         // executionRuntime.state已由runOfflineSingleCycle正確設定：
@@ -1289,6 +1498,15 @@ bool BilliardApp::processReceiveEvent(const ReceiveEvent& event)
             return false;
         }
         pendingPlanningResult = std::move(planning);
+        // 貼庫安全繞行用：解析失敗（例如tableGeometry尚未核准）就留nullopt，
+        // 等同功能關閉，不擋這一輪執行——今天沒有這個保護，行為不會變差。
+        const GeometryValueResult<ResolvedTableGeometry> resolvedGeometry =
+            BilliardPhysics::resolveTableGeometry(
+                result.value()->pockets, tableGeometry);
+        pendingResolvedTableGeometry =
+            resolvedGeometry.isValid() && resolvedGeometry.value()
+                ? resolvedGeometry.value()
+                : std::optional<ResolvedTableGeometry>{};
 #ifdef BILLIARDS_P2_03_TEST_SEAM
         if (runTestSeam && runTestSeam->planningResultObserved) {
             runTestSeam->planningResultObserved(*pendingPlanningResult);
@@ -1323,4 +1541,5 @@ void BilliardApp::invalidateVisionCycle(ReceiveEventInvalidationReason reason)
     receiveEventFactory.invalidate(reason);
     stability.reset(stabilityResetReason(reason));
     pendingPlanningResult.reset();
+    pendingResolvedTableGeometry.reset();
 }

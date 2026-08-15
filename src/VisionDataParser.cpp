@@ -191,11 +191,8 @@ SingleFrameResult VisionDataParser::parse(const std::string& message) const
     if (cueBall.status != SingleFrameStatus::Success) {
         return SingleFrameResult::rejected(cueBall.status, cueBall.fieldIndex);
     }
-    if (!cueBall.point) {
-        return SingleFrameResult::rejected(
-            SingleFrameStatus::MissingRequiredCueBall,
-            18);
-    }
+    // 母球跟編號球/袋口一樣，單幀缺席不再讓整幀作廢；是否收斂為必要值
+    // 交給ThreeEventStability的三幀累積判斷。
     parsed.cueBall = cueBall.point;
 
     for (std::size_t index = 0; index < parsed.pockets.size(); ++index) {
@@ -204,22 +201,15 @@ SingleFrameResult VisionDataParser::parse(const std::string& message) const
         if (pocket.status != SingleFrameStatus::Success) {
             return SingleFrameResult::rejected(pocket.status, pocket.fieldIndex);
         }
-        if (!pocket.point) {
-            return SingleFrameResult::rejected(
-                SingleFrameStatus::MissingRequiredPocket,
-                fieldIndex);
-        }
+        // 袋口跟編號球一樣，單幀缺席不再讓整幀作廢；是否收斂為必要值
+        // 交給ThreeEventStability的三幀累積判斷。
         parsed.pockets[index] = pocket.point;
     }
 
-    std::array<Point, 6> requiredPockets;
-    for (std::size_t index = 0; index < requiredPockets.size(); ++index) {
-        requiredPockets[index] = *parsed.pockets[index];
-    }
     return SingleFrameResult::success(ValidatedVisionFrame(
         std::move(parsed.objectBalls),
-        *parsed.cueBall,
-        std::move(requiredPockets)));
+        parsed.cueBall,
+        parsed.pockets));
 }
 
 ReceiveEventFactory::ReceiveEventFactory(const VisionDataParser& parser)

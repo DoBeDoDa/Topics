@@ -81,11 +81,13 @@ HrSdkApi RobotController::productionApi()
             return set_digital_output(robot, index, state);
         },
         [](int robot, int index) { return get_digital_output(robot, index); },
+        [](int robot, int index) { return get_digital_input(robot, index); },
         [](int robot, int& count, std::uint64_t* alarms) {
             return get_alarm_code(robot, count, alarms);
         },
         [] { return GetTickCount(); },
-        [](unsigned long durationMs) { Sleep(durationMs); }};
+        [](unsigned long durationMs) { Sleep(durationMs); },
+        [](int robot) { return get_motor_state(robot); }};
 #endif
 }
 
@@ -114,13 +116,42 @@ bool RobotController::connect(const std::string& ip) {
         return false;
     }
     connected = true;
+    lastIp = ip;
     return true;
+}
+
+bool RobotController::reconnect() {
+    if (lastIp.empty()) return false;
+    (void)disconnect();
+    return connect(lastIp);
 }
 
 RobotAdapterResult RobotController::clearAlarm()
 {
     if (!connected) return {RobotAdapterStatus::NotConnected, -1};
     if (!api.clearAlarm) return {RobotAdapterStatus::SdkFailure, -1};
+    // 沒有active alarm時直接跳過clear_alarm：語意上沒有東西要清，呼叫
+    // 本身是多餘的，且控制器在無alarm狀態下可能因其他前提（如馬達尚未
+    // 斷電）拒絕清除（sdkCode=300，即使get_alarm_code查無alarm，容易
+    // 誤判成alarm清除失敗）。查詢本身失敗（sdkCode!=0）時無法確認有無
+    // alarm，照原路徑嘗試清除。
+    int alarmSdkCode = -1;
+    if (getAlarmCodes(alarmSdkCode).empty() && alarmSdkCode == 0) {
+        return {RobotAdapterStatus::Success, 0};
+    }
+    // 確定有alarm要清：set_motor_state(0)回傳成功只代表指令已送出，控制
+    // 器實際斷電可能有延遲；clear_alarm前先bounded poll確認馬達真的已
+    // 斷電，逾時仍照常嘗試（不無限等待），讓原本的sdkCode錯誤路徑處理。
+    if (api.getMotorState && api.tickCountMs && api.sleepMs) {
+        const unsigned long pollStart = api.tickCountMs();
+        while (api.getMotorState(id) != 0) {
+            if (api.tickCountMs() - pollStart >=
+                BilliardConfig::MOTOR_OFF_CONFIRMATION_TIMEOUT_MS) {
+                break;
+            }
+            api.sleepMs(BilliardConfig::MOTION_POLL_INTERVAL_MS);
+        }
+    }
     const int sdkCode = api.clearAlarm(id);
     if (sdkCode != 0) {
         return {RobotAdapterStatus::SdkFailure, sdkCode};
@@ -297,6 +328,18 @@ std::vector<uint64_t> RobotController::getAlarmCodes(int& sdkCode) const {
     return result;
 }
 
+std::optional<bool> RobotController::readDigitalInput(int index) const
+{
+    if (!connected || !api.getDigitalInput || index < 0) {
+        return std::nullopt;
+    }
+    const int state = api.getDigitalInput(id, index);
+    if (state != 0 && state != 1) {
+        return std::nullopt;
+    }
+    return state == 1;
+}
+
 RobotBoolAdapterResult RobotController::isAtConfiguredJoint(
     const std::array<double, 6>& joints,
     double toleranceDeg)
@@ -465,6 +508,7 @@ RobotAdapterResult RobotController::validateRealHardwareConfiguration(
         config->tool1Number != BilliardConfig::TOOL_NUMBER ||
         *config->extendDoIndex < 0 || *config->retractDoIndex < 0 ||
         *config->extendDoIndex == *config->retractDoIndex ||
+        (config->startDigitalInputIndex && *config->startDigitalInputIndex < 0) ||
         !mappingSourcesKnown || !mappingSourcesArePermutation ||
         !mappingValuesValid ||
         timing.calibrationRevision.empty() || timing.pneumaticPulseMs == 0 ||
@@ -1003,7 +1047,7 @@ RobotAdapterResult RobotController::confirmStopped()
     }
     return state == 1
         ? RobotAdapterResult{RobotAdapterStatus::Success, 0}
-        : RobotAdapterResult{RobotAdapterStatus::NotStopped, 0};
+        : RobotAdapterResult{RobotAdapterStatus::NotStopped, state};
 }
 
 bool RobotController::outputsElectricallyOff(

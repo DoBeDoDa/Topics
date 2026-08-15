@@ -164,7 +164,9 @@ Result不變量：
 - Diagnostic不得被轉型或視為合法Point、ValidatedVisionFrame、
   StableTableState、Candidate或Plan，也不得包含partial／fallback成功值。
 
-必要資料：母球及固定ID的完整六袋。1～9號編號球可全部缺失；只要其他單幀驗證合法，仍產生`ValidatedVisionFrame SUCCESS`。必要母球或任一袋口缺失時拒絕該frame並重置本cycle累積。
+單幀不設必要資料：1～9號編號球、母球與六袋皆可全部或部分缺失；只要其他單幀驗證合法（欄位數、數值格式、sentinel pair、observation bounds），仍產生`ValidatedVisionFrame SUCCESS`，缺失值一律以`nullopt`表示。母球與袋口是否收斂為必要值都不在單幀parser層判定。
+
+母球與袋口是否收斂為必要值下放給`ThreeEventStability`：母球與同一袋口都需要目前3事件滑動視窗內全部出現、且互相在各自容差內（母球用`STABLE_FRAME_TOLERANCE_MM`、袋口用`POCKET_STABILITY_TOLERANCE_MM`）才能定案——兩者都是`StableTableState`的必要非optional欄位；缺席或不一致時整批`Stable`判定失敗（母球`BallMoved`、袋口`PocketMoved`），但不reset視窗，改為`NeedMoreEvents`繼續滑動等待收斂——與編號球的「單物件缺席只影響該物件、不拖垮整批」不同，母球或袋口未收斂時整批仍不能送出`Stable`。
 
 `TableObservationBounds`只表示active Base0 planar calibration可接受的輸入觀測範圍，不是Phase 1規劃用的`PlayableBallCenterRegion`、`PocketCaptureCorridor`或`RailReflectionRegion`，不得用它預先判定進袋路徑可行性。
 

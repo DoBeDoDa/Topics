@@ -2100,6 +2100,10 @@ int main()
         "missing P1-09 BrainConfig fails closed as a named planning result");
 
     const auto makeReceiveEvent = [&](ReceiveEventId id, long long milliseconds) {
+        std::array<std::optional<Point>, 6> pockets;
+        for (std::size_t index = 0; index < pockets.size(); ++index) {
+            pockets[index] = kickFixture.pockets[index];
+        }
         return ReceiveEvent{
             77,
             88,
@@ -2109,7 +2113,7 @@ int main()
             ValidatedVisionFrame{
                 kickFixture.objectBalls,
                 kickFixture.cueBall,
-                kickFixture.pockets}};
+                pockets}};
     };
     ThreeEventStability phase1PipelineStability({
         std::optional<double>{0.0},

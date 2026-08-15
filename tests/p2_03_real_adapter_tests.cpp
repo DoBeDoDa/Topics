@@ -154,8 +154,9 @@ ShotPlan buildRealLegalContactPlan()
 // ============================================================
 
 // ExecutionPlan::isValid()對strikeReadyPose/safeApproachPose/strikeMode有
-// 嚴格的跨欄位一致性要求（座標由cueBallCenterBase0Mm/shotDirectionXY/
-// ballRadius/readyGap/bias反推，C角由directionToCDeg()決定，strikeMode由
+// 嚴格的跨欄位一致性要求（座標由cueBallCenterBase0Mm/shotDirectionXY/bias反推——
+// Tool1 TCP已核准校正在氣壓推桿行程中點，不再扣ballRadius/readyGap，
+// C角由directionToCDeg()決定，strikeMode由
 // resolveStrikeMode()依bottomDistance/pullModeMinBottomDistanceMm/
 // tableDownDirectionDot決定），因此改用production同一份directionToCDegForTest
 // 現算C角，而非手推三角函數，避免與production公式漂移。
@@ -195,11 +196,10 @@ ExecutionPlan validExecutionPlan(
     plan.validatedStrikeDirectionXY = plan.shotDirectionXY;
     plan.cueDirectionErrorDeg = 0.0;
     plan.maxCueDirectionErrorDeg = 1.0;
-    const double centerToTcpMm = plan.ballRadiusMm + plan.readyGapMm;
-    const double strikeX =
-        plan.cueBallCenterBase0Mm.x - centerToTcpMm * plan.shotDirectionXY.x;
-    const double strikeY =
-        plan.cueBallCenterBase0Mm.y - centerToTcpMm * plan.shotDirectionXY.y;
+    // Tool1的TCP已核准校正在氣壓推桿行程中點，XY直接對齊母球中心
+    // （見production MotionPlanner.cpp同一處註解），不再扣ballRadius/readyGap。
+    const double strikeX = plan.cueBallCenterBase0Mm.x;
+    const double strikeY = plan.cueBallCenterBase0Mm.y;
     const double pushC = *MotionPlanner::directionToCDegForTest(
         plan.shotDirectionXY, plan.cToolOffsetDeg, plan.directionUnitTolerance);
     const double strikeC = mode == StrikeMode::Pull
@@ -340,6 +340,7 @@ struct FakeSdk {
     unsigned long tickStep = 1;
     int openCode = 7;
     int clearAlarmCode = 0;
+    int digitalInputValue = 0;
     // 供「deadline在執行中途過期不得中止已開始的執行」測試使用：模擬
     // pulse/wait期間deadline真的走過期限。
     std::function<void()> onSleepCallback;
@@ -435,6 +436,10 @@ struct FakeSdk {
                 if (forcedReadFailureIndex == index) return -31;
                 if (failReadWhileOn && (outputs[1] || outputs[2])) return -30;
                 return outputs[index] ? 1 : 0;
+            },
+            [&](int, int index) {
+                calls.push_back(std::string{"readDi"} + std::to_string(index));
+                return digitalInputValue;
             },
             [&](int, int&, std::uint64_t*) { return 0; },
             [&] { ticks += tickStep; return ticks; },

@@ -461,6 +461,10 @@ private:
     ReceiveEventFactory receiveEventFactory;
     ThreeEventStability stability;
     std::optional<PlanningResult> pendingPlanningResult;
+    // 貼庫安全繞行用：跟pendingPlanningResult同一輪cycle的桌面幾何快照，
+    // 同進同出（見processReceiveEvent／invalidateVisionCycle／
+    // resetCycleAccumulation）。
+    std::optional<ResolvedTableGeometry> pendingResolvedTableGeometry;
     MotionPlanner motionPlanner;
     std::optional<MotionPlanningChecks> offlineMotionPlanningChecks;
     ShotCycleIdentity nextShotCycleIdentity;

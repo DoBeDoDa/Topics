@@ -238,7 +238,9 @@ public:
         const std::optional<BilliardConfig::TableGeometryConfig>& tableGeometry,
         const std::optional<BilliardConfig::MotionPlanningConfig>& config,
         const MotionPlanningChecks& checks,
-        bool rankedPotCandidatesExhausted = false) const;
+        bool rankedPotCandidatesExhausted = false,
+        const std::optional<ResolvedTableGeometry>& resolvedTableGeometry =
+            std::nullopt) const;
 
 #ifdef BILLIARDS_P2_01_TEST_SEAM
     [[nodiscard]] static std::optional<double> directionToCDegForTest(

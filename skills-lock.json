@@ -48,6 +48,12 @@
       "sourceType": "github",
       "skillPath": "skills/diagram-design/SKILL.md",
       "computedHash": "45bb53139d5299a47bcee577f60e0fbb03bceaa73c52e8712ef62aee3281cd05"
+    },
+    "wait-what": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/productivity/wait-what/SKILL.md",
+      "computedHash": "8923f7df1a0d1b138281658e134caa4bf1c618d2876a2323b19acdfdffebc024"
     }
   }
 }

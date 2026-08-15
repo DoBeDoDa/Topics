@@ -199,6 +199,9 @@ struct MotionPlanningConfig {
     // 僅保存後續executor所需的版本化timing reference。
     std::optional<PneumaticTimingProfileReference> pneumaticTimingProfile;
     std::optional<std::string> tool1ControllerCalibrationRevision;
+    // 貼庫安全繞行：母球中心距最近庫邊小於此值時，改用平行庫邊方向而非
+    // Phase1算出的入袋方向。nullopt＝功能關閉（維持今天的行為）。
+    std::optional<double> railHuggingTriggerDistanceMm;
 };
 
 enum class RobotAngleComponent {
@@ -232,6 +235,9 @@ struct RealHardwareExecutionConfig {
     std::optional<int> extendDoIndex;  // DO1：striker伸出pulse。
     std::optional<int> retractDoIndex;  // DO2：striker收回pulse。
     std::optional<PneumaticTimingProfileReference> approvedTimingProfile;
+    // 競賽用實體Start按鈕，接在此DI index（例如DI1）；功能等同鍵盤H，
+    // 觸發同一套pollStartControl edge-gate。nullopt＝功能關閉，只用H鍵。
+    std::optional<int> startDigitalInputIndex;
 };
 
 // 連線：人工部署的控制器、視覺服務與連接埠。
@@ -271,6 +277,7 @@ extern const unsigned long CAMERA_SETTLE_MS;
 extern const unsigned long MOTION_START_CONFIRMATION_TIMEOUT_MS;
 extern const unsigned long MOTION_TIMEOUT_MS;
 extern const unsigned long MOTION_POLL_INTERVAL_MS;
+extern const unsigned long MOTOR_OFF_CONFIRMATION_TIMEOUT_MS;
 
 extern const std::array<double, 6> CAMERA_JOINT;
 extern const double CAMERA_JOINT_TOLERANCE_DEG;

@@ -74,7 +74,7 @@ const int CALIBRATION_SERVER_PORT = 12347;
 // 機械手臂一般運動速度比例。
 // 20 通常代表控制器速度比例 20%，實際語意需依 HRSDK/控制器確認。
 // 真機初次測試建議使用低速；提高前需要確認安全。
-const int NORMAL_SPEED_RATIO = 20;
+const int NORMAL_SPEED_RATIO = 40;
 
 // [人工設定 / 實機確認]
 // 使用控制器中的 Tool 編號。
@@ -152,10 +152,10 @@ const std::optional<unsigned long> VISION_RECEIVE_TIMEOUT_MS = 2000;
 // 尚未核准前保持 nullopt。
 const std::optional<AxisAlignedBounds2D> VISION_OBSERVATION_BOUNDS =
     AxisAlignedBounds2D{
-        -750.0,  // minX
-         750.0,  // maxX
-         150.0,  // minY
-        900.0   // maxY
+        -800.0,  // minX
+         800.0,  // maxX
+         10.0,  // minY
+        1000.0   // maxY
     };
 
 
@@ -169,21 +169,21 @@ const std::optional<AxisAlignedBounds2D> VISION_OBSERVATION_BOUNDS =
 // 建議先讓球完全靜止，記錄 20～30 次 Vision Base0 XY 抖動，
 // 再依真實 noise 決定，而不是猜 1 mm、5 mm 等值。
 const std::optional<double>
-    STABLE_FRAME_TOLERANCE_MM = 3.0;
+    STABLE_FRAME_TOLERANCE_MM = 10.0;
 
 
 // 六個袋口在三次偵測中允許的最大位置偏差，單位 mm。
 // 袋口理論上固定，因此可利用實際 YOLO + Homography 抖動資料標定。
 // 同樣不可直接猜值。
 const std::optional<double>
-    POCKET_STABILITY_TOLERANCE_MM = 5.0;
+    POCKET_STABILITY_TOLERANCE_MM = 10.0;
 
 
 // 相鄰兩筆有效 ReceiveEvent 最大允許時間間隔，單位 ms。
 // 應根據相機 FPS、YOLO inference 時間與 socket 實際傳送週期決定。
 // 超過此值代表三筆資料時間距離太遠，不應被視為同一次穩定觀測。
 const std::optional<unsigned long>
-    MAX_INTER_FRAME_INTERVAL_MS = 500;
+    MAX_INTER_FRAME_INTERVAL_MS = 1000;
 
 
 // ============================================================
@@ -197,7 +197,7 @@ const std::optional<unsigned long>
 const std::optional<TableGeometryConfig>
     TABLE_GEOMETRY = TableGeometryConfig{
         "table-2026-08-v1",
-        AxisAlignedBounds2D{-750.0, 750.0, 150.0, 900.0},
+        AxisAlignedBounds2D{-800.0, 800.0, 10.0, 1000.0},
         24.76,  // ballRadiusMm = 49.52 / 2
         49.52,  // ballDiameterMm
         5.0,    // collisionMarginMm
@@ -401,6 +401,15 @@ const unsigned long MOTION_TIMEOUT_MS = 60000;
 // 太小會增加控制器通訊負擔；太大會降低停止反應速度。
 const unsigned long MOTION_POLL_INTERVAL_MS = 50;
 
+// [需實測]
+// clearAlarm前確認馬達已真正斷電（get_motor_state==0）的最長等待時間。
+// set_motor_state(0)回傳成功只代表指令已送出，控制器實際斷電可能有延遲；
+// 若clearAlarm在馬達尚未真正OFF前送出，會被控制器拒絕（sdkCode=300，
+// 即使get_alarm_code查無alarm）。逾時後仍照常嘗試clearAlarm，讓原本的
+// sdkCode錯誤路徑處理（不無限等待）。500ms為初始保守值，應透過實機
+// 量測set_motor_state實際斷電延遲後調整。
+const unsigned long MOTOR_OFF_CONFIRMATION_TIMEOUT_MS = 500;
+
 
 // ============================================================
 // 13. CameraPose
@@ -417,12 +426,12 @@ const unsigned long MOTION_POLL_INTERVAL_MS = 50;
 //
 // 若相機、支架、Robot Base、球桌位置改變，通常需要重新教導。
 const std::array<double, 6> CAMERA_JOINT = {
-    -3.5,
-    -25.8,
-    54.0,
-    12.2,
-    -28.3,
-    -100.0
+    -3.75,
+    -25.836,
+    54.055,
+    12.710,
+    -28.366,
+    -100.445
 };
 
 // [人工可調 / 實驗參數]
@@ -545,9 +554,9 @@ const MotionProfile TEST_MOTION = {
 // pullModeMinBottomDistanceMm初始研究值為300.0 mm，不是固定機械規格。
 // 球桌往下方向已確認為Base0 Y-，且Robot正對球桌長邊、無平面旋轉偏移。
 // [已核准 2026-08] 使用者提供實測/決定值。
-// fixedForceEnvelope的directPot/directLegalContact/kickLegalContact範圍為
-// 保守暫定值（固定氣動力道不可調，尚未逐一實測不同距離/角度的可靠範圍），
-// 之後實測後應收斂調整，不宜任意放寬。kickPot暫時關閉（未測試一次碰庫）。
+// [使用者2026-08核准放寬] fixedForceEnvelope不再用距離/切球角度/反彈角度
+// 限制是否執行：氣動力道固定、不可調，這些幾何量對力道是否足夠沒有意義。
+// 範圍已放寬到validEnvelopeLimits允許的上限（見下方fixedForceEnvelope）。
 // productionLegalContactFallbackAuthorized=true：只在所有進袋候選都試過、
 // 確認沒有可行方案時，才允許退而求其次打防守安全球；
 // legalContactExecutionAuthorized維持false：不允許在有進袋機會時主動選擇
@@ -558,16 +567,19 @@ const std::optional<MotionPlanningConfig> MOTION_PLANNING_CONFIG = [] {
     config.base0PlanarCalibrationRevision = BASE0_PLANAR_CALIBRATION_REVISION;
     config.cueForwardAxisCalibrationRevision = "tool-axis-2026-08-v1";
     config.strikeZMm = -220.0;
-    config.safeApproachZMm = -190.0;
-    config.readyGapMm = 60.0;
-    config.strikePositionBiasMm = 0.0;
+    config.safeApproachZMm = -170.0;
+    config.readyGapMm = 0.0;
+    config.strikePositionBiasMm = 20.0;
     config.pullModeMinBottomDistanceMm = 300.0;
     config.a0Deg = -179.0;
-    config.b0Deg = -1.0;
-    config.deltaADeg = 5.0;
-    config.deltaBDeg = 5.0;
-    config.stepADeg = 1.0;
-    config.stepBDeg = 1.0;
+    config.b0Deg = -2.0;
+    // [使用者2026-08核准放寬] A軸搜尋窗5°->10°：原窗口在部分shot方向下
+    // 找不到可用姿態（NoAcceptedPoseCandidate）。41*13=533候選，未超過
+    // MAX_TOTAL_POSE_CANDIDATES=1000。
+    config.deltaADeg = 10.0;
+    config.deltaBDeg = 3.0;
+    config.stepADeg = 0.5;
+    config.stepBDeg = 0.5;
     config.searchOrder = PoseSearchOrder::AThenB;
     config.axisOffsetOrder = AxisOffsetOrder::LowerThenHigher;
     config.tieBreak = PoseTieBreak::FirstInApprovedSearchOrder;
@@ -582,16 +594,22 @@ const std::optional<MotionPlanningConfig> MOTION_PLANNING_CONFIG = [] {
     config.policyMode = ExecutionPolicyMode::RealHardware;
     config.legalContactExecutionAuthorized = false;
     config.productionLegalContactFallbackAuthorized = true;
+    // [使用者2026-08核准放寬] 氣動力道固定、不可調，距離／切球角度／
+    // 反彈角度對執行力道沒有影響，故不再用這些幾何量限制是否執行；
+    // 範圍放寬到validEnvelopeLimits／FixedForceEnvelopeEvaluation::isValid()
+    // 允許的上限（角度180°為validAngle上限，距離用大值取代原本武斷值），
+    // 讓這組檢查對任何幾何上合法的shot都會通過。
     config.fixedForceEnvelope = FixedForceEnvelopeConfig{
         "force-envelope-2026-08-v1",
-        FixedForceEnvelopeLimits{true, 100.0, 600.0, 45.0, std::nullopt},
-        FixedForceEnvelopeLimits{false, 0.0, 9999.0, std::nullopt, std::nullopt},
-        FixedForceEnvelopeLimits{true, 100.0, 600.0, std::nullopt, std::nullopt},
-        FixedForceEnvelopeLimits{true, 100.0, 600.0, std::nullopt, 65.0}
+        FixedForceEnvelopeLimits{true, 0.0, 1000000.0, 180.0, std::nullopt},
+        FixedForceEnvelopeLimits{true, 0.0, 1000000.0, 180.0, 180.0},
+        FixedForceEnvelopeLimits{true, 0.0, 1000000.0, std::nullopt, std::nullopt},
+        FixedForceEnvelopeLimits{true, 0.0, 1000000.0, std::nullopt, 180.0}
     };
     config.pneumaticTimingProfile = PneumaticTimingProfileReference{
         "pneumatic-timing-v1", 500, 500, 500};
     config.tool1ControllerCalibrationRevision = "tool1-controller-v1";
+    config.railHuggingTriggerDistanceMm = 50.0;  // 使用者提供初始值，之後會調整
     return config;
 }();
 const ExecutionPolicyMode PRODUCTION_RUNTIME_MODE = ExecutionPolicyMode::RealHardware;
@@ -628,8 +646,11 @@ const std::optional<RealHardwareExecutionConfig>
             1,
 
             // 5. Base0 controller calibration 版本
+            // RobotController::validateRealExecutionConfiguration要求這裡
+            // 跟ExecutionPlan帶的base0PlanarCalibrationRevision逐字相同，
+            // 統一沿用同一顆常數避免兩處各自維護、字串再次走鐘。
             /* base0CalibrationRevision */
-            "base0-controller-v1",
+            BASE0_PLANAR_CALIBRATION_REVISION,
 
             // 6. Tool1 controller / TCP calibration 版本
             /* tool1ControllerCalibrationRevision */
@@ -710,7 +731,14 @@ const std::optional<RealHardwareExecutionConfig>
 
                 /* mechanismCompletionWaitMs */
                 500   // TODO: 實測
-            }
+            },
+
+            // 16. 競賽用實體Start按鈕DI index
+            // [待確認接線] 使用者稱為DI1，暫定index=1；正式比賽前務必在
+            // 控制箱上實際觸發一次確認對應到這裡的index，接錯不會有編譯期
+            // 錯誤，只會表現成「按鈕沒反應」或誤觸別的DI。
+            /* startDigitalInputIndex */
+            1
         };
 
 // ============================================================

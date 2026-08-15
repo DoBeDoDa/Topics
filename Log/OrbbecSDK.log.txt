@@ -1,0 +1,1189 @@
+[08/15 12:59:16.480854][debug][22368][Context.cpp:30] Context creating, work_dir=C:\Users\user\Desktop\Topics
+[08/15 12:59:16.480986][debug][22368][Context.cpp:49] Config file version=1.1
+[08/15 12:59:16.481043][debug][22368][FrameBufferManager.cpp:23] Max global frame buffer size updated! size=2048.000MB
+[08/15 12:59:16.481069][info][22368][Context.cpp:68] Context created with config: default config!
+[08/15 12:59:16.481098][info][22368][Context.cpp:73] Work directory=C:\Users\user\Desktop\Topics, SDK version=v1.10.18-20250103-27bf2f6ff
+[08/15 12:59:16.481121][debug][22368][DeviceManager.cpp:30] DeviceManager init ...
+[08/15 12:59:16.481849][info][22368][MfPal.cpp:105] createObPal: create WinPal!
+[08/15 12:59:16.481882][debug][22368][MfPal.cpp:110] WmfPal init ...
+[08/15 12:59:16.498004][debug][22368][MfPal.cpp:117] WmfPal created!
+[08/15 12:59:16.498051][debug][22368][DeviceManager.cpp:34] Enable USB Device Enumerator ...
+[08/15 12:59:16.617982][debug][22368][EnumeratorLibusb.cpp:324] queryDevicesInfo done!
+[08/15 12:59:16.618055][debug][22368][UsbDeviceEnumerator.cpp:163] Current usb device port list:
+[08/15 12:59:16.618080][debug][22368][UsbDeviceEnumerator.cpp:166]  - \\?\USB#VID_2BC5&PID_0671&MI_06#6&394D0C01&0&0006#{E5323777-F976-4F5B-9B55-B94699C46E44}\GLOBAL | Orbbec Gemini 2 XL IR Camera Right
+[08/15 12:59:16.618086][debug][22368][UsbDeviceEnumerator.cpp:166]  - \\?\USB#VID_2BC5&PID_0671&MI_00#6&394D0C01&0&0000#{E5323777-F976-4F5B-9B55-B94699C46E44}\GLOBAL | Orbbec Gemini 2 XL RGB Camera
+[08/15 12:59:16.618093][debug][22368][UsbDeviceEnumerator.cpp:166]  - \\?\USB#VID_2BC5&PID_0671&MI_02#6&394D0C01&0&0002#{E5323777-F976-4F5B-9B55-B94699C46E44}\GLOBAL | Orbbec Gemini 2 XL Depth Camera
+[08/15 12:59:16.618098][debug][22368][UsbDeviceEnumerator.cpp:166]  - \\?\USB#VID_2BC5&PID_0671&MI_04#6&394D0C01&0&0004#{E5323777-F976-4F5B-9B55-B94699C46E44}\GLOBAL | Orbbec Gemini 2 XL IR Camera Left
+[08/15 12:59:16.618104][debug][22368][UsbDeviceEnumerator.cpp:166]  - \\?\HID#VID_2BC5&PID_0671&MI_08#7&1AFA27A4&0&0000#{4D1E55B2-F16F-11CF-88CB-001111000030} | Orbbec Gemini 2 XL IMU
+[08/15 12:59:16.618110][debug][22368][UsbDeviceEnumerator.cpp:166]  - \\?\USB#VID_2BC5&PID_0671&MI_09#6&394D0C01&0&0009#{BC3DAA21-8427-B7DA-AE5A-090B8FE7EE94} | Orbbec Gemini 2 XL Data Channel
+[08/15 12:59:16.618430][debug][22368][MfPal.cpp:219] Create WinEventDeviceWatcher!
+[08/15 12:59:16.618690][debug][22368][UsbDeviceEnumerator.cpp:71] Found 1 device(s):
+[08/15 12:59:16.618735][debug][22368][UsbDeviceEnumerator.cpp:74]   - Name: Orbbec Gemini2 XL, PID: 0x0671, SN/ID: AYKW545004C, connection: USB2.0
+[08/15 12:59:16.618753][info][22368][DeviceManager.cpp:15] Current found device(s): (1)
+[08/15 12:59:16.618767][info][22368][DeviceManager.cpp:24] 	- Name: Orbbec Gemini2 XL, PID: 0x0671, SN/ID: AYKW545004C, Connection: USB2.0
+[08/15 12:59:16.618775][debug][22368][DeviceManager.cpp:52] DeviceManager construct done!
+[08/15 12:59:16.618800][debug][22368][DeviceManager.cpp:109] DeviceManager  createDevice...
+[08/15 12:59:16.618806][debug][22368][UsbDeviceEnumerator.cpp:291] UsbDeviceEnumerator createDevice...
+[08/15 12:59:16.618866][debug][22368][Gemini2XLDevice.cpp:124] Gemini2XLDevice default constructor ...
+[08/15 12:59:16.619101][debug][22368][Gemini2XLDevice.cpp:392] Create command start!
+[08/15 12:59:16.629759][debug][22368][VendorCommand.cpp:205] VendorCommand constructor 1606b5a4f80
+[08/15 12:59:16.773694][debug][22368][PropertyAccessor.cpp:50] get firmware data success! propertyId: 1000, dataLen: 164
+[08/15 12:59:16.776393][debug][22368][PropertyAccessor.cpp:71] get raw data! propertyId: 4041, async: false
+[08/15 12:59:16.776444][info][22368][Gemini2XLDevice.cpp:446] Json Content: {
+	"ExtensionInfo":	{
+		"ProductModel":	"G30056-66 ",
+		"SubFwVer":	"1.4.75",
+		"SN":	"AYJW545001Z"
+	}
+}
+[08/15 12:59:16.776502][debug][22368][HostProtocol.cpp:433] Set property value, propertyId=97, value={intValue: 0, floatValue: 0}
+[08/15 12:59:16.777456][debug][22368][PropertyAccessor.cpp:17] set property value success! propertyId: 97, value: {intValue: 0, floatValue: 0}
+[08/15 12:59:16.780885][debug][15512][VendorCommand.cpp:436] get TimeStamp: tsp=142385872, rtt=0
+[08/15 12:59:16.834215][debug][15512][VendorCommand.cpp:436] get TimeStamp: tsp=142385926, rtt=0
+[08/15 12:59:16.893230][debug][15512][VendorCommand.cpp:436] get TimeStamp: tsp=142385984, rtt=0
+[08/15 12:59:16.952871][debug][15512][VendorCommand.cpp:436] get TimeStamp: tsp=142386044, rtt=0
+[08/15 12:59:16.952995][debug][15512][GlobalTimestampFitter.cpp:144] GlobalTimestampFitter update: coefficientA = 1002.10213553358, constantB = 1786627271593486.5
+[08/15 12:59:16.953036][debug][22368][GlobalTimestampFitter.cpp:27] GlobalTimestampFitter created: maxQueueSize_=10, refreshIntervalMsec_=8000
+[08/15 12:59:16.953048][debug][22368][Gemini2XLDevice.cpp:605] Create command done!
+[08/15 12:59:16.954069][debug][22368][HostProtocol.cpp:466] get property value success! propertyId=145, cur={intValue: 0, floatValue: 0}, max={intValue: 1, floatValue: 1.4013e-45}, min={intValue: 0, floatValue: 0},def={intValue: 0, floatValue: 0},step={intValue: 1, floatValue: 1.4013e-45}
+[08/15 12:59:16.954120][debug][22368][PropertyAccessor.cpp:28] get property value success! propertyId: 145, value: {intValue: 0, floatValue: 0}
+[08/15 12:59:16.955380][debug][22368][PropertyAccessor.cpp:86] get struct data success! propertyId: 1043
+[08/15 12:59:16.955415][debug][22368][Gemini2XLDevice.cpp:692] init sensor map start!
+[08/15 12:59:16.955445][debug][22368][Gemini2XLDevice.cpp:726] init sensor map done!
+[08/15 12:59:16.955451][debug][22368][Gemini2XLDevice.cpp:1335] Init depth process param start!
+[08/15 12:59:16.958985][debug][22368][G2AlgParamManager.cpp:44] Get depth calibration params success! num=1
+[08/15 12:59:16.959071][debug][22368][G2AlgParamManager.cpp:48]  - { depthMode: << 1, baseline: -100.762, z0: 0, focalPix: 613.178, unit: 1, dispOffset: 0, invalidDisp: 0}
+[08/15 12:59:16.962350][debug][22368][G2AlgParamManager.cpp:69] Get align calibration camera params success! num=2
+[08/15 12:59:16.962431][debug][22368][G2AlgParamManager.cpp:73] - {
+depthDistortion: {k1: 0, k2: 0, k3: 0, k4: 0, k5: 0, k6: 0, p1: 0, p2: 0},
+depthIntrinsic: {cx: 628.555, cy: 398.081, fx: 613.178, fy: 613.178, width: 1280, height: 800}, 
+rgbDistortion: {k1: -1.19493, k2: 0.736482, k3: -0.163469, k4: -1.177, k5: 0.712539, k6: -0.154439, p1: -0.000307337, p2: -0.000290636},
+rgbIntrinsic: {cx: 642.505, cy: 392.965, fx: 610.259, fy: 610.425, width: 1280, height: 800}, 
+transform: {rot: [0.999998, 0.000531736, -0.00209546, -0.000530127, 1, 0.000768313, 0.00209587, -0.0007672, 0.999997], trans: [-25.0687, 0.0782731, 0.0177816]}
+}
+[08/15 12:59:16.962466][debug][22368][G2AlgParamManager.cpp:73] - {
+depthDistortion: {k1: 0, k2: 0, k3: 0, k4: 0, k5: 0, k6: 0, p1: 0, p2: 0},
+depthIntrinsic: {cx: 314.307, cy: 199.052, fx: 306.589, fy: 306.589, width: 640, height: 400}, 
+rgbDistortion: {k1: -1.19493, k2: 0.736482, k3: -0.163469, k4: -1.177, k5: 0.712539, k6: -0.154439, p1: -0.000307337, p2: -0.000290636},
+rgbIntrinsic: {cx: 321.253, cy: 196.483, fx: 305.129, fy: 305.212, width: 640, height: 400}, 
+transform: {rot: [0.999998, 0.000531736, -0.00209546, -0.000530127, 1, 0.000768313, 0.00209587, -0.0007672, 0.999997], trans: [-25.0687, 0.0782731, 0.0177816]}
+}
+[08/15 12:59:16.965593][debug][22368][G2AlgParamManager.cpp:94] Get depth to color profile list success! num=8
+[08/15 12:59:16.965674][debug][22368][G2AlgParamManager.cpp:98]  - {alignType: 3, colorWidth: 1280, colorHeight: 800, depthWidth: 1280, depthHeight: 800, paramIndex: 0, postProcessParam: {alignLeft: 0, alignTop: 0, alignRight: 0, alignBottom: 0, depthScale: 1}}
+[08/15 12:59:16.965691][debug][22368][G2AlgParamManager.cpp:98]  - {alignType: 3, colorWidth: 1280, colorHeight: 720, depthWidth: 1280, depthHeight: 800, paramIndex: 0, postProcessParam: {alignLeft: 0, alignTop: -40, alignRight: 0, alignBottom: -40, depthScale: 1}}
+[08/15 12:59:16.965701][debug][22368][G2AlgParamManager.cpp:98]  - {alignType: 3, colorWidth: 800, colorHeight: 600, depthWidth: 1280, depthHeight: 800, paramIndex: 0, postProcessParam: {alignLeft: -240, alignTop: -100, alignRight: -240, alignBottom: -100, depthScale: 1}}
+[08/15 12:59:16.965772][debug][22368][G2AlgParamManager.cpp:98]  - {alignType: 3, colorWidth: 1280, colorHeight: 800, depthWidth: 640, depthHeight: 400, paramIndex: 0, postProcessParam: {alignLeft: 0, alignTop: 0, alignRight: 0, alignBottom: 0, depthScale: 2}}
+[08/15 12:59:16.965788][debug][22368][G2AlgParamManager.cpp:98]  - {alignType: 3, colorWidth: 1280, colorHeight: 720, depthWidth: 640, depthHeight: 400, paramIndex: 0, postProcessParam: {alignLeft: 0, alignTop: -40, alignRight: 0, alignBottom: -40, depthScale: 2}}
+[08/15 12:59:16.965799][debug][22368][G2AlgParamManager.cpp:98]  - {alignType: 3, colorWidth: 800, colorHeight: 600, depthWidth: 640, depthHeight: 400, paramIndex: 0, postProcessParam: {alignLeft: -240, alignTop: -100, alignRight: -240, alignBottom: -100, depthScale: 2}}
+[08/15 12:59:16.965809][debug][22368][G2AlgParamManager.cpp:98]  - {alignType: 3, colorWidth: 640, colorHeight: 400, depthWidth: 640, depthHeight: 400, paramIndex: 0, postProcessParam: {alignLeft: 0, alignTop: 0, alignRight: 0, alignBottom: 0, depthScale: 1}}
+[08/15 12:59:16.965819][debug][22368][G2AlgParamManager.cpp:98]  - {alignType: 3, colorWidth: 640, colorHeight: 360, depthWidth: 640, depthHeight: 400, paramIndex: 0, postProcessParam: {alignLeft: 0, alignTop: -20, alignRight: 0, alignBottom: -20, depthScale: 1}}
+[08/15 12:59:16.970076][debug][22368][G2AlgParamManager.cpp:118] Get imu calibration params success!
+[08/15 12:59:16.970950][debug][22368][HostProtocol.cpp:466] get property value success! propertyId=108, cur={intValue: 0, floatValue: 0}, max={intValue: 1, floatValue: 1.4013e-45}, min={intValue: 0, floatValue: 0},def={intValue: 0, floatValue: 0},step={intValue: 1, floatValue: 1.4013e-45}
+[08/15 12:59:16.973852][debug][22368][G2AlgParamManager.cpp:447] Get depth calibration params success! num=1
+[08/15 12:59:16.973911][debug][22368][G2AlgParamManager.cpp:451]  - { depthMode: << 1, baseline: -100.762, z0: 0, focalPix: 613.178, unit: 1, dispOffset: 0, invalidDisp: 0}
+[08/15 12:59:16.974944][debug][22368][PropertyAccessor.cpp:86] get struct data success! propertyId: 4037
+[08/15 12:59:16.975543][debug][22368][HostProtocol.cpp:466] get property value success! propertyId=85, cur={intValue: 1, floatValue: 1.4013e-45}, max={intValue: 1, floatValue: 1.4013e-45}, min={intValue: 0, floatValue: 0},def={intValue: 0, floatValue: 0},step={intValue: 1, floatValue: 1.4013e-45}
+[08/15 12:59:16.975567][debug][22368][PropertyAccessor.cpp:28] get property value success! propertyId: 85, value: {intValue: 1, floatValue: 1.4013e-45}
+[08/15 12:59:16.975575][debug][22368][Gemini2XLDevice.cpp:1407] hwD2DEnable_: true
+[08/15 12:59:16.975581][debug][22368][Gemini2XLDevice.cpp:1408] Init depth process param done!
+[08/15 12:59:16.976388][debug][22368][PropertyAccessor.cpp:50] get firmware data success! propertyId: 1000, dataLen: 164
+[08/15 12:59:16.976402][info][22368][AbstractDevice.cpp:125] 	- Firmware version: 2.1.3_23112010
+[08/15 12:59:16.976538][debug][22368][Gemini2XLDevice.cpp:663] Create command done!
+[08/15 12:59:16.977341][debug][22368][HostProtocol.cpp:466] get property value success! propertyId=89, cur={intValue: 0, floatValue: 0}, max={intValue: 0, floatValue: 0}, min={intValue: 0, floatValue: 0},def={intValue: 0, floatValue: 0},step={intValue: 0, floatValue: 0}
+[08/15 12:59:16.977365][debug][22368][VendorCommand.cpp:467] disableHeartBeat heartBeatHelper_: 0000000000000000
+[08/15 12:59:16.977375][debug][22368][PropertyAccessor.cpp:28] get property value success! propertyId: 89, value: {intValue: 0, floatValue: 0}
+[08/15 12:59:16.977381][debug][22368][Gemini2XLDevice.cpp:673] heartbeat: 0
+[08/15 12:59:16.977412][debug][22368][HostProtocol.cpp:433] Set property value, propertyId=89, value={intValue: 0, floatValue: 0}
+[08/15 12:59:16.978197][debug][22368][VendorCommand.cpp:467] disableHeartBeat heartBeatHelper_: 0000000000000000
+[08/15 12:59:16.978221][debug][22368][PropertyAccessor.cpp:17] set property value success! propertyId: 89, value: {intValue: 0, floatValue: 0}
+[08/15 12:59:16.978238][info][22368][Gemini2XLDevice.cpp:218] Gemini2 XL device created! PID: 1649, SN: AYKW545004C
+[08/15 12:59:16.978268][debug][22368][UsbDeviceEnumerator.cpp:359] Device created successfully! Name: Orbbec Gemini2 XL, PID: 0x0671, SN/ID: AYKW545004C
+[08/15 12:59:16.978306][info][22368][DeviceManager.cpp:150] Device created successfully! Name: Orbbec Gemini2 XL, PID: 0x0671, SN/ID: AYKW545004C
+[08/15 12:59:16.978355][debug][22368][Pipeline.cpp:29] Pipeline init ...
+[08/15 12:59:16.978379][debug][22368][Pipeline.cpp:168] loadFrameQueueSizeConfig() config queue size: 10
+[08/15 12:59:16.978405][info][22368][Pipeline.cpp:47] Pipeline created with device: {name: Orbbec Gemini 2 XL, sn: AYKW545004C}, @0x1606B9E71D0
+[08/15 12:59:16.989089][debug][22368][FrameProcessor.cpp:90] FrameProcessor init with 3 blocks! @1513629548640
+[08/15 12:59:16.989152][debug][22368][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 12:59:16.989170][debug][22368][FrameProcessor.cpp:98]  - block: FormatConverter, status: disable
+[08/15 12:59:16.989181][debug][22368][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 12:59:16.989188][debug][22368][FrameProcessor.cpp:98]  - block: FrameFlip, status: disable
+[08/15 12:59:16.989196][debug][22368][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 12:59:16.989202][debug][22368][FrameProcessor.cpp:98]  - block: FrameRotate, status: disable
+[08/15 12:59:16.989230][debug][22368][VideoSensor.cpp:252] VideoSensor construct!
+[08/15 12:59:16.989438][debug][22368][VideoSensor.cpp:278] VideoSensor created, @OB_SENSOR_COLOR
+[08/15 12:59:16.989462][info][22368][Gemini2XLDevice.cpp:984] Color sensor has been created!
+[08/15 12:59:17.021762][debug][22368][WinHelpers.cpp:88] streamReader_->GetNativeMediaType(index, k, &pMediaType.p) returned: HResult 0xc00d36b3: "提供的資料流號碼無效。"
+[08/15 12:59:17.021897][debug][22368][WinHelpers.cpp:88] streamReader_->GetNativeMediaType(index, k, &pMediaType.p) returned: HResult 0xc00d36b3: "提供的資料流號碼無效。"
+[08/15 12:59:17.021946][debug][22368][WinHelpers.cpp:88] streamReader_->GetNativeMediaType(index, k, &pMediaType.p) returned: HResult 0xc00d36b3: "提供的資料流號碼無效。"
+[08/15 12:59:17.021990][debug][22368][WinHelpers.cpp:88] streamReader_->GetNativeMediaType(index, k, &pMediaType.p) returned: HResult 0xc00d36b3: "提供的資料流號碼無效。"
+[08/15 12:59:17.024704][debug][22368][Gemini2XLDevice.cpp:2595] getEffectiveStreamProfiles fixedPropertyId: 4035
+[08/15 12:59:17.027756][debug][22368][PropertyAccessor.cpp:100] get struct data list success! propertyId: 4035, async: false
+[08/15 12:59:17.027873][debug][22368][Gemini2XLProfileFilter.cpp:34] uvcProfileList size: 52, output profile size: 14
+[08/15 12:59:17.027892][debug][22368][VideoSensor.cpp:372] Query stream profile! filter profile list success. size = 52, valid size = 14
+[08/15 12:59:17.027932][info][22368][VideoSensor.cpp:384] Query stream profile! size= 34, SensorType=OB_SENSOR_COLOR
+[08/15 12:59:17.027951][info][22368][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_MJPG, width: 1280, height: 800, fps: 10}
+[08/15 12:59:17.027960][info][22368][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_MJPG, width: 1280, height: 800, fps: 5}
+[08/15 12:59:17.027970][info][22368][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_MJPG, width: 1280, height: 720, fps: 5}
+[08/15 12:59:17.027978][info][22368][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_MJPG, width: 1280, height: 720, fps: 10}
+[08/15 12:59:17.027986][info][22368][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_MJPG, width: 800, height: 600, fps: 5}
+[08/15 12:59:17.027995][info][22368][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_MJPG, width: 800, height: 600, fps: 10}
+[08/15 12:59:17.028003][info][22368][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_MJPG, width: 640, height: 400, fps: 5}
+[08/15 12:59:17.028089][info][22368][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_MJPG, width: 640, height: 400, fps: 10}
+[08/15 12:59:17.028103][info][22368][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_MJPG, width: 640, height: 360, fps: 5}
+[08/15 12:59:17.028112][info][22368][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_MJPG, width: 640, height: 360, fps: 10}
+[08/15 12:59:17.028120][info][22368][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_YUYV, width: 640, height: 400, fps: 5}
+[08/15 12:59:17.028128][info][22368][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_YUYV, width: 640, height: 400, fps: 10}
+[08/15 12:59:17.028137][info][22368][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_YUYV, width: 640, height: 360, fps: 5}
+[08/15 12:59:17.028145][info][22368][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_YUYV, width: 640, height: 360, fps: 10}
+[08/15 12:59:17.028154][info][22368][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_RGB888, width: 1280, height: 800, fps: 5}
+[08/15 12:59:17.028162][info][22368][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_RGB888, width: 1280, height: 800, fps: 10}
+[08/15 12:59:17.028170][info][22368][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_RGB888, width: 1280, height: 720, fps: 5}
+[08/15 12:59:17.028178][info][22368][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_RGB888, width: 1280, height: 720, fps: 10}
+[08/15 12:59:17.028205][info][22368][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_RGB888, width: 800, height: 600, fps: 5}
+[08/15 12:59:17.028217][info][22368][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_RGB888, width: 800, height: 600, fps: 10}
+[08/15 12:59:17.028228][info][22368][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_RGB888, width: 640, height: 400, fps: 5}
+[08/15 12:59:17.028241][info][22368][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_RGB888, width: 640, height: 400, fps: 10}
+[08/15 12:59:17.028250][info][22368][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_RGB888, width: 640, height: 360, fps: 5}
+[08/15 12:59:17.028258][info][22368][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_RGB888, width: 640, height: 360, fps: 10}
+[08/15 12:59:17.028267][info][22368][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_BGRA, width: 1280, height: 800, fps: 5}
+[08/15 12:59:17.028275][info][22368][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_BGRA, width: 1280, height: 800, fps: 10}
+[08/15 12:59:17.028283][info][22368][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_BGRA, width: 1280, height: 720, fps: 5}
+[08/15 12:59:17.028295][info][22368][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_BGRA, width: 1280, height: 720, fps: 10}
+[08/15 12:59:17.028305][info][22368][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_BGRA, width: 800, height: 600, fps: 5}
+[08/15 12:59:17.028314][info][22368][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_BGRA, width: 800, height: 600, fps: 10}
+[08/15 12:59:17.028322][info][22368][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_BGRA, width: 640, height: 400, fps: 5}
+[08/15 12:59:17.028331][info][22368][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_BGRA, width: 640, height: 400, fps: 10}
+[08/15 12:59:17.028341][info][22368][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_BGRA, width: 640, height: 360, fps: 5}
+[08/15 12:59:17.028349][info][22368][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_BGRA, width: 640, height: 360, fps: 10}
+[08/15 12:59:17.028441][debug][22368][Pipeline.cpp:227] Pipeline start() start!
+[08/15 12:59:17.028454][info][22368][Pipeline.cpp:188] Check and set config start!
+[08/15 12:59:17.028497][info][22368][Pipeline.cpp:223] Check and set config done!
+[08/15 12:59:17.028524][debug][22368][FrameProcessor.cpp:90] FrameProcessor init with 13 blocks! @1513634186224
+[08/15 12:59:17.028539][debug][22368][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 12:59:17.028546][debug][22368][FrameProcessor.cpp:98]  - block: FrameUnpacker, status: disable
+[08/15 12:59:17.028556][debug][22368][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 12:59:17.028567][debug][22368][FrameProcessor.cpp:98]  - block: Gemini2XLDecompress, status: enable
+[08/15 12:59:17.028576][debug][22368][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 12:59:17.028585][debug][22368][FrameProcessor.cpp:98]  - block: DepthMaskRectifyFilter, status: disable
+[08/15 12:59:17.028594][debug][22368][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 12:59:17.028600][debug][22368][FrameProcessor.cpp:98]  - block: PixelValueOffset, status: disable
+[08/15 12:59:17.028610][debug][22368][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 12:59:17.028615][debug][22368][FrameProcessor.cpp:98]  - block: Disparity2DepthConverter, status: disable
+[08/15 12:59:17.028622][debug][22368][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 12:59:17.028627][debug][22368][FrameProcessor.cpp:98]  - block: PixelValueCutOff, status: enable
+[08/15 12:59:17.028636][debug][22368][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 12:59:17.028642][debug][22368][FrameProcessor.cpp:98]  - block: FrameSoftFilter, status: disable
+[08/15 12:59:17.028648][debug][22368][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 12:59:17.028654][debug][22368][FrameProcessor.cpp:98]  - block: FrameMirror, status: disable
+[08/15 12:59:17.028660][debug][22368][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 12:59:17.028665][debug][22368][FrameProcessor.cpp:98]  - block: FrameFlip, status: disable
+[08/15 12:59:17.028671][debug][22368][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 12:59:17.028677][debug][22368][FrameProcessor.cpp:98]  - block: FrameRotate, status: disable
+[08/15 12:59:17.028687][debug][22368][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 12:59:17.028695][debug][22368][FrameProcessor.cpp:98]  - block: D2CFilter, status: disable
+[08/15 12:59:17.028704][debug][22368][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 12:59:17.028709][debug][22368][FrameProcessor.cpp:98]  - block: PostProcessFilter, status: disable
+[08/15 12:59:17.028718][debug][22368][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 12:59:17.028724][debug][22368][FrameProcessor.cpp:98]  - block: DepthMarginRectifyFilter, status: enable
+[08/15 12:59:17.030211][debug][22368][VideoSensor.cpp:252] VideoSensor construct!
+[08/15 12:59:17.030433][debug][22368][VideoSensor.cpp:278] VideoSensor created, @OB_SENSOR_DEPTH
+[08/15 12:59:17.031222][debug][22368][HostProtocol.cpp:466] get property value success! propertyId=85, cur={intValue: 1, floatValue: 1.4013e-45}, max={intValue: 1, floatValue: 1.4013e-45}, min={intValue: 0, floatValue: 0},def={intValue: 0, floatValue: 0},step={intValue: 1, floatValue: 1.4013e-45}
+[08/15 12:59:17.031262][debug][22368][PropertyAccessor.cpp:28] get property value success! propertyId: 85, value: {intValue: 1, floatValue: 1.4013e-45}
+[08/15 12:59:17.031276][debug][22368][HostProtocol.cpp:433] Set property value, propertyId=75, value={intValue: 0, floatValue: 0}
+[08/15 12:59:17.031985][debug][22368][PropertyAccessor.cpp:17] set property value success! propertyId: 75, value: {intValue: 0, floatValue: 0}
+[08/15 12:59:17.032000][debug][22368][Gemini2XLDevice.cpp:1329] Set depth precision level to 1mm success
+[08/15 12:59:17.032008][debug][22368][Gemini2XLDevice.cpp:1331] Setup default depth precision. depthUnit=1
+[08/15 12:59:17.032020][debug][22368][Gemini2XLDevice.cpp:908] hwD2DEnable_: true, depthUnit=1
+[08/15 12:59:17.032029][info][22368][Gemini2XLDevice.cpp:926] Depth sensor has been created!
+[08/15 12:59:17.032075][debug][22368][PropertyAccessor.cpp:28] get property value success! propertyId: 14, value: {intValue: 0, floatValue: 0}
+[08/15 12:59:17.032086][debug][22368][PropertyAccessor.cpp:28] get property value success! propertyId: 15, value: {intValue: 0, floatValue: 0}
+[08/15 12:59:17.032100][debug][22368][PropertyAccessor.cpp:28] get property value success! propertyId: 118, value: {intValue: 0, floatValue: 0}
+[08/15 12:59:17.032110][debug][22368][HostProtocol.cpp:433] Set property value, propertyId=63, value={intValue: 0, floatValue: 0}
+[08/15 12:59:17.364614][debug][22368][PropertyAccessor.cpp:17] set property value success! propertyId: 63, value: {intValue: 0, floatValue: 0}
+[08/15 12:59:17.364720][debug][22368][PropertyAccessor.cpp:28] get property value success! propertyId: 14, value: {intValue: 0, floatValue: 0}
+[08/15 12:59:17.364738][debug][22368][PropertyAccessor.cpp:28] get property value success! propertyId: 15, value: {intValue: 0, floatValue: 0}
+[08/15 12:59:17.364753][debug][22368][PropertyAccessor.cpp:28] get property value success! propertyId: 118, value: {intValue: 0, floatValue: 0}
+[08/15 12:59:17.364767][debug][22368][PropertyAccessor.cpp:28] get property value success! propertyId: 118, value: {intValue: 0, floatValue: 0}
+[08/15 12:59:17.364801][debug][22368][FrameProcessingBlockManager.cpp:75]  FrameProcessingBlockManager started, 0 blocks contained!
+[08/15 12:59:17.364825][info][22368][Pipeline.cpp:288] Try to start streams!
+[08/15 12:59:17.364858][debug][22368][VideoSensor.cpp:566] VideoSensor::start, @OB_SENSOR_COLOR
+[08/15 12:59:17.364876][debug][22368][FrameMemoryPool.cpp:35] FrameMemoryPool created!
+[08/15 12:59:17.366228][debug][22368][FrameBufferManager.hpp:65] FrameBufferManager created! frame type:class libobsensor::ColorFrame, obj addr:0x1606b5cba60, frame obj total size:0.879MB
+[08/15 12:59:17.366258][debug][22368][FrameMemoryPool.cpp:76] ColorFrame bufferManager created!
+[08/15 12:59:17.366275][debug][22368][FrameProcessor.cpp:144] Frame processor active blocks chain update: input -> output
+[08/15 12:59:17.366282][debug][22368][FrameProcessor.cpp:155] FrameProcessor started, 3 blocks contained!
+[08/15 12:59:17.366305][info][22368][VideoSensor.cpp:646] start OB_SENSOR_COLOR stream with profile: {type: OB_STREAM_COLOR, format: OB_FORMAT_MJPG, width: 1280, height: 720, fps: 10}, Backend Format: OB_FORMAT_MJPG
+[08/15 12:59:17.411122][debug][22368][VideoSensor.cpp:672] Stream state changed to STREAM_STATE_STARTING. @OB_SENSOR_COLOR
+[08/15 12:59:17.411179][debug][22368][VideoSensor.cpp:674] Stream starting! @OB_SENSOR_COLOR
+[08/15 12:59:17.411200][debug][22368][Pipeline.cpp:299] Sensor stream started, sensorType=OB_SENSOR_COLOR
+[08/15 12:59:17.411214][info][22368][Pipeline.cpp:301] Start streams done!
+[08/15 12:59:17.411247][info][22368][Pipeline.cpp:277] Pipeline start done!
+[08/15 12:59:17.802081][debug][22288][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 12:59:17.802333][debug][22288][FrameBufferManager.cpp:35] New frame buffer allocated=0.879MB, total usage: allocated=0.879MB, max limit=2048.000MB
+[08/15 12:59:17.802369][debug][22288][VideoSensor.cpp:460] Stream state changed to STREAM_STATE_STREAMING. @OB_SENSOR_COLOR
+[08/15 12:59:17.802409][debug][22288][FrameTimestampConverter.cpp:160] updateBaseTimeStamp:
+[08/15 12:59:17.802427][debug][22288][FrameTimestampConverter.cpp:161] 	srcTimestamp=0, prevSrcTsp_=0, tspDecrease=false
+[08/15 12:59:17.802436][debug][22288][FrameTimestampConverter.cpp:162] 	srcTspDiffMs=0, hostTspDiffMs=1786769957802, tspDiffAbnormal=true
+[08/15 12:59:17.804137][debug][22288][VendorCommand.cpp:436] get TimeStamp: tsp=142386895, rtt=0
+[08/15 12:59:17.804175][debug][22288][FrameBufferManager.hpp:65] FrameBufferManager created! frame type:class libobsensor::FrameSet, obj addr:0x1606ba14e50, frame obj total size:0.000MB
+[08/15 12:59:17.804186][debug][22288][FrameMemoryPool.cpp:92] Frameset bufferManager created!
+[08/15 12:59:17.804206][debug][22288][FrameBufferManager.cpp:35] New frame buffer allocated=0.000MB, total usage: allocated=0.880MB, max limit=2048.000MB
+[08/15 12:59:17.804237][debug][22288][Pipeline.cpp:319] Frame received on pipeline! type=OB_FRAME_COLOR
+[08/15 12:59:17.898381][debug][21856][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 12:59:17.900644][debug][21856][VendorCommand.cpp:436] get TimeStamp: tsp=142386992, rtt=0
+[08/15 12:59:17.998808][debug][22288][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 12:59:18.000961][debug][22288][VendorCommand.cpp:436] get TimeStamp: tsp=142387092, rtt=0
+[08/15 12:59:18.099631][debug][21856][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 12:59:18.101214][debug][21856][VendorCommand.cpp:436] get TimeStamp: tsp=142387192, rtt=0
+[08/15 12:59:18.199407][debug][22288][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 12:59:18.200934][debug][22288][VendorCommand.cpp:436] get TimeStamp: tsp=142387292, rtt=0
+[08/15 12:59:18.299668][debug][21856][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 12:59:18.301282][debug][21856][VendorCommand.cpp:436] get TimeStamp: tsp=142387393, rtt=0
+[08/15 12:59:18.398893][debug][22288][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 12:59:18.400532][debug][22288][VendorCommand.cpp:436] get TimeStamp: tsp=142387492, rtt=0
+[08/15 12:59:18.499007][debug][21856][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 12:59:18.500900][debug][21856][VendorCommand.cpp:436] get TimeStamp: tsp=142387592, rtt=0
+[08/15 12:59:18.598643][debug][22288][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 12:59:18.598944][debug][22288][FrameBufferManager.cpp:35] New frame buffer allocated=0.879MB, total usage: allocated=1.759MB, max limit=2048.000MB
+[08/15 12:59:18.600803][debug][22288][VendorCommand.cpp:436] get TimeStamp: tsp=142387692, rtt=0
+[08/15 12:59:18.600857][debug][22288][FrameBufferManager.cpp:35] New frame buffer allocated=0.000MB, total usage: allocated=1.760MB, max limit=2048.000MB
+[08/15 12:59:18.698447][debug][21856][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 12:59:18.698737][debug][21856][FrameBufferManager.cpp:35] New frame buffer allocated=0.879MB, total usage: allocated=2.639MB, max limit=2048.000MB
+[08/15 12:59:18.700494][debug][21856][VendorCommand.cpp:436] get TimeStamp: tsp=142387792, rtt=0
+[08/15 12:59:18.700612][debug][21856][FrameBufferManager.cpp:35] New frame buffer allocated=0.000MB, total usage: allocated=2.640MB, max limit=2048.000MB
+[08/15 12:59:18.798579][debug][22288][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 12:59:18.799192][debug][22288][FrameBufferManager.cpp:35] New frame buffer allocated=0.879MB, total usage: allocated=3.519MB, max limit=2048.000MB
+[08/15 12:59:18.800884][debug][22288][VendorCommand.cpp:436] get TimeStamp: tsp=142387892, rtt=0
+[08/15 12:59:18.800953][debug][22288][FrameBufferManager.cpp:35] New frame buffer allocated=0.000MB, total usage: allocated=3.519MB, max limit=2048.000MB
+[08/15 12:59:18.898241][debug][21856][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 12:59:18.898628][debug][21856][FrameBufferManager.cpp:35] New frame buffer allocated=0.879MB, total usage: allocated=4.399MB, max limit=2048.000MB
+[08/15 12:59:18.898703][debug][21856][FrameTimestampConverter.cpp:160] updateBaseTimeStamp: [**11 logs in 1096ms**]
+[08/15 12:59:18.898902][debug][21856][FrameTimestampConverter.cpp:161] 	srcTimestamp=0, prevSrcTsp_=0, tspDecrease=false [**11 logs in 1096ms**]
+[08/15 12:59:18.899005][debug][21856][FrameTimestampConverter.cpp:162] 	srcTspDiffMs=0, hostTspDiffMs=99, tspDiffAbnormal=true [**11 logs in 1096ms**]
+[08/15 12:59:18.900630][debug][21856][VendorCommand.cpp:436] get TimeStamp: tsp=142387992, rtt=0
+[08/15 12:59:18.900666][debug][21856][FrameBufferManager.cpp:35] New frame buffer allocated=0.000MB, total usage: allocated=4.399MB, max limit=2048.000MB
+[08/15 12:59:18.927673][info][22368][Pipeline.cpp:411] Try to stop pipeline!
+[08/15 12:59:18.927697][info][22368][Pipeline.cpp:383] Try to stop streams!
+[08/15 12:59:18.927712][debug][22368][VideoSensor.cpp:678] VideoSensor::stop, @OB_SENSOR_COLOR
+[08/15 12:59:18.927728][debug][22368][VideoSensor.cpp:701] Stream state changed to STREAM_STATE_STOPPING. @OB_SENSOR_COLOR
+[08/15 12:59:19.706658][debug][22368][VideoSensor.cpp:727] stream stoped! @OB_SENSOR_COLOR
+[08/15 12:59:19.706715][debug][22368][FrameProcessor.cpp:165] FrameProcessor stoped!
+[08/15 12:59:19.706746][debug][22368][HostProtocol.cpp:433] Set property value, propertyId=77, value={intValue: 1, floatValue: 1.4013e-45}
+[08/15 12:59:19.798265][debug][22368][VideoSensor.cpp:716] Stream state changed to STREAM_STATE_STOPED. @OB_SENSOR_COLOR
+[08/15 12:59:19.798344][info][22368][VideoSensor.cpp:734] Video sensor stopped, @OB_SENSOR_COLOR
+[08/15 12:59:19.798366][info][22368][Pipeline.cpp:396] Sensor stream stopped, sensorType=OB_SENSOR_COLOR
+[08/15 12:59:19.798377][info][22368][Pipeline.cpp:402] Stop streams done!
+[08/15 12:59:19.798442][debug][22368][HostProtocol.cpp:433] Set property value, propertyId=42, value={intValue: 0, floatValue: 0}
+[08/15 12:59:19.799767][debug][22368][PropertyAccessor.cpp:17] set property value success! propertyId: 42, value: {intValue: 0, floatValue: 0}
+[08/15 12:59:19.799821][debug][22368][FrameProcessingBlockManager.cpp:84] FrameProcessingBlockManager stoped!
+[08/15 12:59:19.799828][debug][22368][FrameProcessingBlockManager.cpp:20] Processing block list cleared!
+[08/15 12:59:19.799848][info][22368][Pipeline.cpp:443] Stop pipeline done!
+[08/15 12:59:19.799906][debug][22368][Pipeline.cpp:68] Pipeline deInit start!
+[08/15 12:59:19.799915][info][22368][Pipeline.cpp:75] Pipeline destroyed! @0x1606B9E71D0
+[08/15 12:59:19.799942][debug][22368][Gemini2XLDevice.cpp:222] ~Gemini2XLDevice start!
+[08/15 12:59:19.799950][info][22368][Gemini2XLDevice.cpp:227] Gemini2 XL device destroyed! PID: 1649, SN: AYKW545004C
+[08/15 12:59:19.799963][debug][22368][VideoSensor.cpp:282] VideoSensor::~VideoSensor(), @OB_SENSOR_COLOR
+[08/15 12:59:19.800105][info][22368][VideoSensor.cpp:303] VideoSensor destroyed, @OB_SENSOR_COLOR
+[08/15 12:59:19.800123][debug][22368][VideoSensor.cpp:282] VideoSensor::~VideoSensor(), @OB_SENSOR_DEPTH
+[08/15 12:59:19.800171][info][22368][VideoSensor.cpp:303] VideoSensor destroyed, @OB_SENSOR_DEPTH
+[08/15 12:59:19.800355][debug][22368][FrameProcessor.cpp:807] try remove eventId: PropertyValueUpdate
+[08/15 12:59:19.800378][debug][22368][FrameProcessor.cpp:807] try remove eventId: DepthStreamProfileChanged
+[08/15 12:59:19.800401][debug][22368][FrameProcessor.cpp:111] FrameProcessor destroyed! @1513634186224
+[08/15 12:59:19.800428][debug][15512][GlobalTimestampFitter.cpp:155] GlobalTimestampFitter fittingLoop exit
+[08/15 12:59:19.800499][debug][22368][FrameProcessor.cpp:111] FrameProcessor destroyed! @1513629548640
+[08/15 12:59:19.800509][debug][22368][VendorCommand.cpp:213] destructor 1606b5a4f80
+[08/15 12:59:19.800520][debug][22368][VendorCommand.cpp:467] disableHeartBeat heartBeatHelper_: 0000000000000000
+[08/15 12:59:19.800544][debug][22368][HostProtocol.cpp:139] ~HostProtocol()
+[08/15 12:59:19.800559][debug][10072][HostProtocol.cpp:167] emitTranDataFutureSignalThread_ finish
+[08/15 12:59:19.802153][debug][22368][Context.cpp:81] Context destroying ...
+[08/15 12:59:19.802177][debug][22368][DeviceManager.cpp:56] DeviceManager destroy ...
+[08/15 12:59:19.802183][debug][22368][DeviceManager.cpp:64] DeviceManager Destructors done
+[08/15 12:59:19.809528][debug][22368][MfPal.cpp:128] WmfPal destroyed!
+[08/15 12:59:19.809922][debug][22368][FrameBufferManager.hpp:72] FrameBufferManager destroying...! frame type: class libobsensor::FrameSet,  obj addr:0x1606ba14e50
+[08/15 12:59:19.809946][debug][22368][FrameBufferManager.cpp:54] Frame buffer released=0.000MB, total usage: allocated=4.399MB, max limit=2048.000MB
+[08/15 12:59:19.809954][debug][22368][FrameBufferManager.cpp:54] Frame buffer released=0.000MB, total usage: allocated=4.398MB, max limit=2048.000MB
+[08/15 12:59:19.809962][debug][22368][FrameBufferManager.cpp:54] Frame buffer released=0.000MB, total usage: allocated=4.398MB, max limit=2048.000MB
+[08/15 12:59:19.809968][debug][22368][FrameBufferManager.cpp:54] Frame buffer released=0.000MB, total usage: allocated=4.397MB, max limit=2048.000MB
+[08/15 12:59:19.809977][debug][22368][FrameBufferManager.cpp:54] Frame buffer released=0.000MB, total usage: allocated=4.397MB, max limit=2048.000MB
+[08/15 12:59:19.810008][debug][22368][FrameBufferManager.cpp:69] AbstractFrameBufferManager destroyed! manager type:class libobsensor::AbstractFrameBufferManager,  obj addr:0x1606ba14e50
+[08/15 12:59:19.810015][debug][22368][FrameBufferManager.hpp:72] FrameBufferManager destroying...! frame type: class libobsensor::ColorFrame,  obj addr:0x1606b5cba60
+[08/15 12:59:19.810140][debug][22368][FrameBufferManager.cpp:54] Frame buffer released=0.879MB, total usage: allocated=3.518MB, max limit=2048.000MB
+[08/15 12:59:19.810214][debug][22368][FrameBufferManager.cpp:54] Frame buffer released=0.879MB, total usage: allocated=2.638MB, max limit=2048.000MB
+[08/15 12:59:19.810328][debug][22368][FrameBufferManager.cpp:54] Frame buffer released=0.879MB, total usage: allocated=1.759MB, max limit=2048.000MB
+[08/15 12:59:19.810417][debug][22368][FrameBufferManager.cpp:54] Frame buffer released=0.879MB, total usage: allocated=0.879MB, max limit=2048.000MB
+[08/15 12:59:19.810548][debug][22368][FrameBufferManager.cpp:54] Frame buffer released=0.879MB, total usage: allocated=0.000MB, max limit=2048.000MB
+[08/15 12:59:19.810558][debug][22368][FrameBufferManager.cpp:69] AbstractFrameBufferManager destroyed! manager type:class libobsensor::AbstractFrameBufferManager,  obj addr:0x1606b5cba60
+[08/15 12:59:19.810577][info][22368][Context.cpp:84] Context destroyed
+[08/15 12:59:19.810628][debug][20152][Pipeline.cpp:319] Frame received on pipeline! type=OB_FRAME_COLOR [**11 logs in 2006ms, last: 12:59:18.900681**]
+[08/15 13:00:31.193622][debug][2436][Context.cpp:30] Context creating, work_dir=C:\Users\user\Desktop\Topics
+[08/15 13:00:31.193717][debug][2436][Context.cpp:49] Config file version=1.1
+[08/15 13:00:31.193741][debug][2436][FrameBufferManager.cpp:23] Max global frame buffer size updated! size=2048.000MB
+[08/15 13:00:31.193755][info][2436][Context.cpp:68] Context created with config: default config!
+[08/15 13:00:31.193770][info][2436][Context.cpp:73] Work directory=C:\Users\user\Desktop\Topics, SDK version=v1.10.18-20250103-27bf2f6ff
+[08/15 13:00:31.193825][debug][2436][DeviceManager.cpp:30] DeviceManager init ...
+[08/15 13:00:31.193832][info][2436][MfPal.cpp:105] createObPal: create WinPal!
+[08/15 13:00:31.193865][debug][2436][MfPal.cpp:110] WmfPal init ...
+[08/15 13:00:31.209087][debug][2436][MfPal.cpp:117] WmfPal created!
+[08/15 13:00:31.209119][debug][2436][DeviceManager.cpp:34] Enable USB Device Enumerator ...
+[08/15 13:00:31.269672][debug][2436][EnumeratorLibusb.cpp:324] queryDevicesInfo done!
+[08/15 13:00:31.269735][debug][2436][UsbDeviceEnumerator.cpp:163] Current usb device port list:
+[08/15 13:00:31.269752][debug][2436][UsbDeviceEnumerator.cpp:166]  - \\?\USB#VID_2BC5&PID_0671&MI_06#6&394D0C01&0&0006#{E5323777-F976-4F5B-9B55-B94699C46E44}\GLOBAL | Orbbec Gemini 2 XL IR Camera Right
+[08/15 13:00:31.269758][debug][2436][UsbDeviceEnumerator.cpp:166]  - \\?\USB#VID_2BC5&PID_0671&MI_00#6&394D0C01&0&0000#{E5323777-F976-4F5B-9B55-B94699C46E44}\GLOBAL | Orbbec Gemini 2 XL RGB Camera
+[08/15 13:00:31.269763][debug][2436][UsbDeviceEnumerator.cpp:166]  - \\?\USB#VID_2BC5&PID_0671&MI_02#6&394D0C01&0&0002#{E5323777-F976-4F5B-9B55-B94699C46E44}\GLOBAL | Orbbec Gemini 2 XL Depth Camera
+[08/15 13:00:31.269769][debug][2436][UsbDeviceEnumerator.cpp:166]  - \\?\USB#VID_2BC5&PID_0671&MI_04#6&394D0C01&0&0004#{E5323777-F976-4F5B-9B55-B94699C46E44}\GLOBAL | Orbbec Gemini 2 XL IR Camera Left
+[08/15 13:00:31.269774][debug][2436][UsbDeviceEnumerator.cpp:166]  - \\?\HID#VID_2BC5&PID_0671&MI_08#7&1AFA27A4&0&0000#{4D1E55B2-F16F-11CF-88CB-001111000030} | Orbbec Gemini 2 XL IMU
+[08/15 13:00:31.269781][debug][2436][UsbDeviceEnumerator.cpp:166]  - \\?\USB#VID_2BC5&PID_0671&MI_09#6&394D0C01&0&0009#{BC3DAA21-8427-B7DA-AE5A-090B8FE7EE94} | Orbbec Gemini 2 XL Data Channel
+[08/15 13:00:31.270001][debug][2436][MfPal.cpp:219] Create WinEventDeviceWatcher!
+[08/15 13:00:31.270093][debug][2436][UsbDeviceEnumerator.cpp:71] Found 1 device(s):
+[08/15 13:00:31.270105][debug][2436][UsbDeviceEnumerator.cpp:74]   - Name: Orbbec Gemini2 XL, PID: 0x0671, SN/ID: AYKW545004C, connection: USB2.0
+[08/15 13:00:31.270117][info][2436][DeviceManager.cpp:15] Current found device(s): (1)
+[08/15 13:00:31.270131][info][2436][DeviceManager.cpp:24] 	- Name: Orbbec Gemini2 XL, PID: 0x0671, SN/ID: AYKW545004C, Connection: USB2.0
+[08/15 13:00:31.270139][debug][2436][DeviceManager.cpp:52] DeviceManager construct done!
+[08/15 13:00:31.270156][debug][2436][DeviceManager.cpp:109] DeviceManager  createDevice...
+[08/15 13:00:31.270162][debug][2436][UsbDeviceEnumerator.cpp:291] UsbDeviceEnumerator createDevice...
+[08/15 13:00:31.270205][debug][2436][Gemini2XLDevice.cpp:124] Gemini2XLDevice default constructor ...
+[08/15 13:00:31.270400][debug][2436][Gemini2XLDevice.cpp:392] Create command start!
+[08/15 13:00:31.313901][debug][2436][VendorCommand.cpp:205] VendorCommand constructor 1f660fad6d0
+[08/15 13:00:31.467797][debug][2436][PropertyAccessor.cpp:50] get firmware data success! propertyId: 1000, dataLen: 164
+[08/15 13:00:31.470470][debug][2436][PropertyAccessor.cpp:71] get raw data! propertyId: 4041, async: false
+[08/15 13:00:31.470515][info][2436][Gemini2XLDevice.cpp:446] Json Content: {
+	"ExtensionInfo":	{
+		"ProductModel":	"G30056-66 ",
+		"SubFwVer":	"1.4.75",
+		"SN":	"AYJW545001Z"
+	}
+}
+[08/15 13:00:31.470557][debug][2436][HostProtocol.cpp:433] Set property value, propertyId=97, value={intValue: 0, floatValue: 0}
+[08/15 13:00:31.471198][debug][2436][PropertyAccessor.cpp:17] set property value success! propertyId: 97, value: {intValue: 0, floatValue: 0}
+[08/15 13:00:31.473173][debug][15244][VendorCommand.cpp:436] get TimeStamp: tsp=142460564, rtt=0
+[08/15 13:00:31.525151][debug][15244][VendorCommand.cpp:436] get TimeStamp: tsp=142460616, rtt=0
+[08/15 13:00:31.588076][debug][15244][VendorCommand.cpp:436] get TimeStamp: tsp=142460679, rtt=0
+[08/15 13:00:31.644678][debug][15244][VendorCommand.cpp:436] get TimeStamp: tsp=142460736, rtt=0
+[08/15 13:00:31.644749][debug][15244][GlobalTimestampFitter.cpp:144] GlobalTimestampFitter update: coefficientA = 996.4722557387794, constantB = 1786628073473037.8
+[08/15 13:00:31.644768][debug][2436][GlobalTimestampFitter.cpp:27] GlobalTimestampFitter created: maxQueueSize_=10, refreshIntervalMsec_=8000
+[08/15 13:00:31.644826][debug][2436][Gemini2XLDevice.cpp:605] Create command done!
+[08/15 13:00:31.645548][debug][2436][HostProtocol.cpp:466] get property value success! propertyId=145, cur={intValue: 0, floatValue: 0}, max={intValue: 1, floatValue: 1.4013e-45}, min={intValue: 0, floatValue: 0},def={intValue: 0, floatValue: 0},step={intValue: 1, floatValue: 1.4013e-45}
+[08/15 13:00:31.645578][debug][2436][PropertyAccessor.cpp:28] get property value success! propertyId: 145, value: {intValue: 0, floatValue: 0}
+[08/15 13:00:31.646714][debug][2436][PropertyAccessor.cpp:86] get struct data success! propertyId: 1043
+[08/15 13:00:31.646762][debug][2436][Gemini2XLDevice.cpp:692] init sensor map start!
+[08/15 13:00:31.646779][debug][2436][Gemini2XLDevice.cpp:726] init sensor map done!
+[08/15 13:00:31.646785][debug][2436][Gemini2XLDevice.cpp:1335] Init depth process param start!
+[08/15 13:00:31.650682][debug][2436][G2AlgParamManager.cpp:44] Get depth calibration params success! num=1
+[08/15 13:00:31.650747][debug][2436][G2AlgParamManager.cpp:48]  - { depthMode: << 1, baseline: -100.762, z0: 0, focalPix: 613.178, unit: 1, dispOffset: 0, invalidDisp: 0}
+[08/15 13:00:31.653905][debug][2436][G2AlgParamManager.cpp:69] Get align calibration camera params success! num=2
+[08/15 13:00:31.653970][debug][2436][G2AlgParamManager.cpp:73] - {
+depthDistortion: {k1: 0, k2: 0, k3: 0, k4: 0, k5: 0, k6: 0, p1: 0, p2: 0},
+depthIntrinsic: {cx: 628.555, cy: 398.081, fx: 613.178, fy: 613.178, width: 1280, height: 800}, 
+rgbDistortion: {k1: -1.19493, k2: 0.736482, k3: -0.163469, k4: -1.177, k5: 0.712539, k6: -0.154439, p1: -0.000307337, p2: -0.000290636},
+rgbIntrinsic: {cx: 642.505, cy: 392.965, fx: 610.259, fy: 610.425, width: 1280, height: 800}, 
+transform: {rot: [0.999998, 0.000531736, -0.00209546, -0.000530127, 1, 0.000768313, 0.00209587, -0.0007672, 0.999997], trans: [-25.0687, 0.0782731, 0.0177816]}
+}
+[08/15 13:00:31.654003][debug][2436][G2AlgParamManager.cpp:73] - {
+depthDistortion: {k1: 0, k2: 0, k3: 0, k4: 0, k5: 0, k6: 0, p1: 0, p2: 0},
+depthIntrinsic: {cx: 314.307, cy: 199.052, fx: 306.589, fy: 306.589, width: 640, height: 400}, 
+rgbDistortion: {k1: -1.19493, k2: 0.736482, k3: -0.163469, k4: -1.177, k5: 0.712539, k6: -0.154439, p1: -0.000307337, p2: -0.000290636},
+rgbIntrinsic: {cx: 321.253, cy: 196.483, fx: 305.129, fy: 305.212, width: 640, height: 400}, 
+transform: {rot: [0.999998, 0.000531736, -0.00209546, -0.000530127, 1, 0.000768313, 0.00209587, -0.0007672, 0.999997], trans: [-25.0687, 0.0782731, 0.0177816]}
+}
+[08/15 13:00:31.657364][debug][2436][G2AlgParamManager.cpp:94] Get depth to color profile list success! num=8
+[08/15 13:00:31.657436][debug][2436][G2AlgParamManager.cpp:98]  - {alignType: 3, colorWidth: 1280, colorHeight: 800, depthWidth: 1280, depthHeight: 800, paramIndex: 0, postProcessParam: {alignLeft: 0, alignTop: 0, alignRight: 0, alignBottom: 0, depthScale: 1}}
+[08/15 13:00:31.657452][debug][2436][G2AlgParamManager.cpp:98]  - {alignType: 3, colorWidth: 1280, colorHeight: 720, depthWidth: 1280, depthHeight: 800, paramIndex: 0, postProcessParam: {alignLeft: 0, alignTop: -40, alignRight: 0, alignBottom: -40, depthScale: 1}}
+[08/15 13:00:31.657467][debug][2436][G2AlgParamManager.cpp:98]  - {alignType: 3, colorWidth: 800, colorHeight: 600, depthWidth: 1280, depthHeight: 800, paramIndex: 0, postProcessParam: {alignLeft: -240, alignTop: -100, alignRight: -240, alignBottom: -100, depthScale: 1}}
+[08/15 13:00:31.657478][debug][2436][G2AlgParamManager.cpp:98]  - {alignType: 3, colorWidth: 1280, colorHeight: 800, depthWidth: 640, depthHeight: 400, paramIndex: 0, postProcessParam: {alignLeft: 0, alignTop: 0, alignRight: 0, alignBottom: 0, depthScale: 2}}
+[08/15 13:00:31.657487][debug][2436][G2AlgParamManager.cpp:98]  - {alignType: 3, colorWidth: 1280, colorHeight: 720, depthWidth: 640, depthHeight: 400, paramIndex: 0, postProcessParam: {alignLeft: 0, alignTop: -40, alignRight: 0, alignBottom: -40, depthScale: 2}}
+[08/15 13:00:31.657498][debug][2436][G2AlgParamManager.cpp:98]  - {alignType: 3, colorWidth: 800, colorHeight: 600, depthWidth: 640, depthHeight: 400, paramIndex: 0, postProcessParam: {alignLeft: -240, alignTop: -100, alignRight: -240, alignBottom: -100, depthScale: 2}}
+[08/15 13:00:31.657516][debug][2436][G2AlgParamManager.cpp:98]  - {alignType: 3, colorWidth: 640, colorHeight: 400, depthWidth: 640, depthHeight: 400, paramIndex: 0, postProcessParam: {alignLeft: 0, alignTop: 0, alignRight: 0, alignBottom: 0, depthScale: 1}}
+[08/15 13:00:31.657530][debug][2436][G2AlgParamManager.cpp:98]  - {alignType: 3, colorWidth: 640, colorHeight: 360, depthWidth: 640, depthHeight: 400, paramIndex: 0, postProcessParam: {alignLeft: 0, alignTop: -20, alignRight: 0, alignBottom: -20, depthScale: 1}}
+[08/15 13:00:31.662133][debug][2436][G2AlgParamManager.cpp:118] Get imu calibration params success!
+[08/15 13:00:31.663023][debug][2436][HostProtocol.cpp:466] get property value success! propertyId=108, cur={intValue: 0, floatValue: 0}, max={intValue: 1, floatValue: 1.4013e-45}, min={intValue: 0, floatValue: 0},def={intValue: 0, floatValue: 0},step={intValue: 1, floatValue: 1.4013e-45}
+[08/15 13:00:31.666206][debug][2436][G2AlgParamManager.cpp:447] Get depth calibration params success! num=1
+[08/15 13:00:31.666278][debug][2436][G2AlgParamManager.cpp:451]  - { depthMode: << 1, baseline: -100.762, z0: 0, focalPix: 613.178, unit: 1, dispOffset: 0, invalidDisp: 0}
+[08/15 13:00:31.667322][debug][2436][PropertyAccessor.cpp:86] get struct data success! propertyId: 4037
+[08/15 13:00:31.668018][debug][2436][HostProtocol.cpp:466] get property value success! propertyId=85, cur={intValue: 1, floatValue: 1.4013e-45}, max={intValue: 1, floatValue: 1.4013e-45}, min={intValue: 0, floatValue: 0},def={intValue: 0, floatValue: 0},step={intValue: 1, floatValue: 1.4013e-45}
+[08/15 13:00:31.668062][debug][2436][PropertyAccessor.cpp:28] get property value success! propertyId: 85, value: {intValue: 1, floatValue: 1.4013e-45}
+[08/15 13:00:31.668070][debug][2436][Gemini2XLDevice.cpp:1407] hwD2DEnable_: true
+[08/15 13:00:31.668076][debug][2436][Gemini2XLDevice.cpp:1408] Init depth process param done!
+[08/15 13:00:31.668894][debug][2436][PropertyAccessor.cpp:50] get firmware data success! propertyId: 1000, dataLen: 164
+[08/15 13:00:31.668961][info][2436][AbstractDevice.cpp:125] 	- Firmware version: 2.1.3_23112010
+[08/15 13:00:31.669155][debug][2436][Gemini2XLDevice.cpp:663] Create command done!
+[08/15 13:00:31.669990][debug][2436][HostProtocol.cpp:466] get property value success! propertyId=89, cur={intValue: 0, floatValue: 0}, max={intValue: 0, floatValue: 0}, min={intValue: 0, floatValue: 0},def={intValue: 0, floatValue: 0},step={intValue: 0, floatValue: 0}
+[08/15 13:00:31.670055][debug][2436][VendorCommand.cpp:467] disableHeartBeat heartBeatHelper_: 0000000000000000
+[08/15 13:00:31.670065][debug][2436][PropertyAccessor.cpp:28] get property value success! propertyId: 89, value: {intValue: 0, floatValue: 0}
+[08/15 13:00:31.670072][debug][2436][Gemini2XLDevice.cpp:673] heartbeat: 0
+[08/15 13:00:31.670103][debug][2436][HostProtocol.cpp:433] Set property value, propertyId=89, value={intValue: 0, floatValue: 0}
+[08/15 13:00:31.671127][debug][2436][VendorCommand.cpp:467] disableHeartBeat heartBeatHelper_: 0000000000000000
+[08/15 13:00:31.671168][debug][2436][PropertyAccessor.cpp:17] set property value success! propertyId: 89, value: {intValue: 0, floatValue: 0}
+[08/15 13:00:31.671176][info][2436][Gemini2XLDevice.cpp:218] Gemini2 XL device created! PID: 1649, SN: AYKW545004C
+[08/15 13:00:31.671192][debug][2436][UsbDeviceEnumerator.cpp:359] Device created successfully! Name: Orbbec Gemini2 XL, PID: 0x0671, SN/ID: AYKW545004C
+[08/15 13:00:31.671199][info][2436][DeviceManager.cpp:150] Device created successfully! Name: Orbbec Gemini2 XL, PID: 0x0671, SN/ID: AYKW545004C
+[08/15 13:00:31.671254][debug][2436][Pipeline.cpp:29] Pipeline init ...
+[08/15 13:00:31.671270][debug][2436][Pipeline.cpp:168] loadFrameQueueSizeConfig() config queue size: 10
+[08/15 13:00:31.671292][info][2436][Pipeline.cpp:47] Pipeline created with device: {name: Orbbec Gemini 2 XL, sn: AYKW545004C}, @0x1F66145D890
+[08/15 13:00:31.681235][debug][2436][FrameProcessor.cpp:90] FrameProcessor init with 3 blocks! @2157700510384
+[08/15 13:00:31.681314][debug][2436][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 13:00:31.681325][debug][2436][FrameProcessor.cpp:98]  - block: FormatConverter, status: disable
+[08/15 13:00:31.681334][debug][2436][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 13:00:31.681341][debug][2436][FrameProcessor.cpp:98]  - block: FrameFlip, status: disable
+[08/15 13:00:31.681348][debug][2436][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 13:00:31.681354][debug][2436][FrameProcessor.cpp:98]  - block: FrameRotate, status: disable
+[08/15 13:00:31.681375][debug][2436][VideoSensor.cpp:252] VideoSensor construct!
+[08/15 13:00:31.681517][debug][2436][VideoSensor.cpp:278] VideoSensor created, @OB_SENSOR_COLOR
+[08/15 13:00:31.681534][info][2436][Gemini2XLDevice.cpp:984] Color sensor has been created!
+[08/15 13:00:31.710132][debug][2436][WinHelpers.cpp:88] streamReader_->GetNativeMediaType(index, k, &pMediaType.p) returned: HResult 0xc00d36b3: "提供的資料流號碼無效。"
+[08/15 13:00:31.710211][debug][2436][WinHelpers.cpp:88] streamReader_->GetNativeMediaType(index, k, &pMediaType.p) returned: HResult 0xc00d36b3: "提供的資料流號碼無效。"
+[08/15 13:00:31.710255][debug][2436][WinHelpers.cpp:88] streamReader_->GetNativeMediaType(index, k, &pMediaType.p) returned: HResult 0xc00d36b3: "提供的資料流號碼無效。"
+[08/15 13:00:31.710298][debug][2436][WinHelpers.cpp:88] streamReader_->GetNativeMediaType(index, k, &pMediaType.p) returned: HResult 0xc00d36b3: "提供的資料流號碼無效。"
+[08/15 13:00:31.713521][debug][2436][Gemini2XLDevice.cpp:2595] getEffectiveStreamProfiles fixedPropertyId: 4035
+[08/15 13:00:31.716450][debug][2436][PropertyAccessor.cpp:100] get struct data list success! propertyId: 4035, async: false
+[08/15 13:00:31.716576][debug][2436][Gemini2XLProfileFilter.cpp:34] uvcProfileList size: 52, output profile size: 14
+[08/15 13:00:31.716591][debug][2436][VideoSensor.cpp:372] Query stream profile! filter profile list success. size = 52, valid size = 14
+[08/15 13:00:31.716623][info][2436][VideoSensor.cpp:384] Query stream profile! size= 34, SensorType=OB_SENSOR_COLOR
+[08/15 13:00:31.716642][info][2436][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_MJPG, width: 1280, height: 800, fps: 10}
+[08/15 13:00:31.716652][info][2436][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_MJPG, width: 1280, height: 800, fps: 5}
+[08/15 13:00:31.716660][info][2436][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_MJPG, width: 1280, height: 720, fps: 5}
+[08/15 13:00:31.716669][info][2436][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_MJPG, width: 1280, height: 720, fps: 10}
+[08/15 13:00:31.716678][info][2436][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_MJPG, width: 800, height: 600, fps: 5}
+[08/15 13:00:31.716687][info][2436][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_MJPG, width: 800, height: 600, fps: 10}
+[08/15 13:00:31.716695][info][2436][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_MJPG, width: 640, height: 400, fps: 5}
+[08/15 13:00:31.716704][info][2436][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_MJPG, width: 640, height: 400, fps: 10}
+[08/15 13:00:31.716712][info][2436][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_MJPG, width: 640, height: 360, fps: 5}
+[08/15 13:00:31.716721][info][2436][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_MJPG, width: 640, height: 360, fps: 10}
+[08/15 13:00:31.716730][info][2436][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_YUYV, width: 640, height: 400, fps: 5}
+[08/15 13:00:31.716738][info][2436][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_YUYV, width: 640, height: 400, fps: 10}
+[08/15 13:00:31.716799][info][2436][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_YUYV, width: 640, height: 360, fps: 5}
+[08/15 13:00:31.716811][info][2436][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_YUYV, width: 640, height: 360, fps: 10}
+[08/15 13:00:31.716820][info][2436][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_RGB888, width: 1280, height: 800, fps: 5}
+[08/15 13:00:31.716829][info][2436][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_RGB888, width: 1280, height: 800, fps: 10}
+[08/15 13:00:31.716838][info][2436][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_RGB888, width: 1280, height: 720, fps: 5}
+[08/15 13:00:31.716846][info][2436][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_RGB888, width: 1280, height: 720, fps: 10}
+[08/15 13:00:31.716855][info][2436][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_RGB888, width: 800, height: 600, fps: 5}
+[08/15 13:00:31.716863][info][2436][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_RGB888, width: 800, height: 600, fps: 10}
+[08/15 13:00:31.716872][info][2436][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_RGB888, width: 640, height: 400, fps: 5}
+[08/15 13:00:31.716906][info][2436][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_RGB888, width: 640, height: 400, fps: 10}
+[08/15 13:00:31.716916][info][2436][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_RGB888, width: 640, height: 360, fps: 5}
+[08/15 13:00:31.716925][info][2436][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_RGB888, width: 640, height: 360, fps: 10}
+[08/15 13:00:31.716934][info][2436][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_BGRA, width: 1280, height: 800, fps: 5}
+[08/15 13:00:31.716942][info][2436][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_BGRA, width: 1280, height: 800, fps: 10}
+[08/15 13:00:31.716951][info][2436][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_BGRA, width: 1280, height: 720, fps: 5}
+[08/15 13:00:31.716960][info][2436][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_BGRA, width: 1280, height: 720, fps: 10}
+[08/15 13:00:31.716969][info][2436][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_BGRA, width: 800, height: 600, fps: 5}
+[08/15 13:00:31.716977][info][2436][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_BGRA, width: 800, height: 600, fps: 10}
+[08/15 13:00:31.716986][info][2436][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_BGRA, width: 640, height: 400, fps: 5}
+[08/15 13:00:31.716996][info][2436][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_BGRA, width: 640, height: 400, fps: 10}
+[08/15 13:00:31.717004][info][2436][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_BGRA, width: 640, height: 360, fps: 5}
+[08/15 13:00:31.717013][info][2436][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_BGRA, width: 640, height: 360, fps: 10}
+[08/15 13:00:31.717062][debug][2436][Pipeline.cpp:227] Pipeline start() start!
+[08/15 13:00:31.717068][info][2436][Pipeline.cpp:188] Check and set config start!
+[08/15 13:00:31.717082][info][2436][Pipeline.cpp:223] Check and set config done!
+[08/15 13:00:31.717105][debug][2436][FrameProcessor.cpp:90] FrameProcessor init with 13 blocks! @2157705672176
+[08/15 13:00:31.717119][debug][2436][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 13:00:31.717126][debug][2436][FrameProcessor.cpp:98]  - block: FrameUnpacker, status: disable
+[08/15 13:00:31.717134][debug][2436][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 13:00:31.717142][debug][2436][FrameProcessor.cpp:98]  - block: Gemini2XLDecompress, status: enable
+[08/15 13:00:31.717151][debug][2436][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 13:00:31.717157][debug][2436][FrameProcessor.cpp:98]  - block: DepthMaskRectifyFilter, status: disable
+[08/15 13:00:31.717181][debug][2436][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 13:00:31.717188][debug][2436][FrameProcessor.cpp:98]  - block: PixelValueOffset, status: disable
+[08/15 13:00:31.717196][debug][2436][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 13:00:31.717201][debug][2436][FrameProcessor.cpp:98]  - block: Disparity2DepthConverter, status: disable
+[08/15 13:00:31.717208][debug][2436][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 13:00:31.717213][debug][2436][FrameProcessor.cpp:98]  - block: PixelValueCutOff, status: enable
+[08/15 13:00:31.717222][debug][2436][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 13:00:31.717227][debug][2436][FrameProcessor.cpp:98]  - block: FrameSoftFilter, status: disable
+[08/15 13:00:31.717234][debug][2436][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 13:00:31.717240][debug][2436][FrameProcessor.cpp:98]  - block: FrameMirror, status: disable
+[08/15 13:00:31.717246][debug][2436][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 13:00:31.717251][debug][2436][FrameProcessor.cpp:98]  - block: FrameFlip, status: disable
+[08/15 13:00:31.717257][debug][2436][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 13:00:31.717263][debug][2436][FrameProcessor.cpp:98]  - block: FrameRotate, status: disable
+[08/15 13:00:31.717271][debug][2436][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 13:00:31.717278][debug][2436][FrameProcessor.cpp:98]  - block: D2CFilter, status: disable
+[08/15 13:00:31.717285][debug][2436][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 13:00:31.717291][debug][2436][FrameProcessor.cpp:98]  - block: PostProcessFilter, status: disable
+[08/15 13:00:31.717298][debug][2436][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 13:00:31.717304][debug][2436][FrameProcessor.cpp:98]  - block: DepthMarginRectifyFilter, status: enable
+[08/15 13:00:31.718972][debug][2436][VideoSensor.cpp:252] VideoSensor construct!
+[08/15 13:00:31.719264][debug][2436][VideoSensor.cpp:278] VideoSensor created, @OB_SENSOR_DEPTH
+[08/15 13:00:31.720197][debug][2436][HostProtocol.cpp:466] get property value success! propertyId=85, cur={intValue: 1, floatValue: 1.4013e-45}, max={intValue: 1, floatValue: 1.4013e-45}, min={intValue: 0, floatValue: 0},def={intValue: 0, floatValue: 0},step={intValue: 1, floatValue: 1.4013e-45}
+[08/15 13:00:31.720241][debug][2436][PropertyAccessor.cpp:28] get property value success! propertyId: 85, value: {intValue: 1, floatValue: 1.4013e-45}
+[08/15 13:00:31.720254][debug][2436][HostProtocol.cpp:433] Set property value, propertyId=75, value={intValue: 0, floatValue: 0}
+[08/15 13:00:31.721038][debug][2436][PropertyAccessor.cpp:17] set property value success! propertyId: 75, value: {intValue: 0, floatValue: 0}
+[08/15 13:00:31.721057][debug][2436][Gemini2XLDevice.cpp:1329] Set depth precision level to 1mm success
+[08/15 13:00:31.721064][debug][2436][Gemini2XLDevice.cpp:1331] Setup default depth precision. depthUnit=1
+[08/15 13:00:31.721071][debug][2436][Gemini2XLDevice.cpp:908] hwD2DEnable_: true, depthUnit=1
+[08/15 13:00:31.721078][info][2436][Gemini2XLDevice.cpp:926] Depth sensor has been created!
+[08/15 13:00:31.721118][debug][2436][PropertyAccessor.cpp:28] get property value success! propertyId: 14, value: {intValue: 0, floatValue: 0}
+[08/15 13:00:31.721129][debug][2436][PropertyAccessor.cpp:28] get property value success! propertyId: 15, value: {intValue: 0, floatValue: 0}
+[08/15 13:00:31.721140][debug][2436][PropertyAccessor.cpp:28] get property value success! propertyId: 118, value: {intValue: 0, floatValue: 0}
+[08/15 13:00:31.721149][debug][2436][HostProtocol.cpp:433] Set property value, propertyId=63, value={intValue: 0, floatValue: 0}
+[08/15 13:00:32.053737][debug][2436][PropertyAccessor.cpp:17] set property value success! propertyId: 63, value: {intValue: 0, floatValue: 0}
+[08/15 13:00:32.053875][debug][2436][PropertyAccessor.cpp:28] get property value success! propertyId: 14, value: {intValue: 0, floatValue: 0}
+[08/15 13:00:32.053891][debug][2436][PropertyAccessor.cpp:28] get property value success! propertyId: 15, value: {intValue: 0, floatValue: 0}
+[08/15 13:00:32.053901][debug][2436][PropertyAccessor.cpp:28] get property value success! propertyId: 118, value: {intValue: 0, floatValue: 0}
+[08/15 13:00:32.053910][debug][2436][PropertyAccessor.cpp:28] get property value success! propertyId: 118, value: {intValue: 0, floatValue: 0}
+[08/15 13:00:32.053927][debug][2436][FrameProcessingBlockManager.cpp:75]  FrameProcessingBlockManager started, 0 blocks contained!
+[08/15 13:00:32.053933][info][2436][Pipeline.cpp:288] Try to start streams!
+[08/15 13:00:32.053952][debug][2436][VideoSensor.cpp:566] VideoSensor::start, @OB_SENSOR_COLOR
+[08/15 13:00:32.053961][debug][2436][FrameMemoryPool.cpp:35] FrameMemoryPool created!
+[08/15 13:00:32.054014][debug][2436][FrameBufferManager.hpp:65] FrameBufferManager created! frame type:class libobsensor::ColorFrame, obj addr:0x1f660f70910, frame obj total size:0.879MB
+[08/15 13:00:32.054020][debug][2436][FrameMemoryPool.cpp:76] ColorFrame bufferManager created!
+[08/15 13:00:32.054031][debug][2436][FrameProcessor.cpp:144] Frame processor active blocks chain update: input -> output
+[08/15 13:00:32.054036][debug][2436][FrameProcessor.cpp:155] FrameProcessor started, 3 blocks contained!
+[08/15 13:00:32.054048][info][2436][VideoSensor.cpp:646] start OB_SENSOR_COLOR stream with profile: {type: OB_STREAM_COLOR, format: OB_FORMAT_MJPG, width: 1280, height: 720, fps: 10}, Backend Format: OB_FORMAT_MJPG
+[08/15 13:00:32.091721][debug][2436][VideoSensor.cpp:672] Stream state changed to STREAM_STATE_STARTING. @OB_SENSOR_COLOR
+[08/15 13:00:32.091774][debug][2436][VideoSensor.cpp:674] Stream starting! @OB_SENSOR_COLOR
+[08/15 13:00:32.091787][debug][2436][Pipeline.cpp:299] Sensor stream started, sensorType=OB_SENSOR_COLOR
+[08/15 13:00:32.091797][info][2436][Pipeline.cpp:301] Start streams done!
+[08/15 13:00:32.091811][info][2436][Pipeline.cpp:277] Pipeline start done!
+[08/15 13:00:32.474762][debug][20688][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:00:32.475131][debug][20688][FrameBufferManager.cpp:35] New frame buffer allocated=0.879MB, total usage: allocated=0.879MB, max limit=2048.000MB
+[08/15 13:00:32.475188][debug][20688][VideoSensor.cpp:460] Stream state changed to STREAM_STATE_STREAMING. @OB_SENSOR_COLOR
+[08/15 13:00:32.475259][debug][20688][FrameTimestampConverter.cpp:160] updateBaseTimeStamp:
+[08/15 13:00:32.475278][debug][20688][FrameTimestampConverter.cpp:161] 	srcTimestamp=0, prevSrcTsp_=0, tspDecrease=false
+[08/15 13:00:32.475293][debug][20688][FrameTimestampConverter.cpp:162] 	srcTspDiffMs=0, hostTspDiffMs=1786770032475, tspDiffAbnormal=true
+[08/15 13:00:32.476946][debug][20688][VendorCommand.cpp:436] get TimeStamp: tsp=142461568, rtt=0
+[08/15 13:00:32.477050][debug][20688][FrameBufferManager.hpp:65] FrameBufferManager created! frame type:class libobsensor::FrameSet, obj addr:0x1f6614ca5b0, frame obj total size:0.000MB
+[08/15 13:00:32.477057][debug][20688][FrameMemoryPool.cpp:92] Frameset bufferManager created!
+[08/15 13:00:32.477083][debug][20688][FrameBufferManager.cpp:35] New frame buffer allocated=0.000MB, total usage: allocated=0.880MB, max limit=2048.000MB
+[08/15 13:00:32.477138][debug][20688][Pipeline.cpp:319] Frame received on pipeline! type=OB_FRAME_COLOR
+[08/15 13:00:32.573746][debug][21628][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:00:32.575972][debug][21628][VendorCommand.cpp:436] get TimeStamp: tsp=142461667, rtt=0
+[08/15 13:00:32.673126][debug][20688][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:00:32.674698][debug][20688][VendorCommand.cpp:436] get TimeStamp: tsp=142461766, rtt=0
+[08/15 13:00:32.778443][debug][21628][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:00:32.780551][debug][21628][VendorCommand.cpp:436] get TimeStamp: tsp=142461872, rtt=0
+[08/15 13:00:32.873127][debug][20688][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:00:32.874608][debug][20688][VendorCommand.cpp:436] get TimeStamp: tsp=142461966, rtt=0
+[08/15 13:00:32.972968][debug][21628][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:00:32.974819][debug][21628][VendorCommand.cpp:436] get TimeStamp: tsp=142462066, rtt=0
+[08/15 13:00:33.072785][debug][21628][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:00:33.074487][debug][21628][VendorCommand.cpp:436] get TimeStamp: tsp=142462166, rtt=0
+[08/15 13:00:33.172625][debug][20688][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:00:33.174311][debug][20688][VendorCommand.cpp:436] get TimeStamp: tsp=142462265, rtt=0
+[08/15 13:00:33.272524][debug][21628][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:00:33.274156][debug][21628][VendorCommand.cpp:436] get TimeStamp: tsp=142462365, rtt=0
+[08/15 13:00:33.372425][debug][20688][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:00:33.374282][debug][20688][VendorCommand.cpp:436] get TimeStamp: tsp=142462465, rtt=0
+[08/15 13:00:33.472076][debug][21628][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:00:33.473922][debug][21628][VendorCommand.cpp:436] get TimeStamp: tsp=142462565, rtt=0
+[08/15 13:00:33.572274][debug][23164][FrameTimestampConverter.cpp:160] updateBaseTimeStamp: [**10 logs in 1096ms, last: 13:00:33.472171**]
+[08/15 13:00:33.572283][debug][10820][FrameTimestampConverter.cpp:162] 	srcTspDiffMs=0, hostTspDiffMs=98, tspDiffAbnormal=true [**10 logs in 1096ms, last: 13:00:33.472175**]
+[08/15 13:00:33.572284][debug][20688][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:00:33.572279][debug][19208][FrameTimestampConverter.cpp:161] 	srcTimestamp=0, prevSrcTsp_=0, tspDecrease=false [**10 logs in 1096ms, last: 13:00:33.472173**]
+[08/15 13:00:33.575067][debug][20688][VendorCommand.cpp:436] get TimeStamp: tsp=142462666, rtt=0
+[08/15 13:00:33.671770][debug][21628][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:00:33.673424][debug][21628][VendorCommand.cpp:436] get TimeStamp: tsp=142462764, rtt=0
+[08/15 13:00:33.771830][debug][20688][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:00:33.773660][debug][20688][VendorCommand.cpp:436] get TimeStamp: tsp=142462864, rtt=0
+[08/15 13:00:33.871748][debug][21628][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:00:33.873581][debug][21628][VendorCommand.cpp:436] get TimeStamp: tsp=142462965, rtt=0
+[08/15 13:00:33.971495][debug][20688][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:00:33.973288][debug][20688][VendorCommand.cpp:436] get TimeStamp: tsp=142463064, rtt=0
+[08/15 13:00:34.071378][debug][21628][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:00:34.072984][debug][21628][VendorCommand.cpp:436] get TimeStamp: tsp=142463164, rtt=0
+[08/15 13:00:34.171132][debug][20688][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:00:34.171398][debug][20688][FrameBufferManager.cpp:35] New frame buffer allocated=0.879MB, total usage: allocated=1.759MB, max limit=2048.000MB
+[08/15 13:00:34.173025][debug][20688][VendorCommand.cpp:436] get TimeStamp: tsp=142463264, rtt=0
+[08/15 13:00:34.173069][debug][20688][FrameBufferManager.cpp:35] New frame buffer allocated=0.000MB, total usage: allocated=1.760MB, max limit=2048.000MB
+[08/15 13:00:34.271049][debug][21628][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:00:34.271322][debug][21628][FrameBufferManager.cpp:35] New frame buffer allocated=0.879MB, total usage: allocated=2.639MB, max limit=2048.000MB
+[08/15 13:00:34.273034][debug][21628][VendorCommand.cpp:436] get TimeStamp: tsp=142463364, rtt=0
+[08/15 13:00:34.273101][debug][21628][FrameBufferManager.cpp:35] New frame buffer allocated=0.000MB, total usage: allocated=2.640MB, max limit=2048.000MB
+[08/15 13:00:34.371325][debug][20688][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:00:34.371647][debug][20688][FrameBufferManager.cpp:35] New frame buffer allocated=0.879MB, total usage: allocated=3.519MB, max limit=2048.000MB
+[08/15 13:00:34.373515][debug][20688][VendorCommand.cpp:436] get TimeStamp: tsp=142463464, rtt=0
+[08/15 13:00:34.373581][debug][20688][FrameBufferManager.cpp:35] New frame buffer allocated=0.000MB, total usage: allocated=3.519MB, max limit=2048.000MB
+[08/15 13:00:34.470731][debug][21628][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:00:34.471021][debug][21628][FrameBufferManager.cpp:35] New frame buffer allocated=0.879MB, total usage: allocated=4.399MB, max limit=2048.000MB
+[08/15 13:00:34.472592][debug][21628][VendorCommand.cpp:436] get TimeStamp: tsp=142463564, rtt=0
+[08/15 13:00:34.472647][debug][21628][FrameBufferManager.cpp:35] New frame buffer allocated=0.000MB, total usage: allocated=4.399MB, max limit=2048.000MB
+[08/15 13:00:34.570676][debug][20688][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:00:34.571033][debug][20688][FrameBufferManager.cpp:35] New frame buffer allocated=0.879MB, total usage: allocated=5.279MB, max limit=2048.000MB
+[08/15 13:00:34.572576][debug][20688][VendorCommand.cpp:436] get TimeStamp: tsp=142463664, rtt=0
+[08/15 13:00:34.572664][debug][20688][FrameBufferManager.cpp:35] New frame buffer allocated=0.000MB, total usage: allocated=5.279MB, max limit=2048.000MB
+[08/15 13:00:34.608368][info][2436][Pipeline.cpp:411] Try to stop pipeline!
+[08/15 13:00:34.608422][info][2436][Pipeline.cpp:383] Try to stop streams!
+[08/15 13:00:34.608454][debug][2436][VideoSensor.cpp:678] VideoSensor::stop, @OB_SENSOR_COLOR
+[08/15 13:00:34.608481][debug][2436][VideoSensor.cpp:701] Stream state changed to STREAM_STATE_STOPPING. @OB_SENSOR_COLOR
+[08/15 13:00:35.378003][debug][2436][VideoSensor.cpp:727] stream stoped! @OB_SENSOR_COLOR
+[08/15 13:00:35.378090][debug][2436][FrameProcessor.cpp:165] FrameProcessor stoped!
+[08/15 13:00:35.378137][debug][2436][HostProtocol.cpp:433] Set property value, propertyId=77, value={intValue: 1, floatValue: 1.4013e-45}
+[08/15 13:00:35.470464][debug][2436][VideoSensor.cpp:716] Stream state changed to STREAM_STATE_STOPED. @OB_SENSOR_COLOR
+[08/15 13:00:35.470512][info][2436][VideoSensor.cpp:734] Video sensor stopped, @OB_SENSOR_COLOR
+[08/15 13:00:35.470535][info][2436][Pipeline.cpp:396] Sensor stream stopped, sensorType=OB_SENSOR_COLOR
+[08/15 13:00:35.470543][info][2436][Pipeline.cpp:402] Stop streams done!
+[08/15 13:00:35.470580][debug][2436][HostProtocol.cpp:433] Set property value, propertyId=42, value={intValue: 0, floatValue: 0}
+[08/15 13:00:35.471440][debug][2436][PropertyAccessor.cpp:17] set property value success! propertyId: 42, value: {intValue: 0, floatValue: 0}
+[08/15 13:00:35.471464][debug][2436][FrameProcessingBlockManager.cpp:84] FrameProcessingBlockManager stoped!
+[08/15 13:00:35.471470][debug][2436][FrameProcessingBlockManager.cpp:20] Processing block list cleared!
+[08/15 13:00:35.471484][info][2436][Pipeline.cpp:443] Stop pipeline done!
+[08/15 13:00:35.471506][debug][2436][Pipeline.cpp:68] Pipeline deInit start!
+[08/15 13:00:35.471512][info][2436][Pipeline.cpp:75] Pipeline destroyed! @0x1F66145D890
+[08/15 13:00:35.471530][debug][2436][Gemini2XLDevice.cpp:222] ~Gemini2XLDevice start!
+[08/15 13:00:35.471537][info][2436][Gemini2XLDevice.cpp:227] Gemini2 XL device destroyed! PID: 1649, SN: AYKW545004C
+[08/15 13:00:35.471549][debug][2436][VideoSensor.cpp:282] VideoSensor::~VideoSensor(), @OB_SENSOR_COLOR
+[08/15 13:00:35.471675][info][2436][VideoSensor.cpp:303] VideoSensor destroyed, @OB_SENSOR_COLOR
+[08/15 13:00:35.471711][debug][2436][VideoSensor.cpp:282] VideoSensor::~VideoSensor(), @OB_SENSOR_DEPTH
+[08/15 13:00:35.471793][info][2436][VideoSensor.cpp:303] VideoSensor destroyed, @OB_SENSOR_DEPTH
+[08/15 13:00:35.471968][debug][2436][FrameProcessor.cpp:807] try remove eventId: PropertyValueUpdate
+[08/15 13:00:35.471978][debug][2436][FrameProcessor.cpp:807] try remove eventId: DepthStreamProfileChanged
+[08/15 13:00:35.471998][debug][2436][FrameProcessor.cpp:111] FrameProcessor destroyed! @2157705672176
+[08/15 13:00:35.472017][debug][15244][GlobalTimestampFitter.cpp:155] GlobalTimestampFitter fittingLoop exit
+[08/15 13:00:35.472072][debug][2436][FrameProcessor.cpp:111] FrameProcessor destroyed! @2157700510384
+[08/15 13:00:35.472080][debug][2436][VendorCommand.cpp:213] destructor 1f660fad6d0
+[08/15 13:00:35.472091][debug][2436][VendorCommand.cpp:467] disableHeartBeat heartBeatHelper_: 0000000000000000
+[08/15 13:00:35.472111][debug][2436][HostProtocol.cpp:139] ~HostProtocol()
+[08/15 13:00:35.472123][debug][8340][HostProtocol.cpp:167] emitTranDataFutureSignalThread_ finish
+[08/15 13:00:35.473546][debug][2436][Context.cpp:81] Context destroying ...
+[08/15 13:00:35.473585][debug][2436][DeviceManager.cpp:56] DeviceManager destroy ...
+[08/15 13:00:35.473591][debug][2436][DeviceManager.cpp:64] DeviceManager Destructors done
+[08/15 13:00:35.478248][debug][2436][MfPal.cpp:128] WmfPal destroyed!
+[08/15 13:00:35.478558][debug][2436][FrameBufferManager.hpp:72] FrameBufferManager destroying...! frame type: class libobsensor::FrameSet,  obj addr:0x1f6614ca5b0
+[08/15 13:00:35.478581][debug][2436][FrameBufferManager.cpp:54] Frame buffer released=0.000MB, total usage: allocated=5.279MB, max limit=2048.000MB
+[08/15 13:00:35.478588][debug][2436][FrameBufferManager.cpp:54] Frame buffer released=0.000MB, total usage: allocated=5.278MB, max limit=2048.000MB
+[08/15 13:00:35.478594][debug][2436][FrameBufferManager.cpp:54] Frame buffer released=0.000MB, total usage: allocated=5.278MB, max limit=2048.000MB
+[08/15 13:00:35.478605][debug][2436][FrameBufferManager.cpp:54] Frame buffer released=0.000MB, total usage: allocated=5.277MB, max limit=2048.000MB
+[08/15 13:00:35.478613][debug][2436][FrameBufferManager.cpp:54] Frame buffer released=0.000MB, total usage: allocated=5.277MB, max limit=2048.000MB
+[08/15 13:00:35.478620][debug][2436][FrameBufferManager.cpp:54] Frame buffer released=0.000MB, total usage: allocated=5.276MB, max limit=2048.000MB
+[08/15 13:00:35.478644][debug][2436][FrameBufferManager.cpp:69] AbstractFrameBufferManager destroyed! manager type:class libobsensor::AbstractFrameBufferManager,  obj addr:0x1f6614ca5b0
+[08/15 13:00:35.478650][debug][2436][FrameBufferManager.hpp:72] FrameBufferManager destroying...! frame type: class libobsensor::ColorFrame,  obj addr:0x1f660f70910
+[08/15 13:00:35.478771][debug][2436][FrameBufferManager.cpp:54] Frame buffer released=0.879MB, total usage: allocated=4.397MB, max limit=2048.000MB
+[08/15 13:00:35.478850][debug][2436][FrameBufferManager.cpp:54] Frame buffer released=0.879MB, total usage: allocated=3.518MB, max limit=2048.000MB
+[08/15 13:00:35.478941][debug][2436][FrameBufferManager.cpp:54] Frame buffer released=0.879MB, total usage: allocated=2.638MB, max limit=2048.000MB
+[08/15 13:00:35.478947][debug][2436][FrameBufferManager.cpp:54] Frame buffer released=0.879MB, total usage: allocated=1.759MB, max limit=2048.000MB
+[08/15 13:00:35.479092][debug][2436][FrameBufferManager.cpp:54] Frame buffer released=0.879MB, total usage: allocated=0.879MB, max limit=2048.000MB
+[08/15 13:00:35.479100][debug][2436][FrameBufferManager.cpp:54] Frame buffer released=0.879MB, total usage: allocated=0.000MB, max limit=2048.000MB
+[08/15 13:00:35.479106][debug][2436][FrameBufferManager.cpp:69] AbstractFrameBufferManager destroyed! manager type:class libobsensor::AbstractFrameBufferManager,  obj addr:0x1f660f70910
+[08/15 13:00:35.479115][info][2436][Context.cpp:84] Context destroyed
+[08/15 13:00:35.479148][debug][20152][FrameTimestampConverter.cpp:160] updateBaseTimeStamp: [**11 logs in 1906ms, last: 13:00:34.571066**]
+[08/15 13:00:35.479219][debug][23440][FrameTimestampConverter.cpp:161] 	srcTimestamp=0, prevSrcTsp_=0, tspDecrease=false [**11 logs in 1906ms, last: 13:00:34.571069**]
+[08/15 13:00:35.479288][debug][10152][FrameTimestampConverter.cpp:162] 	srcTspDiffMs=0, hostTspDiffMs=100, tspDiffAbnormal=true [**11 logs in 1907ms, last: 13:00:34.571071**]
+[08/15 13:00:35.479363][debug][2072][Pipeline.cpp:319] Frame received on pipeline! type=OB_FRAME_COLOR [**21 logs in 3002ms, last: 13:00:34.572695**]
+[08/15 13:03:16.785715][debug][24180][Context.cpp:30] Context creating, work_dir=C:\Users\user\Desktop\Topics
+[08/15 13:03:16.785803][debug][24180][Context.cpp:49] Config file version=1.1
+[08/15 13:03:16.785828][debug][24180][FrameBufferManager.cpp:23] Max global frame buffer size updated! size=2048.000MB
+[08/15 13:03:16.785839][info][24180][Context.cpp:68] Context created with config: default config!
+[08/15 13:03:16.785854][info][24180][Context.cpp:73] Work directory=C:\Users\user\Desktop\Topics, SDK version=v1.10.18-20250103-27bf2f6ff
+[08/15 13:03:16.785911][debug][24180][DeviceManager.cpp:30] DeviceManager init ...
+[08/15 13:03:16.785917][info][24180][MfPal.cpp:105] createObPal: create WinPal!
+[08/15 13:03:16.785928][debug][24180][MfPal.cpp:110] WmfPal init ...
+[08/15 13:03:16.801492][debug][24180][MfPal.cpp:117] WmfPal created!
+[08/15 13:03:16.801523][debug][24180][DeviceManager.cpp:34] Enable USB Device Enumerator ...
+[08/15 13:03:16.861878][debug][24180][EnumeratorLibusb.cpp:324] queryDevicesInfo done!
+[08/15 13:03:16.861940][debug][24180][UsbDeviceEnumerator.cpp:163] Current usb device port list:
+[08/15 13:03:16.861957][debug][24180][UsbDeviceEnumerator.cpp:166]  - \\?\USB#VID_2BC5&PID_0671&MI_06#6&394D0C01&0&0006#{E5323777-F976-4F5B-9B55-B94699C46E44}\GLOBAL | Orbbec Gemini 2 XL IR Camera Right
+[08/15 13:03:16.861963][debug][24180][UsbDeviceEnumerator.cpp:166]  - \\?\USB#VID_2BC5&PID_0671&MI_00#6&394D0C01&0&0000#{E5323777-F976-4F5B-9B55-B94699C46E44}\GLOBAL | Orbbec Gemini 2 XL RGB Camera
+[08/15 13:03:16.862027][debug][24180][UsbDeviceEnumerator.cpp:166]  - \\?\USB#VID_2BC5&PID_0671&MI_02#6&394D0C01&0&0002#{E5323777-F976-4F5B-9B55-B94699C46E44}\GLOBAL | Orbbec Gemini 2 XL Depth Camera
+[08/15 13:03:16.862035][debug][24180][UsbDeviceEnumerator.cpp:166]  - \\?\USB#VID_2BC5&PID_0671&MI_04#6&394D0C01&0&0004#{E5323777-F976-4F5B-9B55-B94699C46E44}\GLOBAL | Orbbec Gemini 2 XL IR Camera Left
+[08/15 13:03:16.862040][debug][24180][UsbDeviceEnumerator.cpp:166]  - \\?\HID#VID_2BC5&PID_0671&MI_08#7&1AFA27A4&0&0000#{4D1E55B2-F16F-11CF-88CB-001111000030} | Orbbec Gemini 2 XL IMU
+[08/15 13:03:16.862045][debug][24180][UsbDeviceEnumerator.cpp:166]  - \\?\USB#VID_2BC5&PID_0671&MI_09#6&394D0C01&0&0009#{BC3DAA21-8427-B7DA-AE5A-090B8FE7EE94} | Orbbec Gemini 2 XL Data Channel
+[08/15 13:03:16.862272][debug][24180][MfPal.cpp:219] Create WinEventDeviceWatcher!
+[08/15 13:03:16.862474][debug][24180][UsbDeviceEnumerator.cpp:71] Found 1 device(s):
+[08/15 13:03:16.862505][debug][24180][UsbDeviceEnumerator.cpp:74]   - Name: Orbbec Gemini2 XL, PID: 0x0671, SN/ID: AYKW545004C, connection: USB2.0
+[08/15 13:03:16.862517][info][24180][DeviceManager.cpp:15] Current found device(s): (1)
+[08/15 13:03:16.862534][info][24180][DeviceManager.cpp:24] 	- Name: Orbbec Gemini2 XL, PID: 0x0671, SN/ID: AYKW545004C, Connection: USB2.0
+[08/15 13:03:16.862542][debug][24180][DeviceManager.cpp:52] DeviceManager construct done!
+[08/15 13:03:16.862559][debug][24180][DeviceManager.cpp:109] DeviceManager  createDevice...
+[08/15 13:03:16.862566][debug][24180][UsbDeviceEnumerator.cpp:291] UsbDeviceEnumerator createDevice...
+[08/15 13:03:16.862610][debug][24180][Gemini2XLDevice.cpp:124] Gemini2XLDevice default constructor ...
+[08/15 13:03:16.862807][debug][24180][Gemini2XLDevice.cpp:392] Create command start!
+[08/15 13:03:16.912076][debug][24180][VendorCommand.cpp:205] VendorCommand constructor 1f67692aa30
+[08/15 13:03:16.968812][debug][24180][PropertyAccessor.cpp:50] get firmware data success! propertyId: 1000, dataLen: 164
+[08/15 13:03:16.971802][debug][24180][PropertyAccessor.cpp:71] get raw data! propertyId: 4041, async: false
+[08/15 13:03:16.971851][info][24180][Gemini2XLDevice.cpp:446] Json Content: {
+	"ExtensionInfo":	{
+		"ProductModel":	"G30056-66 ",
+		"SubFwVer":	"1.4.75",
+		"SN":	"AYJW545001Z"
+	}
+}
+[08/15 13:03:16.971903][debug][24180][HostProtocol.cpp:433] Set property value, propertyId=97, value={intValue: 0, floatValue: 0}
+[08/15 13:03:16.972724][debug][24180][PropertyAccessor.cpp:17] set property value success! propertyId: 97, value: {intValue: 0, floatValue: 0}
+[08/15 13:03:16.975114][debug][21636][VendorCommand.cpp:436] get TimeStamp: tsp=142626066, rtt=0
+[08/15 13:03:17.029880][debug][21636][VendorCommand.cpp:436] get TimeStamp: tsp=142626121, rtt=0
+[08/15 13:03:17.087617][debug][21636][VendorCommand.cpp:436] get TimeStamp: tsp=142626178, rtt=0
+[08/15 13:03:17.141385][debug][21636][VendorCommand.cpp:436] get TimeStamp: tsp=142626232, rtt=0
+[08/15 13:03:17.141487][debug][21636][GlobalTimestampFitter.cpp:144] GlobalTimestampFitter update: coefficientA = 1002.1596468163152, constantB = 1786627262886444.5
+[08/15 13:03:17.141515][debug][24180][GlobalTimestampFitter.cpp:27] GlobalTimestampFitter created: maxQueueSize_=10, refreshIntervalMsec_=8000
+[08/15 13:03:17.141532][debug][24180][Gemini2XLDevice.cpp:605] Create command done!
+[08/15 13:03:17.142500][debug][24180][HostProtocol.cpp:466] get property value success! propertyId=145, cur={intValue: 0, floatValue: 0}, max={intValue: 1, floatValue: 1.4013e-45}, min={intValue: 0, floatValue: 0},def={intValue: 0, floatValue: 0},step={intValue: 1, floatValue: 1.4013e-45}
+[08/15 13:03:17.142535][debug][24180][PropertyAccessor.cpp:28] get property value success! propertyId: 145, value: {intValue: 0, floatValue: 0}
+[08/15 13:03:17.143787][debug][24180][PropertyAccessor.cpp:86] get struct data success! propertyId: 1043
+[08/15 13:03:17.143808][debug][24180][Gemini2XLDevice.cpp:692] init sensor map start!
+[08/15 13:03:17.143834][debug][24180][Gemini2XLDevice.cpp:726] init sensor map done!
+[08/15 13:03:17.143885][debug][24180][Gemini2XLDevice.cpp:1335] Init depth process param start!
+[08/15 13:03:17.147374][debug][24180][G2AlgParamManager.cpp:44] Get depth calibration params success! num=1
+[08/15 13:03:17.147460][debug][24180][G2AlgParamManager.cpp:48]  - { depthMode: << 1, baseline: -100.762, z0: 0, focalPix: 613.178, unit: 1, dispOffset: 0, invalidDisp: 0}
+[08/15 13:03:17.151294][debug][24180][G2AlgParamManager.cpp:69] Get align calibration camera params success! num=2
+[08/15 13:03:17.151503][debug][24180][G2AlgParamManager.cpp:73] - {
+depthDistortion: {k1: 0, k2: 0, k3: 0, k4: 0, k5: 0, k6: 0, p1: 0, p2: 0},
+depthIntrinsic: {cx: 628.555, cy: 398.081, fx: 613.178, fy: 613.178, width: 1280, height: 800}, 
+rgbDistortion: {k1: -1.19493, k2: 0.736482, k3: -0.163469, k4: -1.177, k5: 0.712539, k6: -0.154439, p1: -0.000307337, p2: -0.000290636},
+rgbIntrinsic: {cx: 642.505, cy: 392.965, fx: 610.259, fy: 610.425, width: 1280, height: 800}, 
+transform: {rot: [0.999998, 0.000531736, -0.00209546, -0.000530127, 1, 0.000768313, 0.00209587, -0.0007672, 0.999997], trans: [-25.0687, 0.0782731, 0.0177816]}
+}
+[08/15 13:03:17.151576][debug][24180][G2AlgParamManager.cpp:73] - {
+depthDistortion: {k1: 0, k2: 0, k3: 0, k4: 0, k5: 0, k6: 0, p1: 0, p2: 0},
+depthIntrinsic: {cx: 314.307, cy: 199.052, fx: 306.589, fy: 306.589, width: 640, height: 400}, 
+rgbDistortion: {k1: -1.19493, k2: 0.736482, k3: -0.163469, k4: -1.177, k5: 0.712539, k6: -0.154439, p1: -0.000307337, p2: -0.000290636},
+rgbIntrinsic: {cx: 321.253, cy: 196.483, fx: 305.129, fy: 305.212, width: 640, height: 400}, 
+transform: {rot: [0.999998, 0.000531736, -0.00209546, -0.000530127, 1, 0.000768313, 0.00209587, -0.0007672, 0.999997], trans: [-25.0687, 0.0782731, 0.0177816]}
+}
+[08/15 13:03:17.155437][debug][24180][G2AlgParamManager.cpp:94] Get depth to color profile list success! num=8
+[08/15 13:03:17.155510][debug][24180][G2AlgParamManager.cpp:98]  - {alignType: 3, colorWidth: 1280, colorHeight: 800, depthWidth: 1280, depthHeight: 800, paramIndex: 0, postProcessParam: {alignLeft: 0, alignTop: 0, alignRight: 0, alignBottom: 0, depthScale: 1}}
+[08/15 13:03:17.155526][debug][24180][G2AlgParamManager.cpp:98]  - {alignType: 3, colorWidth: 1280, colorHeight: 720, depthWidth: 1280, depthHeight: 800, paramIndex: 0, postProcessParam: {alignLeft: 0, alignTop: -40, alignRight: 0, alignBottom: -40, depthScale: 1}}
+[08/15 13:03:17.155541][debug][24180][G2AlgParamManager.cpp:98]  - {alignType: 3, colorWidth: 800, colorHeight: 600, depthWidth: 1280, depthHeight: 800, paramIndex: 0, postProcessParam: {alignLeft: -240, alignTop: -100, alignRight: -240, alignBottom: -100, depthScale: 1}}
+[08/15 13:03:17.155556][debug][24180][G2AlgParamManager.cpp:98]  - {alignType: 3, colorWidth: 1280, colorHeight: 800, depthWidth: 640, depthHeight: 400, paramIndex: 0, postProcessParam: {alignLeft: 0, alignTop: 0, alignRight: 0, alignBottom: 0, depthScale: 2}}
+[08/15 13:03:17.155570][debug][24180][G2AlgParamManager.cpp:98]  - {alignType: 3, colorWidth: 1280, colorHeight: 720, depthWidth: 640, depthHeight: 400, paramIndex: 0, postProcessParam: {alignLeft: 0, alignTop: -40, alignRight: 0, alignBottom: -40, depthScale: 2}}
+[08/15 13:03:17.155586][debug][24180][G2AlgParamManager.cpp:98]  - {alignType: 3, colorWidth: 800, colorHeight: 600, depthWidth: 640, depthHeight: 400, paramIndex: 0, postProcessParam: {alignLeft: -240, alignTop: -100, alignRight: -240, alignBottom: -100, depthScale: 2}}
+[08/15 13:03:17.155600][debug][24180][G2AlgParamManager.cpp:98]  - {alignType: 3, colorWidth: 640, colorHeight: 400, depthWidth: 640, depthHeight: 400, paramIndex: 0, postProcessParam: {alignLeft: 0, alignTop: 0, alignRight: 0, alignBottom: 0, depthScale: 1}}
+[08/15 13:03:17.155611][debug][24180][G2AlgParamManager.cpp:98]  - {alignType: 3, colorWidth: 640, colorHeight: 360, depthWidth: 640, depthHeight: 400, paramIndex: 0, postProcessParam: {alignLeft: 0, alignTop: -20, alignRight: 0, alignBottom: -20, depthScale: 1}}
+[08/15 13:03:17.161279][debug][24180][G2AlgParamManager.cpp:118] Get imu calibration params success!
+[08/15 13:03:17.162325][debug][24180][HostProtocol.cpp:466] get property value success! propertyId=108, cur={intValue: 0, floatValue: 0}, max={intValue: 1, floatValue: 1.4013e-45}, min={intValue: 0, floatValue: 0},def={intValue: 0, floatValue: 0},step={intValue: 1, floatValue: 1.4013e-45}
+[08/15 13:03:17.166027][debug][24180][G2AlgParamManager.cpp:447] Get depth calibration params success! num=1
+[08/15 13:03:17.166109][debug][24180][G2AlgParamManager.cpp:451]  - { depthMode: << 1, baseline: -100.762, z0: 0, focalPix: 613.178, unit: 1, dispOffset: 0, invalidDisp: 0}
+[08/15 13:03:17.167253][debug][24180][PropertyAccessor.cpp:86] get struct data success! propertyId: 4037
+[08/15 13:03:17.168228][debug][24180][HostProtocol.cpp:466] get property value success! propertyId=85, cur={intValue: 1, floatValue: 1.4013e-45}, max={intValue: 1, floatValue: 1.4013e-45}, min={intValue: 0, floatValue: 0},def={intValue: 0, floatValue: 0},step={intValue: 1, floatValue: 1.4013e-45}
+[08/15 13:03:17.168283][debug][24180][PropertyAccessor.cpp:28] get property value success! propertyId: 85, value: {intValue: 1, floatValue: 1.4013e-45}
+[08/15 13:03:17.168298][debug][24180][Gemini2XLDevice.cpp:1407] hwD2DEnable_: true
+[08/15 13:03:17.168307][debug][24180][Gemini2XLDevice.cpp:1408] Init depth process param done!
+[08/15 13:03:17.169444][debug][24180][PropertyAccessor.cpp:50] get firmware data success! propertyId: 1000, dataLen: 164
+[08/15 13:03:17.169489][info][24180][AbstractDevice.cpp:125] 	- Firmware version: 2.1.3_23112010
+[08/15 13:03:17.169737][debug][24180][Gemini2XLDevice.cpp:663] Create command done!
+[08/15 13:03:17.170687][debug][24180][HostProtocol.cpp:466] get property value success! propertyId=89, cur={intValue: 0, floatValue: 0}, max={intValue: 0, floatValue: 0}, min={intValue: 0, floatValue: 0},def={intValue: 0, floatValue: 0},step={intValue: 0, floatValue: 0}
+[08/15 13:03:17.170738][debug][24180][VendorCommand.cpp:467] disableHeartBeat heartBeatHelper_: 0000000000000000
+[08/15 13:03:17.170753][debug][24180][PropertyAccessor.cpp:28] get property value success! propertyId: 89, value: {intValue: 0, floatValue: 0}
+[08/15 13:03:17.170762][debug][24180][Gemini2XLDevice.cpp:673] heartbeat: 0
+[08/15 13:03:17.170801][debug][24180][HostProtocol.cpp:433] Set property value, propertyId=89, value={intValue: 0, floatValue: 0}
+[08/15 13:03:17.171723][debug][24180][VendorCommand.cpp:467] disableHeartBeat heartBeatHelper_: 0000000000000000
+[08/15 13:03:17.171768][debug][24180][PropertyAccessor.cpp:17] set property value success! propertyId: 89, value: {intValue: 0, floatValue: 0}
+[08/15 13:03:17.171776][info][24180][Gemini2XLDevice.cpp:218] Gemini2 XL device created! PID: 1649, SN: AYKW545004C
+[08/15 13:03:17.171793][debug][24180][UsbDeviceEnumerator.cpp:359] Device created successfully! Name: Orbbec Gemini2 XL, PID: 0x0671, SN/ID: AYKW545004C
+[08/15 13:03:17.171801][info][24180][DeviceManager.cpp:150] Device created successfully! Name: Orbbec Gemini2 XL, PID: 0x0671, SN/ID: AYKW545004C
+[08/15 13:03:17.171836][debug][24180][Pipeline.cpp:29] Pipeline init ...
+[08/15 13:03:17.171857][debug][24180][Pipeline.cpp:168] loadFrameQueueSizeConfig() config queue size: 10
+[08/15 13:03:17.171875][info][24180][Pipeline.cpp:47] Pipeline created with device: {name: Orbbec Gemini 2 XL, sn: AYKW545004C}, @0x1F6769BA040
+[08/15 13:03:17.186400][debug][24180][FrameProcessor.cpp:90] FrameProcessor init with 3 blocks! @2158063016352
+[08/15 13:03:17.186470][debug][24180][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 13:03:17.186487][debug][24180][FrameProcessor.cpp:98]  - block: FormatConverter, status: disable
+[08/15 13:03:17.186504][debug][24180][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 13:03:17.186514][debug][24180][FrameProcessor.cpp:98]  - block: FrameFlip, status: disable
+[08/15 13:03:17.186526][debug][24180][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 13:03:17.186536][debug][24180][FrameProcessor.cpp:98]  - block: FrameRotate, status: disable
+[08/15 13:03:17.186634][debug][24180][VideoSensor.cpp:252] VideoSensor construct!
+[08/15 13:03:17.186861][debug][24180][VideoSensor.cpp:278] VideoSensor created, @OB_SENSOR_COLOR
+[08/15 13:03:17.186900][info][24180][Gemini2XLDevice.cpp:984] Color sensor has been created!
+[08/15 13:03:17.229331][debug][24180][WinHelpers.cpp:88] streamReader_->GetNativeMediaType(index, k, &pMediaType.p) returned: HResult 0xc00d36b3: "提供的資料流號碼無效。"
+[08/15 13:03:17.229423][debug][24180][WinHelpers.cpp:88] streamReader_->GetNativeMediaType(index, k, &pMediaType.p) returned: HResult 0xc00d36b3: "提供的資料流號碼無效。"
+[08/15 13:03:17.229474][debug][24180][WinHelpers.cpp:88] streamReader_->GetNativeMediaType(index, k, &pMediaType.p) returned: HResult 0xc00d36b3: "提供的資料流號碼無效。"
+[08/15 13:03:17.229536][debug][24180][WinHelpers.cpp:88] streamReader_->GetNativeMediaType(index, k, &pMediaType.p) returned: HResult 0xc00d36b3: "提供的資料流號碼無效。"
+[08/15 13:03:17.232005][debug][24180][Gemini2XLDevice.cpp:2595] getEffectiveStreamProfiles fixedPropertyId: 4035
+[08/15 13:03:17.234819][debug][24180][PropertyAccessor.cpp:100] get struct data list success! propertyId: 4035, async: false
+[08/15 13:03:17.234935][debug][24180][Gemini2XLProfileFilter.cpp:34] uvcProfileList size: 52, output profile size: 14
+[08/15 13:03:17.234953][debug][24180][VideoSensor.cpp:372] Query stream profile! filter profile list success. size = 52, valid size = 14
+[08/15 13:03:17.234990][info][24180][VideoSensor.cpp:384] Query stream profile! size= 34, SensorType=OB_SENSOR_COLOR
+[08/15 13:03:17.235013][info][24180][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_MJPG, width: 1280, height: 800, fps: 10}
+[08/15 13:03:17.235023][info][24180][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_MJPG, width: 1280, height: 800, fps: 5}
+[08/15 13:03:17.235033][info][24180][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_MJPG, width: 1280, height: 720, fps: 5}
+[08/15 13:03:17.235042][info][24180][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_MJPG, width: 1280, height: 720, fps: 10}
+[08/15 13:03:17.235052][info][24180][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_MJPG, width: 800, height: 600, fps: 5}
+[08/15 13:03:17.235062][info][24180][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_MJPG, width: 800, height: 600, fps: 10}
+[08/15 13:03:17.235071][info][24180][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_MJPG, width: 640, height: 400, fps: 5}
+[08/15 13:03:17.235080][info][24180][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_MJPG, width: 640, height: 400, fps: 10}
+[08/15 13:03:17.235089][info][24180][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_MJPG, width: 640, height: 360, fps: 5}
+[08/15 13:03:17.235099][info][24180][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_MJPG, width: 640, height: 360, fps: 10}
+[08/15 13:03:17.235108][info][24180][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_YUYV, width: 640, height: 400, fps: 5}
+[08/15 13:03:17.235117][info][24180][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_YUYV, width: 640, height: 400, fps: 10}
+[08/15 13:03:17.235126][info][24180][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_YUYV, width: 640, height: 360, fps: 5}
+[08/15 13:03:17.235136][info][24180][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_YUYV, width: 640, height: 360, fps: 10}
+[08/15 13:03:17.235145][info][24180][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_RGB888, width: 1280, height: 800, fps: 5}
+[08/15 13:03:17.235155][info][24180][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_RGB888, width: 1280, height: 800, fps: 10}
+[08/15 13:03:17.235164][info][24180][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_RGB888, width: 1280, height: 720, fps: 5}
+[08/15 13:03:17.235181][info][24180][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_RGB888, width: 1280, height: 720, fps: 10}
+[08/15 13:03:17.235193][info][24180][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_RGB888, width: 800, height: 600, fps: 5}
+[08/15 13:03:17.235202][info][24180][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_RGB888, width: 800, height: 600, fps: 10}
+[08/15 13:03:17.235289][info][24180][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_RGB888, width: 640, height: 400, fps: 5}
+[08/15 13:03:17.235303][info][24180][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_RGB888, width: 640, height: 400, fps: 10}
+[08/15 13:03:17.235318][info][24180][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_RGB888, width: 640, height: 360, fps: 5}
+[08/15 13:03:17.235332][info][24180][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_RGB888, width: 640, height: 360, fps: 10}
+[08/15 13:03:17.235347][info][24180][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_BGRA, width: 1280, height: 800, fps: 5}
+[08/15 13:03:17.235362][info][24180][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_BGRA, width: 1280, height: 800, fps: 10}
+[08/15 13:03:17.235377][info][24180][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_BGRA, width: 1280, height: 720, fps: 5}
+[08/15 13:03:17.235390][info][24180][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_BGRA, width: 1280, height: 720, fps: 10}
+[08/15 13:03:17.235404][info][24180][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_BGRA, width: 800, height: 600, fps: 5}
+[08/15 13:03:17.235419][info][24180][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_BGRA, width: 800, height: 600, fps: 10}
+[08/15 13:03:17.235433][info][24180][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_BGRA, width: 640, height: 400, fps: 5}
+[08/15 13:03:17.235448][info][24180][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_BGRA, width: 640, height: 400, fps: 10}
+[08/15 13:03:17.235464][info][24180][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_BGRA, width: 640, height: 360, fps: 5}
+[08/15 13:03:17.235482][info][24180][VideoSensor.cpp:386]  - {type: OB_STREAM_COLOR, format: OB_FORMAT_BGRA, width: 640, height: 360, fps: 10}
+[08/15 13:03:17.235587][debug][24180][Pipeline.cpp:227] Pipeline start() start!
+[08/15 13:03:17.235600][info][24180][Pipeline.cpp:188] Check and set config start!
+[08/15 13:03:17.235631][info][24180][Pipeline.cpp:223] Check and set config done!
+[08/15 13:03:17.235680][debug][24180][FrameProcessor.cpp:90] FrameProcessor init with 13 blocks! @2158063624832
+[08/15 13:03:17.235707][debug][24180][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 13:03:17.235720][debug][24180][FrameProcessor.cpp:98]  - block: FrameUnpacker, status: disable
+[08/15 13:03:17.235737][debug][24180][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 13:03:17.235752][debug][24180][FrameProcessor.cpp:98]  - block: Gemini2XLDecompress, status: enable
+[08/15 13:03:17.235766][debug][24180][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 13:03:17.235779][debug][24180][FrameProcessor.cpp:98]  - block: DepthMaskRectifyFilter, status: disable
+[08/15 13:03:17.235794][debug][24180][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 13:03:17.235804][debug][24180][FrameProcessor.cpp:98]  - block: PixelValueOffset, status: disable
+[08/15 13:03:17.235818][debug][24180][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 13:03:17.235829][debug][24180][FrameProcessor.cpp:98]  - block: Disparity2DepthConverter, status: disable
+[08/15 13:03:17.235841][debug][24180][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 13:03:17.235850][debug][24180][FrameProcessor.cpp:98]  - block: PixelValueCutOff, status: enable
+[08/15 13:03:17.235872][debug][24180][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 13:03:17.235886][debug][24180][FrameProcessor.cpp:98]  - block: FrameSoftFilter, status: disable
+[08/15 13:03:17.235899][debug][24180][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 13:03:17.235909][debug][24180][FrameProcessor.cpp:98]  - block: FrameMirror, status: disable
+[08/15 13:03:17.235922][debug][24180][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 13:03:17.235932][debug][24180][FrameProcessor.cpp:98]  - block: FrameFlip, status: disable
+[08/15 13:03:17.235945][debug][24180][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 13:03:17.235956][debug][24180][FrameProcessor.cpp:98]  - block: FrameRotate, status: disable
+[08/15 13:03:17.235970][debug][24180][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 13:03:17.235983][debug][24180][FrameProcessor.cpp:98]  - block: D2CFilter, status: disable
+[08/15 13:03:17.235998][debug][24180][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 13:03:17.236009][debug][24180][FrameProcessor.cpp:98]  - block: PostProcessFilter, status: disable
+[08/15 13:03:17.236024][debug][24180][FrameProcessingBlock.cpp:26] Block created with frame queue size: 10
+[08/15 13:03:17.236036][debug][24180][FrameProcessor.cpp:98]  - block: DepthMarginRectifyFilter, status: enable
+[08/15 13:03:17.238061][debug][24180][VideoSensor.cpp:252] VideoSensor construct!
+[08/15 13:03:17.238335][debug][24180][VideoSensor.cpp:278] VideoSensor created, @OB_SENSOR_DEPTH
+[08/15 13:03:17.239282][debug][24180][HostProtocol.cpp:466] get property value success! propertyId=85, cur={intValue: 1, floatValue: 1.4013e-45}, max={intValue: 1, floatValue: 1.4013e-45}, min={intValue: 0, floatValue: 0},def={intValue: 0, floatValue: 0},step={intValue: 1, floatValue: 1.4013e-45}
+[08/15 13:03:17.239335][debug][24180][PropertyAccessor.cpp:28] get property value success! propertyId: 85, value: {intValue: 1, floatValue: 1.4013e-45}
+[08/15 13:03:17.239350][debug][24180][HostProtocol.cpp:433] Set property value, propertyId=75, value={intValue: 0, floatValue: 0}
+[08/15 13:03:17.240195][debug][24180][PropertyAccessor.cpp:17] set property value success! propertyId: 75, value: {intValue: 0, floatValue: 0}
+[08/15 13:03:17.240216][debug][24180][Gemini2XLDevice.cpp:1329] Set depth precision level to 1mm success
+[08/15 13:03:17.240224][debug][24180][Gemini2XLDevice.cpp:1331] Setup default depth precision. depthUnit=1
+[08/15 13:03:17.240231][debug][24180][Gemini2XLDevice.cpp:908] hwD2DEnable_: true, depthUnit=1
+[08/15 13:03:17.240238][info][24180][Gemini2XLDevice.cpp:926] Depth sensor has been created!
+[08/15 13:03:17.240282][debug][24180][PropertyAccessor.cpp:28] get property value success! propertyId: 14, value: {intValue: 0, floatValue: 0}
+[08/15 13:03:17.240293][debug][24180][PropertyAccessor.cpp:28] get property value success! propertyId: 15, value: {intValue: 0, floatValue: 0}
+[08/15 13:03:17.240304][debug][24180][PropertyAccessor.cpp:28] get property value success! propertyId: 118, value: {intValue: 0, floatValue: 0}
+[08/15 13:03:17.240315][debug][24180][HostProtocol.cpp:433] Set property value, propertyId=63, value={intValue: 0, floatValue: 0}
+[08/15 13:03:17.241105][debug][24180][PropertyAccessor.cpp:17] set property value success! propertyId: 63, value: {intValue: 0, floatValue: 0}
+[08/15 13:03:17.241133][debug][24180][PropertyAccessor.cpp:28] get property value success! propertyId: 14, value: {intValue: 0, floatValue: 0}
+[08/15 13:03:17.241144][debug][24180][PropertyAccessor.cpp:28] get property value success! propertyId: 15, value: {intValue: 0, floatValue: 0}
+[08/15 13:03:17.241154][debug][24180][PropertyAccessor.cpp:28] get property value success! propertyId: 118, value: {intValue: 0, floatValue: 0}
+[08/15 13:03:17.241165][debug][24180][PropertyAccessor.cpp:28] get property value success! propertyId: 118, value: {intValue: 0, floatValue: 0}
+[08/15 13:03:17.241186][debug][24180][FrameProcessingBlockManager.cpp:75]  FrameProcessingBlockManager started, 0 blocks contained!
+[08/15 13:03:17.241194][info][24180][Pipeline.cpp:288] Try to start streams!
+[08/15 13:03:17.241213][debug][24180][VideoSensor.cpp:566] VideoSensor::start, @OB_SENSOR_COLOR
+[08/15 13:03:17.241222][debug][24180][FrameMemoryPool.cpp:35] FrameMemoryPool created!
+[08/15 13:03:17.241266][debug][24180][FrameBufferManager.hpp:65] FrameBufferManager created! frame type:class libobsensor::ColorFrame, obj addr:0x1f676947aa0, frame obj total size:0.879MB
+[08/15 13:03:17.241274][debug][24180][FrameMemoryPool.cpp:76] ColorFrame bufferManager created!
+[08/15 13:03:17.241284][debug][24180][FrameProcessor.cpp:144] Frame processor active blocks chain update: input -> output
+[08/15 13:03:17.241290][debug][24180][FrameProcessor.cpp:155] FrameProcessor started, 3 blocks contained!
+[08/15 13:03:17.241303][info][24180][VideoSensor.cpp:646] start OB_SENSOR_COLOR stream with profile: {type: OB_STREAM_COLOR, format: OB_FORMAT_MJPG, width: 1280, height: 720, fps: 10}, Backend Format: OB_FORMAT_MJPG
+[08/15 13:03:17.614803][debug][24180][VideoSensor.cpp:672] Stream state changed to STREAM_STATE_STARTING. @OB_SENSOR_COLOR
+[08/15 13:03:17.614862][debug][24180][VideoSensor.cpp:674] Stream starting! @OB_SENSOR_COLOR
+[08/15 13:03:17.614879][debug][24180][Pipeline.cpp:299] Sensor stream started, sensorType=OB_SENSOR_COLOR
+[08/15 13:03:17.614889][info][24180][Pipeline.cpp:301] Start streams done!
+[08/15 13:03:17.614909][info][24180][Pipeline.cpp:277] Pipeline start done!
+[08/15 13:03:17.997174][debug][13136][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:17.997403][debug][13136][FrameBufferManager.cpp:35] New frame buffer allocated=0.879MB, total usage: allocated=0.879MB, max limit=2048.000MB
+[08/15 13:03:17.997437][debug][13136][VideoSensor.cpp:460] Stream state changed to STREAM_STATE_STREAMING. @OB_SENSOR_COLOR
+[08/15 13:03:17.997473][debug][13136][FrameTimestampConverter.cpp:160] updateBaseTimeStamp:
+[08/15 13:03:17.997487][debug][13136][FrameTimestampConverter.cpp:161] 	srcTimestamp=0, prevSrcTsp_=0, tspDecrease=false
+[08/15 13:03:17.997499][debug][13136][FrameTimestampConverter.cpp:162] 	srcTspDiffMs=0, hostTspDiffMs=1786770197997, tspDiffAbnormal=true
+[08/15 13:03:17.999221][debug][13136][VendorCommand.cpp:436] get TimeStamp: tsp=142627090, rtt=0
+[08/15 13:03:17.999349][debug][13136][FrameBufferManager.hpp:65] FrameBufferManager created! frame type:class libobsensor::FrameSet, obj addr:0x1f676d48aa0, frame obj total size:0.000MB
+[08/15 13:03:17.999359][debug][13136][FrameMemoryPool.cpp:92] Frameset bufferManager created!
+[08/15 13:03:17.999396][debug][13136][FrameBufferManager.cpp:35] New frame buffer allocated=0.000MB, total usage: allocated=0.880MB, max limit=2048.000MB
+[08/15 13:03:17.999484][debug][13136][Pipeline.cpp:319] Frame received on pipeline! type=OB_FRAME_COLOR
+[08/15 13:03:18.096233][debug][8852][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:18.098649][debug][8852][VendorCommand.cpp:436] get TimeStamp: tsp=142627189, rtt=0
+[08/15 13:03:18.195806][debug][13136][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:18.197435][debug][13136][VendorCommand.cpp:436] get TimeStamp: tsp=142627288, rtt=0
+[08/15 13:03:18.295513][debug][8852][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:18.297057][debug][8852][VendorCommand.cpp:436] get TimeStamp: tsp=142627388, rtt=0
+[08/15 13:03:18.395650][debug][13136][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:18.397464][debug][13136][VendorCommand.cpp:436] get TimeStamp: tsp=142627488, rtt=0
+[08/15 13:03:18.495545][debug][8852][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:18.497251][debug][8852][VendorCommand.cpp:436] get TimeStamp: tsp=142627588, rtt=0
+[08/15 13:03:18.595262][debug][13136][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:18.596811][debug][13136][VendorCommand.cpp:436] get TimeStamp: tsp=142627688, rtt=0
+[08/15 13:03:18.695386][debug][21512][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:18.697050][debug][21512][VendorCommand.cpp:436] get TimeStamp: tsp=142627788, rtt=0
+[08/15 13:03:18.795078][debug][13136][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:18.796599][debug][13136][VendorCommand.cpp:436] get TimeStamp: tsp=142627887, rtt=0
+[08/15 13:03:18.895132][debug][21512][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:18.897024][debug][21512][VendorCommand.cpp:436] get TimeStamp: tsp=142627988, rtt=0
+[08/15 13:03:18.994848][debug][13136][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:18.996577][debug][13136][VendorCommand.cpp:436] get TimeStamp: tsp=142628087, rtt=0
+[08/15 13:03:19.094761][debug][21512][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:19.094838][debug][21512][FrameTimestampConverter.cpp:160] updateBaseTimeStamp: [**11 logs in 1097ms**]
+[08/15 13:03:19.095014][debug][21512][FrameTimestampConverter.cpp:161] 	srcTimestamp=0, prevSrcTsp_=0, tspDecrease=false [**11 logs in 1097ms**]
+[08/15 13:03:19.095148][debug][21512][FrameTimestampConverter.cpp:162] 	srcTspDiffMs=0, hostTspDiffMs=100, tspDiffAbnormal=true [**11 logs in 1097ms**]
+[08/15 13:03:19.096830][debug][21512][VendorCommand.cpp:436] get TimeStamp: tsp=142628187, rtt=0
+[08/15 13:03:19.194479][debug][13136][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:19.196767][debug][13136][VendorCommand.cpp:436] get TimeStamp: tsp=142628287, rtt=0
+[08/15 13:03:19.294538][debug][21512][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:19.296382][debug][21512][VendorCommand.cpp:436] get TimeStamp: tsp=142628387, rtt=0
+[08/15 13:03:19.394291][debug][13136][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:19.395972][debug][13136][VendorCommand.cpp:436] get TimeStamp: tsp=142628487, rtt=0
+[08/15 13:03:19.494027][debug][21512][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:19.495845][debug][21512][VendorCommand.cpp:436] get TimeStamp: tsp=142628586, rtt=0
+[08/15 13:03:19.594061][debug][13136][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:19.595865][debug][13136][VendorCommand.cpp:436] get TimeStamp: tsp=142628686, rtt=0
+[08/15 13:03:19.694063][debug][21512][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:19.694374][debug][21512][FrameBufferManager.cpp:35] New frame buffer allocated=0.879MB, total usage: allocated=1.759MB, max limit=2048.000MB
+[08/15 13:03:19.696121][debug][21512][VendorCommand.cpp:436] get TimeStamp: tsp=142628787, rtt=0
+[08/15 13:03:19.696180][debug][21512][FrameBufferManager.cpp:35] New frame buffer allocated=0.000MB, total usage: allocated=1.760MB, max limit=2048.000MB
+[08/15 13:03:19.793751][debug][13136][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:19.793940][debug][13136][FrameBufferManager.cpp:35] New frame buffer allocated=0.879MB, total usage: allocated=2.639MB, max limit=2048.000MB
+[08/15 13:03:19.795625][debug][13136][VendorCommand.cpp:436] get TimeStamp: tsp=142628886, rtt=0
+[08/15 13:03:19.795663][debug][13136][FrameBufferManager.cpp:35] New frame buffer allocated=0.000MB, total usage: allocated=2.640MB, max limit=2048.000MB
+[08/15 13:03:19.893436][debug][21512][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:19.893642][debug][21512][FrameBufferManager.cpp:35] New frame buffer allocated=0.879MB, total usage: allocated=3.519MB, max limit=2048.000MB
+[08/15 13:03:19.895127][debug][21512][VendorCommand.cpp:436] get TimeStamp: tsp=142628986, rtt=0
+[08/15 13:03:19.895173][debug][21512][FrameBufferManager.cpp:35] New frame buffer allocated=0.000MB, total usage: allocated=3.519MB, max limit=2048.000MB
+[08/15 13:03:19.993879][debug][13136][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:19.994103][debug][13136][FrameBufferManager.cpp:35] New frame buffer allocated=0.879MB, total usage: allocated=4.399MB, max limit=2048.000MB
+[08/15 13:03:19.995735][debug][13136][VendorCommand.cpp:436] get TimeStamp: tsp=142629086, rtt=0
+[08/15 13:03:19.995790][debug][13136][FrameBufferManager.cpp:35] New frame buffer allocated=0.000MB, total usage: allocated=4.399MB, max limit=2048.000MB
+[08/15 13:03:20.093313][debug][21512][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:20.093527][debug][21512][FrameBufferManager.cpp:35] New frame buffer allocated=0.879MB, total usage: allocated=5.279MB, max limit=2048.000MB
+[08/15 13:03:20.095011][debug][21512][VendorCommand.cpp:436] get TimeStamp: tsp=142629186, rtt=0
+[08/15 13:03:20.095047][debug][21512][FrameBufferManager.cpp:35] New frame buffer allocated=0.000MB, total usage: allocated=5.279MB, max limit=2048.000MB
+[08/15 13:03:20.193184][debug][13136][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:20.193506][debug][13136][FrameBufferManager.cpp:35] New frame buffer allocated=0.879MB, total usage: allocated=6.158MB, max limit=2048.000MB
+[08/15 13:03:20.195262][debug][13136][VendorCommand.cpp:436] get TimeStamp: tsp=142629286, rtt=0
+[08/15 13:03:20.195311][debug][13136][FrameBufferManager.cpp:35] New frame buffer allocated=0.000MB, total usage: allocated=6.159MB, max limit=2048.000MB
+[08/15 13:03:20.292986][debug][21512][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:20.293188][debug][21512][FrameBufferManager.cpp:35] New frame buffer allocated=0.879MB, total usage: allocated=7.038MB, max limit=2048.000MB
+[08/15 13:03:20.294831][debug][21512][VendorCommand.cpp:436] get TimeStamp: tsp=142629386, rtt=0
+[08/15 13:03:20.294882][debug][21512][FrameBufferManager.cpp:35] New frame buffer allocated=0.000MB, total usage: allocated=7.039MB, max limit=2048.000MB
+[08/15 13:03:20.392817][debug][13136][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:20.393026][debug][13136][FrameBufferManager.cpp:35] New frame buffer allocated=0.879MB, total usage: allocated=7.918MB, max limit=2048.000MB
+[08/15 13:03:20.394572][debug][13136][VendorCommand.cpp:436] get TimeStamp: tsp=142629485, rtt=0
+[08/15 13:03:20.394622][debug][13136][FrameBufferManager.cpp:35] New frame buffer allocated=0.000MB, total usage: allocated=7.919MB, max limit=2048.000MB
+[08/15 13:03:20.492970][debug][8852][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:20.493227][debug][8852][FrameBufferManager.cpp:35] New frame buffer allocated=0.879MB, total usage: allocated=8.798MB, max limit=2048.000MB
+[08/15 13:03:20.494844][debug][8852][VendorCommand.cpp:436] get TimeStamp: tsp=142629586, rtt=0
+[08/15 13:03:20.494898][debug][8852][FrameBufferManager.cpp:35] New frame buffer allocated=0.000MB, total usage: allocated=8.799MB, max limit=2048.000MB
+[08/15 13:03:20.592510][debug][13136][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:20.592716][debug][13136][FrameBufferManager.cpp:35] New frame buffer allocated=0.879MB, total usage: allocated=9.678MB, max limit=2048.000MB
+[08/15 13:03:20.594165][debug][13136][VendorCommand.cpp:436] get TimeStamp: tsp=142629685, rtt=0
+[08/15 13:03:20.594209][debug][13136][FrameBufferManager.cpp:35] New frame buffer allocated=0.000MB, total usage: allocated=9.678MB, max limit=2048.000MB
+[08/15 13:03:20.594232][warning][13136][Pipeline.cpp:341] Pipeline source frameset queue fulled, drop the oldest frame!
+[08/15 13:03:20.692485][debug][8852][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:20.694070][debug][8852][VendorCommand.cpp:436] get TimeStamp: tsp=142629785, rtt=0
+[08/15 13:03:20.792290][debug][13136][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:20.794402][debug][13136][VendorCommand.cpp:436] get TimeStamp: tsp=142629885, rtt=0
+[08/15 13:03:20.892248][debug][8852][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:20.893947][debug][8852][VendorCommand.cpp:436] get TimeStamp: tsp=142629985, rtt=0
+[08/15 13:03:20.992358][debug][13136][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:20.994105][debug][13136][VendorCommand.cpp:436] get TimeStamp: tsp=142630085, rtt=0
+[08/15 13:03:21.091832][debug][8852][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:21.093288][debug][8852][VendorCommand.cpp:436] get TimeStamp: tsp=142630184, rtt=0
+[08/15 13:03:21.093339][debug][8852][Pipeline.cpp:319] Frame received on pipeline! type=OB_FRAME_COLOR [**31 logs in 3093ms**]
+[08/15 13:03:21.191725][debug][13136][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:21.191789][debug][13136][FrameTimestampConverter.cpp:160] updateBaseTimeStamp: [**21 logs in 2096ms**]
+[08/15 13:03:21.191983][debug][13136][FrameTimestampConverter.cpp:161] 	srcTimestamp=0, prevSrcTsp_=0, tspDecrease=false [**21 logs in 2096ms**]
+[08/15 13:03:21.192046][debug][13136][FrameTimestampConverter.cpp:162] 	srcTspDiffMs=0, hostTspDiffMs=100, tspDiffAbnormal=true [**21 logs in 2096ms**]
+[08/15 13:03:21.193675][debug][13136][VendorCommand.cpp:436] get TimeStamp: tsp=142630284, rtt=0
+[08/15 13:03:21.291974][debug][8852][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:21.294187][debug][8852][VendorCommand.cpp:436] get TimeStamp: tsp=142630385, rtt=0
+[08/15 13:03:21.391383][debug][13136][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:21.392890][debug][13136][VendorCommand.cpp:436] get TimeStamp: tsp=142630484, rtt=0
+[08/15 13:03:21.491188][debug][8852][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:21.492694][debug][8852][VendorCommand.cpp:436] get TimeStamp: tsp=142630583, rtt=0
+[08/15 13:03:21.591235][debug][21512][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:21.592890][debug][21512][VendorCommand.cpp:436] get TimeStamp: tsp=142630684, rtt=0
+[08/15 13:03:21.690924][debug][8852][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:21.692398][debug][8852][VendorCommand.cpp:436] get TimeStamp: tsp=142630783, rtt=0
+[08/15 13:03:21.791197][debug][21512][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:21.792816][debug][21512][VendorCommand.cpp:436] get TimeStamp: tsp=142630884, rtt=0
+[08/15 13:03:21.890837][debug][8852][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:21.892489][debug][8852][VendorCommand.cpp:436] get TimeStamp: tsp=142630983, rtt=0
+[08/15 13:03:21.990650][debug][21512][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:21.992198][debug][21512][VendorCommand.cpp:436] get TimeStamp: tsp=142631083, rtt=0
+[08/15 13:03:22.090528][debug][8852][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:22.092368][debug][8852][VendorCommand.cpp:436] get TimeStamp: tsp=142631183, rtt=0
+[08/15 13:03:22.190302][debug][21512][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:22.191791][debug][21512][VendorCommand.cpp:436] get TimeStamp: tsp=142631282, rtt=0
+[08/15 13:03:22.290362][debug][8852][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:22.292087][debug][8852][VendorCommand.cpp:436] get TimeStamp: tsp=142631383, rtt=0
+[08/15 13:03:22.390493][debug][21512][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:22.392017][debug][21512][VendorCommand.cpp:436] get TimeStamp: tsp=142631483, rtt=0
+[08/15 13:03:22.489967][debug][13136][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:22.491568][debug][13136][VendorCommand.cpp:436] get TimeStamp: tsp=142631582, rtt=0
+[08/15 13:03:22.589973][debug][21512][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:22.591668][debug][21512][VendorCommand.cpp:436] get TimeStamp: tsp=142631682, rtt=0
+[08/15 13:03:22.689736][debug][13136][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:22.691435][debug][13136][VendorCommand.cpp:436] get TimeStamp: tsp=142631782, rtt=0
+[08/15 13:03:22.789558][debug][21512][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:22.791215][debug][21512][VendorCommand.cpp:436] get TimeStamp: tsp=142631882, rtt=0
+[08/15 13:03:22.889488][debug][13136][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:22.891214][debug][13136][VendorCommand.cpp:436] get TimeStamp: tsp=142631982, rtt=0
+[08/15 13:03:22.989307][debug][21512][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:22.990910][debug][21512][VendorCommand.cpp:436] get TimeStamp: tsp=142632082, rtt=0
+[08/15 13:03:23.089313][debug][13136][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:23.089383][debug][13136][VideoSensor.cpp:427] OB_SENSOR_COLOR Streaming... frameRate=10.212097fps
+[08/15 13:03:23.091068][debug][13136][VendorCommand.cpp:436] get TimeStamp: tsp=142632182, rtt=0
+[08/15 13:03:23.091154][debug][13136][Pipeline.cpp:323] Pipeline streaming... frameset output rate=10.212097fps
+[08/15 13:03:23.189111][debug][21512][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:23.190575][debug][21512][VendorCommand.cpp:436] get TimeStamp: tsp=142632281, rtt=0
+[08/15 13:03:23.288975][debug][13136][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:23.290589][debug][13136][VendorCommand.cpp:436] get TimeStamp: tsp=142632381, rtt=0
+[08/15 13:03:23.389811][debug][21512][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:23.391320][debug][21512][VendorCommand.cpp:436] get TimeStamp: tsp=142632482, rtt=0
+[08/15 13:03:23.488621][debug][13136][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:23.490202][debug][13136][VendorCommand.cpp:436] get TimeStamp: tsp=142632581, rtt=0
+[08/15 13:03:23.588430][debug][21512][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:23.589957][debug][21512][VendorCommand.cpp:436] get TimeStamp: tsp=142632681, rtt=0
+[08/15 13:03:23.688409][debug][13136][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:23.690104][debug][13136][VendorCommand.cpp:436] get TimeStamp: tsp=142632781, rtt=0
+[08/15 13:03:23.690150][warning][13136][Pipeline.cpp:341] Pipeline source frameset queue fulled, drop the oldest frame! [**31 logs in 3095ms**]
+[08/15 13:03:23.788320][debug][21512][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:23.790088][debug][21512][VendorCommand.cpp:436] get TimeStamp: tsp=142632881, rtt=0
+[08/15 13:03:23.888837][debug][13136][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:23.890498][debug][13136][VendorCommand.cpp:436] get TimeStamp: tsp=142632981, rtt=0
+[08/15 13:03:23.988164][debug][21512][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:23.989751][debug][21512][VendorCommand.cpp:436] get TimeStamp: tsp=142633080, rtt=0
+[08/15 13:03:24.107257][debug][13136][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:24.127915][debug][13136][VendorCommand.cpp:436] get TimeStamp: tsp=142633217, rtt=0
+[08/15 13:03:24.187891][debug][21512][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:24.189441][debug][21512][VendorCommand.cpp:436] get TimeStamp: tsp=142633280, rtt=0
+[08/15 13:03:24.287551][debug][13136][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:24.289294][debug][13136][VendorCommand.cpp:436] get TimeStamp: tsp=142633380, rtt=0
+[08/15 13:03:24.387687][debug][8852][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:24.389470][debug][8852][VendorCommand.cpp:436] get TimeStamp: tsp=142633480, rtt=0
+[08/15 13:03:24.487378][debug][13136][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:24.488851][debug][13136][VendorCommand.cpp:436] get TimeStamp: tsp=142633580, rtt=0
+[08/15 13:03:24.587231][debug][8852][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:24.588799][debug][8852][VendorCommand.cpp:436] get TimeStamp: tsp=142633680, rtt=0
+[08/15 13:03:24.687260][debug][13136][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:24.688707][debug][13136][VendorCommand.cpp:436] get TimeStamp: tsp=142633780, rtt=0
+[08/15 13:03:24.787276][debug][8852][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:24.788979][debug][8852][VendorCommand.cpp:436] get TimeStamp: tsp=142633880, rtt=0
+[08/15 13:03:24.886782][debug][13136][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:24.888403][debug][13136][VendorCommand.cpp:436] get TimeStamp: tsp=142633979, rtt=0
+[08/15 13:03:24.986611][debug][8852][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:24.988143][debug][8852][VendorCommand.cpp:436] get TimeStamp: tsp=142634079, rtt=0
+[08/15 13:03:25.086721][debug][13136][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:25.088763][debug][13136][VendorCommand.cpp:436] get TimeStamp: tsp=142634180, rtt=0
+[08/15 13:03:25.146633][debug][21636][VendorCommand.cpp:436] get TimeStamp: tsp=142634237, rtt=0
+[08/15 13:03:25.146752][debug][21636][GlobalTimestampFitter.cpp:144] GlobalTimestampFitter update: coefficientA = 1000.0154065728234, constantB = 1786627568711172.5
+[08/15 13:03:25.186823][debug][8852][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:25.188649][debug][8852][VendorCommand.cpp:436] get TimeStamp: tsp=142634279, rtt=0
+[08/15 13:03:25.287573][debug][13136][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:25.287763][debug][13136][FrameTimestampConverter.cpp:160] updateBaseTimeStamp: [**41 logs in 4095ms**]
+[08/15 13:03:25.288103][debug][13136][FrameTimestampConverter.cpp:161] 	srcTimestamp=0, prevSrcTsp_=0, tspDecrease=false [**41 logs in 4096ms**]
+[08/15 13:03:25.288230][debug][13136][FrameTimestampConverter.cpp:162] 	srcTspDiffMs=0, hostTspDiffMs=100, tspDiffAbnormal=true [**41 logs in 4096ms**]
+[08/15 13:03:25.290668][debug][13136][VendorCommand.cpp:436] get TimeStamp: tsp=142634381, rtt=0
+[08/15 13:03:25.386360][debug][8852][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:25.389292][debug][8852][VendorCommand.cpp:436] get TimeStamp: tsp=142634480, rtt=0
+[08/15 13:03:25.486629][debug][13136][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:25.488575][debug][13136][VendorCommand.cpp:436] get TimeStamp: tsp=142634579, rtt=0
+[08/15 13:03:25.586510][debug][8852][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:25.588163][debug][8852][VendorCommand.cpp:436] get TimeStamp: tsp=142634679, rtt=0
+[08/15 13:03:25.685847][debug][13136][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:25.687888][debug][13136][VendorCommand.cpp:436] get TimeStamp: tsp=142634779, rtt=0
+[08/15 13:03:25.785589][debug][8852][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:25.787302][debug][8852][VendorCommand.cpp:436] get TimeStamp: tsp=142634878, rtt=0
+[08/15 13:03:25.885714][debug][13136][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:25.887820][debug][13136][VendorCommand.cpp:436] get TimeStamp: tsp=142634978, rtt=0
+[08/15 13:03:25.986522][debug][8852][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:25.988104][debug][8852][VendorCommand.cpp:436] get TimeStamp: tsp=142635079, rtt=0
+[08/15 13:03:26.085119][debug][13136][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:26.086577][debug][13136][VendorCommand.cpp:436] get TimeStamp: tsp=142635177, rtt=0
+[08/15 13:03:26.186630][debug][8852][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:26.188334][debug][8852][VendorCommand.cpp:436] get TimeStamp: tsp=142635279, rtt=0
+[08/15 13:03:26.285497][debug][13136][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:26.287252][debug][13136][VendorCommand.cpp:436] get TimeStamp: tsp=142635378, rtt=0
+[08/15 13:03:26.385700][debug][21512][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:26.387750][debug][21512][VendorCommand.cpp:436] get TimeStamp: tsp=142635478, rtt=0
+[08/15 13:03:26.484868][debug][21512][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:26.486508][debug][21512][VendorCommand.cpp:436] get TimeStamp: tsp=142635577, rtt=0
+[08/15 13:03:26.584437][debug][13136][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:26.585935][debug][13136][VendorCommand.cpp:436] get TimeStamp: tsp=142635677, rtt=0
+[08/15 13:03:26.684266][debug][21512][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:26.686157][debug][21512][VendorCommand.cpp:436] get TimeStamp: tsp=142635777, rtt=0
+[08/15 13:03:26.785027][debug][13136][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:26.786769][debug][13136][VendorCommand.cpp:436] get TimeStamp: tsp=142635878, rtt=0
+[08/15 13:03:26.885864][debug][21512][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:26.887318][debug][21512][VendorCommand.cpp:436] get TimeStamp: tsp=142635978, rtt=0
+[08/15 13:03:26.984488][debug][13136][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:26.986385][debug][13136][VendorCommand.cpp:436] get TimeStamp: tsp=142636077, rtt=0
+[08/15 13:03:27.083768][debug][21512][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:27.085257][debug][21512][VendorCommand.cpp:436] get TimeStamp: tsp=142636176, rtt=0
+[08/15 13:03:27.183678][debug][13136][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:27.185127][debug][13136][VendorCommand.cpp:436] get TimeStamp: tsp=142636276, rtt=0
+[08/15 13:03:27.185206][debug][13136][Pipeline.cpp:319] Frame received on pipeline! type=OB_FRAME_COLOR [**61 logs in 6091ms**]
+[08/15 13:03:27.283685][debug][21512][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:27.285430][debug][21512][VendorCommand.cpp:436] get TimeStamp: tsp=142636376, rtt=0
+[08/15 13:03:27.383689][debug][13136][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:27.385347][debug][13136][VendorCommand.cpp:436] get TimeStamp: tsp=142636476, rtt=0
+[08/15 13:03:27.483235][debug][21512][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:27.484830][debug][21512][VendorCommand.cpp:436] get TimeStamp: tsp=142636576, rtt=0
+[08/15 13:03:27.579190][info][24180][Pipeline.cpp:411] Try to stop pipeline!
+[08/15 13:03:27.579214][info][24180][Pipeline.cpp:383] Try to stop streams!
+[08/15 13:03:27.579233][debug][24180][VideoSensor.cpp:678] VideoSensor::stop, @OB_SENSOR_COLOR
+[08/15 13:03:27.579249][debug][24180][VideoSensor.cpp:701] Stream state changed to STREAM_STATE_STOPPING. @OB_SENSOR_COLOR
+[08/15 13:03:27.583202][debug][13136][WinHelpers.cpp:88] hr = spSample->GetUnknown(MFSampleExtension_CaptureMetadata, IID_PPV_ARGS(&spUnknown)) returned: HResult 0xc00d36e6: "找不到要求的屬性。"
+[08/15 13:03:28.390169][debug][24180][VideoSensor.cpp:727] stream stoped! @OB_SENSOR_COLOR
+[08/15 13:03:28.390209][debug][24180][FrameProcessor.cpp:165] FrameProcessor stoped!
+[08/15 13:03:28.390237][debug][24180][HostProtocol.cpp:433] Set property value, propertyId=77, value={intValue: 1, floatValue: 1.4013e-45}
+[08/15 13:03:28.482747][debug][24180][VideoSensor.cpp:716] Stream state changed to STREAM_STATE_STOPED. @OB_SENSOR_COLOR
+[08/15 13:03:28.482799][info][24180][VideoSensor.cpp:734] Video sensor stopped, @OB_SENSOR_COLOR
+[08/15 13:03:28.482824][info][24180][Pipeline.cpp:396] Sensor stream stopped, sensorType=OB_SENSOR_COLOR
+[08/15 13:03:28.482834][info][24180][Pipeline.cpp:402] Stop streams done!
+[08/15 13:03:28.482874][debug][24180][HostProtocol.cpp:433] Set property value, propertyId=42, value={intValue: 0, floatValue: 0}
+[08/15 13:03:28.483861][debug][24180][PropertyAccessor.cpp:17] set property value success! propertyId: 42, value: {intValue: 0, floatValue: 0}
+[08/15 13:03:28.483897][debug][24180][FrameProcessingBlockManager.cpp:84] FrameProcessingBlockManager stoped!
+[08/15 13:03:28.483906][debug][24180][FrameProcessingBlockManager.cpp:20] Processing block list cleared!
+[08/15 13:03:28.483926][info][24180][Pipeline.cpp:443] Stop pipeline done!
+[08/15 13:03:28.483948][debug][24180][Pipeline.cpp:68] Pipeline deInit start!
+[08/15 13:03:28.483956][info][24180][Pipeline.cpp:75] Pipeline destroyed! @0x1F6769BA040
+[08/15 13:03:28.483974][debug][24180][Gemini2XLDevice.cpp:222] ~Gemini2XLDevice start!
+[08/15 13:03:28.483980][info][24180][Gemini2XLDevice.cpp:227] Gemini2 XL device destroyed! PID: 1649, SN: AYKW545004C
+[08/15 13:03:28.484010][debug][24180][VideoSensor.cpp:282] VideoSensor::~VideoSensor(), @OB_SENSOR_COLOR
+[08/15 13:03:28.484175][info][24180][VideoSensor.cpp:303] VideoSensor destroyed, @OB_SENSOR_COLOR
+[08/15 13:03:28.484214][debug][24180][VideoSensor.cpp:282] VideoSensor::~VideoSensor(), @OB_SENSOR_DEPTH
+[08/15 13:03:28.484276][info][24180][VideoSensor.cpp:303] VideoSensor destroyed, @OB_SENSOR_DEPTH
+[08/15 13:03:28.484632][debug][24180][FrameProcessor.cpp:807] try remove eventId: PropertyValueUpdate
+[08/15 13:03:28.484656][debug][24180][FrameProcessor.cpp:807] try remove eventId: DepthStreamProfileChanged
+[08/15 13:03:28.484696][debug][24180][FrameProcessor.cpp:111] FrameProcessor destroyed! @2158063624832
+[08/15 13:03:28.484730][debug][21636][GlobalTimestampFitter.cpp:155] GlobalTimestampFitter fittingLoop exit
+[08/15 13:03:28.484892][debug][24180][FrameProcessor.cpp:111] FrameProcessor destroyed! @2158063016352
+[08/15 13:03:28.484913][debug][24180][VendorCommand.cpp:213] destructor 1f67692aa30
+[08/15 13:03:28.484927][debug][24180][VendorCommand.cpp:467] disableHeartBeat heartBeatHelper_: 0000000000000000
+[08/15 13:03:28.484938][debug][24180][HostProtocol.cpp:139] ~HostProtocol()
+[08/15 13:03:28.484958][debug][19204][HostProtocol.cpp:167] emitTranDataFutureSignalThread_ finish
+[08/15 13:03:28.487047][debug][24180][Context.cpp:81] Context destroying ...
+[08/15 13:03:28.487085][debug][24180][DeviceManager.cpp:56] DeviceManager destroy ...
+[08/15 13:03:28.487091][debug][24180][DeviceManager.cpp:64] DeviceManager Destructors done
+[08/15 13:03:28.494604][debug][24180][MfPal.cpp:128] WmfPal destroyed!
+[08/15 13:03:28.495032][debug][24180][FrameBufferManager.hpp:72] FrameBufferManager destroying...! frame type: class libobsensor::FrameSet,  obj addr:0x1f676d48aa0
+[08/15 13:03:28.495058][debug][24180][FrameBufferManager.cpp:54] Frame buffer released=0.000MB, total usage: allocated=9.678MB, max limit=2048.000MB
+[08/15 13:03:28.495067][debug][24180][FrameBufferManager.cpp:54] Frame buffer released=0.000MB, total usage: allocated=9.677MB, max limit=2048.000MB
+[08/15 13:03:28.495073][debug][24180][FrameBufferManager.cpp:54] Frame buffer released=0.000MB, total usage: allocated=9.677MB, max limit=2048.000MB
+[08/15 13:03:28.495079][debug][24180][FrameBufferManager.cpp:54] Frame buffer released=0.000MB, total usage: allocated=9.676MB, max limit=2048.000MB
+[08/15 13:03:28.495085][debug][24180][FrameBufferManager.cpp:54] Frame buffer released=0.000MB, total usage: allocated=9.676MB, max limit=2048.000MB
+[08/15 13:03:28.495090][debug][24180][FrameBufferManager.cpp:54] Frame buffer released=0.000MB, total usage: allocated=9.676MB, max limit=2048.000MB
+[08/15 13:03:28.495096][debug][24180][FrameBufferManager.cpp:54] Frame buffer released=0.000MB, total usage: allocated=9.675MB, max limit=2048.000MB
+[08/15 13:03:28.495101][debug][24180][FrameBufferManager.cpp:54] Frame buffer released=0.000MB, total usage: allocated=9.675MB, max limit=2048.000MB
+[08/15 13:03:28.495107][debug][24180][FrameBufferManager.cpp:54] Frame buffer released=0.000MB, total usage: allocated=9.674MB, max limit=2048.000MB
+[08/15 13:03:28.495113][debug][24180][FrameBufferManager.cpp:54] Frame buffer released=0.000MB, total usage: allocated=9.674MB, max limit=2048.000MB
+[08/15 13:03:28.495119][debug][24180][FrameBufferManager.cpp:54] Frame buffer released=0.000MB, total usage: allocated=9.673MB, max limit=2048.000MB
+[08/15 13:03:28.495141][debug][24180][FrameBufferManager.cpp:69] AbstractFrameBufferManager destroyed! manager type:class libobsensor::AbstractFrameBufferManager,  obj addr:0x1f676d48aa0
+[08/15 13:03:28.495148][debug][24180][FrameBufferManager.hpp:72] FrameBufferManager destroying...! frame type: class libobsensor::ColorFrame,  obj addr:0x1f676947aa0
+[08/15 13:03:28.495232][debug][24180][FrameBufferManager.cpp:54] Frame buffer released=0.879MB, total usage: allocated=8.794MB, max limit=2048.000MB
+[08/15 13:03:28.495303][debug][24180][FrameBufferManager.cpp:54] Frame buffer released=0.879MB, total usage: allocated=7.914MB, max limit=2048.000MB
+[08/15 13:03:28.495383][debug][24180][FrameBufferManager.cpp:54] Frame buffer released=0.879MB, total usage: allocated=7.035MB, max limit=2048.000MB
+[08/15 13:03:28.495447][debug][24180][FrameBufferManager.cpp:54] Frame buffer released=0.879MB, total usage: allocated=6.156MB, max limit=2048.000MB
+[08/15 13:03:28.495531][debug][24180][FrameBufferManager.cpp:54] Frame buffer released=0.879MB, total usage: allocated=5.276MB, max limit=2048.000MB
+[08/15 13:03:28.495622][debug][24180][FrameBufferManager.cpp:54] Frame buffer released=0.879MB, total usage: allocated=4.397MB, max limit=2048.000MB
+[08/15 13:03:28.495700][debug][24180][FrameBufferManager.cpp:54] Frame buffer released=0.879MB, total usage: allocated=3.518MB, max limit=2048.000MB
+[08/15 13:03:28.495708][debug][24180][FrameBufferManager.cpp:54] Frame buffer released=0.879MB, total usage: allocated=2.638MB, max limit=2048.000MB
+[08/15 13:03:28.495911][debug][24180][FrameBufferManager.cpp:54] Frame buffer released=0.879MB, total usage: allocated=1.759MB, max limit=2048.000MB
+[08/15 13:03:28.496015][debug][24180][FrameBufferManager.cpp:54] Frame buffer released=0.879MB, total usage: allocated=0.879MB, max limit=2048.000MB
+[08/15 13:03:28.496109][debug][24180][FrameBufferManager.cpp:54] Frame buffer released=0.879MB, total usage: allocated=0.000MB, max limit=2048.000MB
+[08/15 13:03:28.496117][debug][24180][FrameBufferManager.cpp:69] AbstractFrameBufferManager destroyed! manager type:class libobsensor::AbstractFrameBufferManager,  obj addr:0x1f676947aa0
+[08/15 13:03:28.496137][info][24180][Context.cpp:84] Context destroyed
+[08/15 13:03:28.496188][debug][3968][FrameTimestampConverter.cpp:160] updateBaseTimeStamp: [**22 logs in 3208ms, last: 13:03:27.483309**]
+[08/15 13:03:28.496266][debug][23676][FrameTimestampConverter.cpp:161] 	srcTimestamp=0, prevSrcTsp_=0, tspDecrease=false [**22 logs in 3208ms, last: 13:03:27.483310**]
+[08/15 13:03:28.496375][debug][21304][FrameTimestampConverter.cpp:162] 	srcTspDiffMs=0, hostTspDiffMs=99, tspDiffAbnormal=true [**22 logs in 3208ms, last: 13:03:27.483312**]
+[08/15 13:03:28.496463][debug][25200][Pipeline.cpp:319] Frame received on pipeline! type=OB_FRAME_COLOR [**3 logs in 1311ms, last: 13:03:27.484905**]
+[08/15 13:03:28.496539][warning][7204][Pipeline.cpp:341] Pipeline source frameset queue fulled, drop the oldest frame! [**38 logs in 4806ms, last: 13:03:27.484897**]

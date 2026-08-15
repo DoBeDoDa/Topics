@@ -17,7 +17,7 @@ constexpr std::size_t MAX_AXIS_CANDIDATES = 10001;
 // bound, two individually-approved per-axis ranges can still multiply into
 // an unbounded pose search (up to ~4e8 combinations). This caps the actual
 // total search size createExecutionPlan() will iterate.
-constexpr std::size_t MAX_TOTAL_POSE_CANDIDATES = 10;
+constexpr std::size_t MAX_TOTAL_POSE_CANDIDATES = 1000;
 
 bool finiteArray(const std::array<double, 6>& values) noexcept
 {
@@ -36,6 +36,58 @@ bool validBounds(const AxisAlignedBounds2D& bounds) noexcept
 double dot(Vector2D first, Vector2D second) noexcept
 {
     return first.x * second.x + first.y * second.y;
+}
+
+double distancePointToSegment(Point p, Point a, Point b) noexcept
+{
+    const double abx = b.x - a.x;
+    const double aby = b.y - a.y;
+    const double lengthSquared = abx * abx + aby * aby;
+    if (!(lengthSquared > 0.0)) {
+        return std::hypot(p.x - a.x, p.y - a.y);
+    }
+    double t = ((p.x - a.x) * abx + (p.y - a.y) * aby) / lengthSquared;
+    t = (std::max)(0.0, (std::min)(1.0, t));
+    const double closestX = a.x + t * abx;
+    const double closestY = a.y + t * aby;
+    return std::hypot(p.x - closestX, p.y - closestY);
+}
+
+// 貼庫安全繞行：母球中心離最近庫邊在門檻內時，改用沿庫邊、背離最近端點
+// （袋口角落）的單位向量取代Phase1算出的入袋方向，只求推桿安全靠近、
+// 碰到球即可，不追求精準瞄準角度。回傳nullopt代表沒有觸發（沿用原方向）。
+std::optional<Vector2D> resolveRailHuggingDirection(
+    Point cueBall,
+    const ResolvedTableGeometry& geometry,
+    double triggerDistanceMm) noexcept
+{
+    std::optional<std::size_t> nearestIndex;
+    double nearestDistance = std::numeric_limits<double>::infinity();
+    for (std::size_t index = 0; index < geometry.physicalRails.size(); ++index) {
+        const Segment2D& segment = geometry.physicalRails[index].segment;
+        const double distance =
+            distancePointToSegment(cueBall, segment.start, segment.end);
+        if (std::isfinite(distance) && distance < nearestDistance) {
+            nearestDistance = distance;
+            nearestIndex = index;
+        }
+    }
+    if (!nearestIndex || !(nearestDistance <= triggerDistanceMm)) {
+        return std::nullopt;
+    }
+    const Segment2D& segment = geometry.physicalRails[*nearestIndex].segment;
+    const std::optional<Vector2D> tangent = BilliardMath::normalize(
+        Vector2D{segment.end.x - segment.start.x, segment.end.y - segment.start.y});
+    if (!tangent) {
+        return std::nullopt;
+    }
+    const double distanceToStart =
+        std::hypot(cueBall.x - segment.start.x, cueBall.y - segment.start.y);
+    const double distanceToEnd =
+        std::hypot(cueBall.x - segment.end.x, cueBall.y - segment.end.y);
+    return distanceToStart <= distanceToEnd
+        ? *tangent
+        : Vector2D{-tangent->x, -tangent->y};
 }
 
 StrikeMode resolveStrikeMode(
@@ -540,16 +592,14 @@ bool ExecutionPlan::isValid() const noexcept
         expectedBottomDistance,
         pullModeMinBottomDistanceMm,
         expectedDirectionDot);
-    const double centerToTcpMm = ballRadiusMm + readyGapMm;
-    const double nominalX =
-        cueBallCenterBase0Mm.x - centerToTcpMm * shotDirectionXY.x;
-    const double nominalY =
-        cueBallCenterBase0Mm.y - centerToTcpMm * shotDirectionXY.y;
+    // Tool1的TCP已核准校正在氣壓推桿行程中點（縮回位置沿Tool1 +X方向6cm，
+    // 12cm總行程的一半），所以XY直接對齊母球中心，母球就自然落在行程中點，
+    // push/pull都一樣（差異只在C軸方向）；不再額外扣ballRadiusMm/readyGapMm。
     const double biasSign = strikeMode == StrikeMode::Push ? 1.0 : -1.0;
     const double expectedX =
-        nominalX + biasSign * strikePositionBiasMm * shotDirectionXY.x;
+        cueBallCenterBase0Mm.x + biasSign * strikePositionBiasMm * shotDirectionXY.x;
     const double expectedY =
-        nominalY + biasSign * strikePositionBiasMm * shotDirectionXY.y;
+        cueBallCenterBase0Mm.y + biasSign * strikePositionBiasMm * shotDirectionXY.y;
     const std::optional<double> pushC = directionToCDeg(
         shotDirectionXY, cToolOffsetDeg, directionUnitTolerance);
     const std::optional<double> expectedC = pushC
@@ -699,7 +749,8 @@ ExecutionPlanResult MotionPlanner::createExecutionPlan(
     const std::optional<BilliardConfig::TableGeometryConfig>& tableGeometry,
     const std::optional<BilliardConfig::MotionPlanningConfig>& config,
     const MotionPlanningChecks& checks,
-    bool rankedPotCandidatesExhausted) const
+    bool rankedPotCandidatesExhausted,
+    const std::optional<ResolvedTableGeometry>& resolvedTableGeometry) const
 {
     if (!planningResult.isValid()) {
         return reject(
@@ -791,13 +842,10 @@ ExecutionPlanResult MotionPlanner::createExecutionPlan(
             ExecutionPlanStatus::InvalidShotPlan,
             ExecutionPlanFailureReason::InvalidShotPlanContract);
     }
-    std::optional<double> phase1KickMaximum;
-    if (const auto* kick = std::get_if<KickPotShotPlanPayload>(&shotPlan->payload)) {
-        phase1KickMaximum = kick->kickGeometry.maxKickRailAngleDeg;
-    } else if (const auto* legalKick =
-                   std::get_if<KickLegalContactShotPlanPayload>(&shotPlan->payload)) {
-        phase1KickMaximum = legalKick->kickGeometry.maxKickRailAngleDeg;
-    }
+    // 固定氣動力道：距離／切球角度／反彈角度對執行力道沒有影響（力道本身
+    // 不可調），使用者已確認不需要以phase1算出的幾何角度上限反過來限制
+    // envelope設定值，故不比對phase1KickMaximum，只保留envelope本身的
+    // 靜態範圍檢查（見BilliardConfig.cpp的fixedForceEnvelope設定）。
     const FixedForceEnvelopeEvaluation envelopeEvaluation{
         config->fixedForceEnvelope->calibrationRevision,
         metrics ? metrics->totalPathLengthMm
@@ -808,13 +856,6 @@ ExecutionPlanResult MotionPlanner::createExecutionPlan(
         envelope->maxTotalPathLengthMm,
         envelope->maxCuttingAngleDeg,
         envelope->maxExecutableKickRailAngleDeg};
-    if (phase1KickMaximum &&
-        (!envelope->maxExecutableKickRailAngleDeg ||
-         *envelope->maxExecutableKickRailAngleDeg > *phase1KickMaximum)) {
-        return reject(
-            ExecutionPlanStatus::InvalidConfiguration,
-            ExecutionPlanFailureReason::InvalidMotionCalibration);
-    }
     if (!envelope->enabled || !metrics || !envelopeEvaluation.isValid()) {
         return reject(
             ExecutionPlanStatus::NoExecutablePlan,
@@ -841,9 +882,20 @@ ExecutionPlanResult MotionPlanner::createExecutionPlan(
             ExecutionPlanStatus::InvalidShotPlan,
             ExecutionPlanFailureReason::InvalidShotPlanContract);
     }
+    // 貼庫安全繞行：母球貼近庫邊時，用平行庫邊、背離最近端點的方向取代
+    // Phase1算出的入袋方向，只求安全碰到球；沒貼庫或功能未設定時
+    // effectiveDirection就是原本的shotDirectionXY，行為完全不變。
+    Vector2D effectiveDirection = shotPlan->shotDirectionXY;
+    if (resolvedTableGeometry && config->railHuggingTriggerDistanceMm) {
+        if (const std::optional<Vector2D> railDirection = resolveRailHuggingDirection(
+                cueBall, *resolvedTableGeometry,
+                *config->railHuggingTriggerDistanceMm)) {
+            effectiveDirection = *railDirection;
+        }
+    }
     const double bottomDistanceMm = cueBall.y - physicalSurface.minY;
     const double tableDownDirectionDot = dot(
-        shotPlan->shotDirectionXY,
+        effectiveDirection,
         *config->tableDownDirectionBase0XY);
     if (!std::isfinite(bottomDistanceMm) || bottomDistanceMm < 0.0 ||
         !std::isfinite(tableDownDirectionDot)) {
@@ -856,7 +908,7 @@ ExecutionPlanResult MotionPlanner::createExecutionPlan(
         *config->pullModeMinBottomDistanceMm,
         tableDownDirectionDot);
     const std::optional<double> pushCDeg = directionToCDeg(
-        shotPlan->shotDirectionXY,
+        effectiveDirection,
         *config->cToolOffsetDeg,
         *config->directionUnitTolerance);
     const std::optional<double> cDeg = pushCDeg
@@ -864,20 +916,16 @@ ExecutionPlanResult MotionPlanner::createExecutionPlan(
               ? normalizeAngleDeg(*pushCDeg + 180.0)
               : *pushCDeg}
         : std::nullopt;
-    const double centerToTcpMm =
-        shotPlan->source.ballRadiusMm + *config->readyGapMm;
-    const Point nominalStrikeXY{
-        cueBall.x - centerToTcpMm * shotPlan->shotDirectionXY.x,
-        cueBall.y - centerToTcpMm * shotPlan->shotDirectionXY.y};
+    // Tool1的TCP已核准校正在氣壓推桿行程中點（縮回位置沿Tool1 +X方向6cm，
+    // 12cm總行程的一半），所以XY直接對齊母球中心，母球就自然落在行程中點，
+    // push/pull都一樣（差異只在C軸方向）；不再額外扣ballRadiusMm/readyGapMm。
     const double biasSign = strikeMode == StrikeMode::Push ? 1.0 : -1.0;
     const Point readyXY{
-        nominalStrikeXY.x + biasSign * *config->strikePositionBiasMm *
-            shotPlan->shotDirectionXY.x,
-        nominalStrikeXY.y + biasSign * *config->strikePositionBiasMm *
-            shotPlan->shotDirectionXY.y};
-    if (!cDeg || !std::isfinite(centerToTcpMm) ||
-        centerToTcpMm <= 0.0 || !BilliardMath::isFinite(nominalStrikeXY) ||
-        !BilliardMath::isFinite(readyXY)) {
+        cueBall.x + biasSign * *config->strikePositionBiasMm *
+            effectiveDirection.x,
+        cueBall.y + biasSign * *config->strikePositionBiasMm *
+            effectiveDirection.y};
+    if (!cDeg || !BilliardMath::isFinite(readyXY)) {
         return reject(
             ExecutionPlanStatus::NoExecutablePlan,
             ExecutionPlanFailureReason::NumericalFailure);
@@ -937,7 +985,7 @@ ExecutionPlanResult MotionPlanner::createExecutionPlan(
         const std::optional<double> error = normalized
             ? BilliardMath::getAngleBetweenVectorsDeg(
                 *normalized,
-                shotPlan->shotDirectionXY)
+                effectiveDirection)
             : std::nullopt;
         if (!error || !std::isfinite(*error) ||
             *error > *config->maxCueDirectionErrorDeg) {
@@ -996,7 +1044,7 @@ ExecutionPlanResult MotionPlanner::createExecutionPlan(
         *config->calibrationRevision,
         *config->cueForwardAxisCalibrationRevision,
         shotPlan->source.cueBallSnapshot,
-        shotPlan->shotDirectionXY,
+        effectiveDirection,
         strikeMode,
         physicalSurface,
         *config->tableDownDirectionBase0XY,

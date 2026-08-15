@@ -14,8 +14,9 @@
         {
             "type": "cppbuild",
             "label": "Build with HRSDK (MSVC)",
-            "command": "cl.exe",
+            "command": "C:\\Users\\user\\Desktop\\Topics\\.vscode\\clenv.bat",
             "args": [
+                "cl.exe",
                 "/Zi",
                 "/EHsc",
                 "/std:c++17",
@@ -36,7 +37,8 @@
                 "${workspaceFolder}\\src\\BilliardConfig.cpp",
                 "${workspaceFolder}\\src\\MotionPlanner.cpp",
                 "${workspaceFolder}\\src\\TargetSelector.cpp",
-                "${workspaceFolder}\\src\\VisionDataParser.cpp"
+                "${workspaceFolder}\\src\\VisionDataParser.cpp",
+                "${workspaceFolder}\\lib\\HRSDK.lib"
             ],
             "options": {
                 "cwd": "${workspaceFolder}"
@@ -48,12 +50,57 @@
                 "isDefault": true // 確保這裡設為 true
             },
             "detail": "使用 MSVC 編譯器以支援 HRSDK"
-        },
+        },{
+    "type": "cppbuild",
+    "label": "Build No-Fire Dry Run (MSVC)",
+    "command": "C:\\Users\\user\\Desktop\\Topics\\.vscode\\clenv.bat",
+    "args": [
+        "cl.exe",
+        "/Zi",
+        "/EHsc",
+        "/std:c++17",
+        "/nologo",
+        "/utf-8",
+        "/FS",
+        "/Fd${workspaceFolder}\\build\\no_fire_dry_run.pdb",
+        "/I", "${workspaceFolder}\\include",
+        "/Fe:", "${workspaceFolder}\\bin\\no_fire_dry_run.exe",
+        "/Fo${workspaceFolder}\\build\\",
+
+        "${workspaceFolder}\\src\\no_fire_dry_run.cpp",
+
+        "${workspaceFolder}\\src\\BilliardApp.cpp",
+        "${workspaceFolder}\\src\\BilliardPhysics.cpp",
+        "${workspaceFolder}\\src\\MathUtils.cpp",
+        "${workspaceFolder}\\src\\RobotController.cpp",
+        "${workspaceFolder}\\src\\SocketClient.cpp",
+        "${workspaceFolder}\\src\\Algorithm.cpp",
+        "${workspaceFolder}\\src\\BilliardConfig.cpp",
+        "${workspaceFolder}\\src\\MotionPlanner.cpp",
+        "${workspaceFolder}\\src\\TargetSelector.cpp",
+        "${workspaceFolder}\\src\\VisionDataParser.cpp",
+
+        "${workspaceFolder}\\lib\\HRSDK.lib"
+    ],
+    "options": {
+        "cwd": "${workspaceFolder}"
+    },
+    "dependsOn": "Prepare build directories",
+    "problemMatcher": [
+        "$msCompile"
+    ],
+    "group": {
+        "kind": "build",
+        "isDefault": false
+    },
+    "detail": "編譯 No-Fire 低速走位驗證程式，不包含正式 main.cpp"
+},
         {
             "type": "cppbuild",
             "label": "Build Calibration Tool (MSVC)",
-            "command": "cl.exe",
+            "command": "C:\\Users\\user\\Desktop\\Topics\\.vscode\\clenv.bat",
             "args": [
+                "cl.exe",
                 "/Zi",
                 "/EHsc",
                 "/std:c++17",
@@ -68,7 +115,8 @@
                 "${workspaceFolder}\\src\\RobotController.cpp",
                 "${workspaceFolder}\\src\\SocketClient.cpp",
                 "${workspaceFolder}\\src\\MathUtils.cpp",
-                "${workspaceFolder}\\src\\BilliardConfig.cpp"
+                "${workspaceFolder}\\src\\BilliardConfig.cpp",
+                "${workspaceFolder}\\lib\\HRSDK.lib"
             ],
             "options": {
                 "cwd": "${workspaceFolder}"
@@ -84,8 +132,9 @@
         {
             "type": "cppbuild",
             "label": "Build Cueball Test (MSVC)",
-            "command": "cl.exe",
+            "command": "C:\\Users\\user\\Desktop\\Topics\\.vscode\\clenv.bat",
             "args": [
+                "cl.exe",
                 "/Zi",
                 "/EHsc",
                 "/std:c++17",
@@ -102,7 +151,8 @@
                 "${workspaceFolder}\\src\\MathUtils.cpp",
                 "${workspaceFolder}\\src\\BilliardPhysics.cpp",
                 "${workspaceFolder}\\src\\Algorithm.cpp",
-                "${workspaceFolder}\\src\\BilliardConfig.cpp"
+                "${workspaceFolder}\\src\\BilliardConfig.cpp",
+                "${workspaceFolder}\\lib\\HRSDK.lib"
             ],
             "options": {
                 "cwd": "${workspaceFolder}"
@@ -118,8 +168,9 @@
         {
             "type": "cppbuild",
             "label": "Build Phase 1 Core Tests",
-            "command": "cl.exe",
+            "command": "C:\\Users\\user\\Desktop\\Topics\\.vscode\\clenv.bat",
             "args": [
+                "cl.exe",
                 "/EHsc",
                 "/std:c++17",
                 "/nologo",
@@ -161,8 +212,9 @@
         {
             "type": "cppbuild",
             "label": "Build P1-03 Input Tests",
-            "command": "cl.exe",
+            "command": "C:\\Users\\user\\Desktop\\Topics\\.vscode\\clenv.bat",
             "args": [
+                "cl.exe",
                 "/EHsc",
                 "/std:c++17",
                 "/nologo",
@@ -208,8 +260,9 @@
         {
             "type": "cppbuild",
             "label": "Build Phase 1 Algorithm Regression Tests",
-            "command": "cl.exe",
+            "command": "C:\\Users\\user\\Desktop\\Topics\\.vscode\\clenv.bat",
             "args": [
+                "cl.exe",
                 "/EHsc",
                 "/std:c++17",
                 "/nologo",
@@ -238,8 +291,9 @@
         {
             "type": "cppbuild",
             "label": "Build P1-04 Stability Tests",
-            "command": "cl.exe",
+            "command": "C:\\Users\\user\\Desktop\\Topics\\.vscode\\clenv.bat",
             "args": [
+                "cl.exe",
                 "/EHsc",
                 "/std:c++17",
                 "/nologo",
@@ -281,8 +335,9 @@
         {
             "type": "cppbuild",
             "label": "Build P1-05 Geometry Tests",
-            "command": "cl.exe",
+            "command": "C:\\Users\\user\\Desktop\\Topics\\.vscode\\clenv.bat",
             "args": [
+                "cl.exe",
                 "/EHsc",
                 "/std:c++17",
                 "/nologo",
@@ -356,8 +411,9 @@
         {
             "type": "cppbuild",
             "label": "C/C++: cl.exe 建置使用中檔案",
-            "command": "cl.exe",
+            "command": "C:\\Users\\user\\Desktop\\Topics\\.vscode\\clenv.bat",
             "args": [
+                "cl.exe",
                 "/Zi",
                 "/EHsc",
                 "/std:c++17",

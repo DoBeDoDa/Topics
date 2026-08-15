@@ -1,0 +1,10 @@
+2026-8-16_0:31:34 set_mode 0  0 
+hdl 0 cmd 0 rlt 4702 alv 0 alm 0 msts 0 op 1 t1/2 1 pl 6.40 ov 10 fo 0000 coord 0 sz 31
+hdl 0 cmd 0 rlt 4702 alv 0 alm 0 msts 0 op 0 t1/2 0 pl 6.40 ov 10 fo 0000 coord 0 sz 31
+2026-8-16_0:31:34 set_motor_state 0  0 
+Network disconnected !SDK handle fun close connection !
+ShutdownAndColse socket= 0000020DB030D4B8
+ShutdownAndColse socket= 0000020DB030D4C0
+ShutdownAndColse socket= 0000020DB030D4C8
+2026-8-16_0:31:35 Close connection !
+192.168.0.1 0

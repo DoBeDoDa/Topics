@@ -21,9 +21,9 @@ ValidatedVisionFrame makeFrame(
     std::array<std::optional<Point>, 9> balls{};
     balls[0] = firstBall;
 
-    std::array<Point, 6> pockets{};
+    std::array<std::optional<Point>, 6> pockets{};
     for (std::size_t index = 0; index < pockets.size(); ++index) {
-        pockets[index] = {
+        pockets[index] = Point{
             500.0 + static_cast<double>(index) * 10.0 + pocketOffset,
             600.0 + static_cast<double>(index) * 10.0};
     }
@@ -183,36 +183,97 @@ int main()
     }
 
     {
+        // cueBall超出容差：滑動視窗設計下不再整批reset，改成NeedMoreEvents
+        // 並保留視窗繼續往前滑（cueBall/袋口是StableTableState的必要欄位，
+        // 沒收斂就還不能送出任何結果，但也不因此丟棄已經累積的3筆事件）。
         ThreeEventStability stability(validConfig(1.0, 1.0, 100));
         tests.expectTrue(stability.accept(makeEvent(1, 0, makeFrame({0.0, 0.0}))).status() == StabilityStatus::NeedMoreEvents, "jump fixture first event waits");
         tests.expectTrue(stability.accept(makeEvent(2, 10, makeFrame({0.0, 0.0}))).status() == StabilityStatus::NeedMoreEvents, "jump fixture second event waits");
         const auto jump = stability.accept(makeEvent(3, 20, makeFrame({3.0, 0.0})));
-        tests.expectTrue(jump.status() == StabilityStatus::Unstable, "ball jump is unstable");
+        tests.expectTrue(jump.status() == StabilityStatus::NeedMoreEvents, "ball jump keeps sliding instead of hard-resetting");
         expectNoSuccessValue(tests, jump, "jump has no partial stable value");
-        tests.expectTrue(stability.accumulatedEventCount() == 0, "jump completely resets");
-        tests.expectTrue(stability.lastResetReason() == StabilityFailureReason::BallMoved, "jump reset preserves precise reason");
-        const auto failurePipelineResult = Phase1PipelineResult::fromStability(jump);
         tests.expectTrue(
-            failurePipelineResult &&
-                failurePipelineResult->status() == Phase1PipelineStatus::StabilityFailure &&
-                failurePipelineResult->isValid(),
-            "Unstable maps to pipeline StabilityFailure, not a planning result");
+            jump.diagnostic() && jump.diagnostic()->reason == StabilityFailureReason::BallMoved,
+            "jump result names the precise reason directly on the diagnostic");
+        tests.expectTrue(stability.accumulatedEventCount() == 3, "jump does not clear the sliding window");
+        const auto waitingPipelineResult = Phase1PipelineResult::fromStability(jump);
+        tests.expectTrue(
+            waitingPipelineResult &&
+                waitingPipelineResult->status() == Phase1PipelineStatus::Waiting &&
+                waitingPipelineResult->isValid(),
+            "NeedMoreEvents (even from a not-yet-converged jump) maps to pipeline Waiting, "
+            "not StabilityFailure");
         tests.expectTrue(
             stability.accept(makeEvent(4, 30, makeFrame())).status() == StabilityStatus::NeedMoreEvents,
-            "event after jump becomes first event");
+            "next event slides the window and still has not converged");
     }
 
     {
+        // 母球在單幀parse階段跟編號球/袋口一樣可以缺席（不再FrameRejected），
+        // 但母球在StableTableState裡仍是必要欄位：只要目前3事件視窗內有
+        // 任一筆缺母球，就還不能定案，維持NeedMoreEvents繼續滑動；直到那筆
+        // flicker事件被滑出視窗、視窗內3筆都有母球且一致時，才送出Stable。
+        ThreeEventStability stability(validConfig());
+        auto flickeringFrame = makeFrame();
+        flickeringFrame.cueBall = std::nullopt;
+        tests.expectTrue(stability.accept(makeEvent(1, 0, makeFrame())).status() == StabilityStatus::NeedMoreEvents, "cue-ball-flicker fixture first event waits");
+        const auto duringFlicker = stability.accept(makeEvent(2, 10, std::move(flickeringFrame)));
+        tests.expectTrue(
+            duringFlicker.status() == StabilityStatus::NeedMoreEvents,
+            "a cue ball missing from just one window event keeps sliding, unlike numbered balls it cannot go Stable with a hole");
+        expectNoSuccessValue(tests, duringFlicker, "cue-ball flicker mid-window has no partial stable value");
+        tests.expectTrue(stability.accumulatedEventCount() == 2, "cue-ball flicker does not clear the sliding window");
+
+        const auto stillInWindow3 = stability.accept(makeEvent(3, 20, makeFrame()));
+        tests.expectTrue(
+            stillInWindow3.status() == StabilityStatus::NeedMoreEvents,
+            "the flickering event is still inside the 3-window after event 3");
+        tests.expectTrue(
+            stillInWindow3.diagnostic() && stillInWindow3.diagnostic()->reason == StabilityFailureReason::BallMoved,
+            "unresolved cue ball names BallMoved directly on the diagnostic");
+        tests.expectTrue(stability.accumulatedEventCount() == 3, "still-unresolved cue ball does not clear the sliding window");
+
+        const auto stillInWindow4 = stability.accept(makeEvent(4, 30, makeFrame()));
+        tests.expectTrue(
+            stillInWindow4.status() == StabilityStatus::NeedMoreEvents,
+            "the flickering event (#2) is still inside the 3-window after event 4 ([2,3,4])");
+        tests.expectTrue(stability.accumulatedEventCount() == 3, "sliding window keeps its size at 3, not cleared");
+
+        const auto recovered = stability.accept(makeEvent(5, 40, makeFrame()));
+        tests.expectTrue(
+            recovered.status() == StabilityStatus::Stable,
+            "once the flickering event slides out of the 3-window, a fully-present agreeing window becomes Stable");
+        if (recovered.value()) {
+            tests.expectNear(
+                recovered.value()->cueBall.x, 100.0, 0.0,
+                "recovered cue ball reports the converged coordinate, not a stale or guessed position");
+        }
+    }
+
+    {
+        // 一顆球在第3幀從present變absent（閃爍）：滑動視窗設計下不再讓整批
+        // 結果作廢，改成該球這一輪回報nullopt，其餘（cueBall／袋口）維持
+        // 一致就照常送出Stable結果。
         ThreeEventStability stability(validConfig());
         tests.expectTrue(stability.accept(makeEvent(1, 0, makeFrame())).status() == StabilityStatus::NeedMoreEvents, "presence fixture first event waits");
         tests.expectTrue(stability.accept(makeEvent(2, 10, makeFrame())).status() == StabilityStatus::NeedMoreEvents, "presence fixture second event waits");
         const auto changed = stability.accept(makeEvent(3, 20, makeFrame({100.0, 200.0}, std::nullopt)));
-        tests.expectTrue(changed.status() == StabilityStatus::Unstable, "presence change is unstable");
         tests.expectTrue(
-            changed.diagnostic() && changed.diagnostic()->reason == StabilityFailureReason::PresenceChanged,
-            "presence change has named reason");
-        tests.expectTrue(stability.accumulatedEventCount() == 0, "presence change completely resets");
-        tests.expectTrue(stability.lastResetReason() == StabilityFailureReason::PresenceChanged, "presence reset preserves precise reason");
+            changed.status() == StabilityStatus::Stable,
+            "a single ball's presence flicker does not block the rest of the frame from stabilizing");
+        tests.expectTrue(changed.isValid(), "flicker-tolerant stable result invariant holds");
+        if (changed.value()) {
+            tests.expectFalse(
+                changed.value()->objectBalls[0].has_value(),
+                "the flickering ball itself is reported as unknown (nullopt) this round, "
+                "not a stale or guessed position");
+            tests.expectNear(
+                changed.value()->cueBall.x, 100.0, 0.0,
+                "cueBall, unaffected by the flicker, is still reported correctly");
+        }
+        tests.expectTrue(
+            stability.accumulatedEventCount() == 0,
+            "a Stable result (even with one ball excluded) still closes and resets the window");
     }
 
     {
@@ -263,20 +324,72 @@ int main()
     }
 
     {
+        // 袋口是StableTableState的必要（非optional）欄位，跟cueBall一樣沒
+        // 收斂就不能送出結果，但一樣不整批reset——NeedMoreEvents、視窗保留。
         ThreeEventStability stability(validConfig(2.0, 0.5, 100));
         tests.expectTrue(stability.accept(makeEvent(1, 0, makeFrame())).status() == StabilityStatus::NeedMoreEvents, "pocket fixture first event waits");
         tests.expectTrue(stability.accept(makeEvent(2, 10, makeFrame())).status() == StabilityStatus::NeedMoreEvents, "pocket fixture second event waits");
         const auto pocketJump = stability.accept(makeEvent(3, 20, makeFrame({100.0, 200.0}, Point{300.0, 400.0}, 2.0)));
-        tests.expectTrue(pocketJump.status() == StabilityStatus::Unstable, "pocket uses separate tolerance");
+        tests.expectTrue(
+            pocketJump.status() == StabilityStatus::NeedMoreEvents,
+            "pocket beyond its separate (tighter) tolerance keeps sliding instead of hard-resetting");
         tests.expectTrue(
             pocketJump.diagnostic() && pocketJump.diagnostic()->reason == StabilityFailureReason::PocketMoved,
-            "pocket jump has named reason");
+            "pocket jump names the precise reason directly on the diagnostic");
+        tests.expectTrue(stability.accumulatedEventCount() == 3, "pocket jump does not clear the sliding window");
+    }
+
+    {
+        // 袋口在單幀parse階段跟編號球一樣可以缺席（不再FrameRejected），
+        // 但袋口在StableTableState裡仍是必要欄位：只要目前3事件視窗內有
+        // 任一筆缺這顆袋口，就還不能定案，維持NeedMoreEvents繼續滑動；
+        // 直到那筆flicker事件被滑出視窗、視窗內3筆都有該袋口且一致時，
+        // 才送出Stable。
+        ThreeEventStability stability(validConfig());
+        auto flickeringFrame = makeFrame();
+        flickeringFrame.pockets[3] = std::nullopt;
+        tests.expectTrue(stability.accept(makeEvent(1, 0, makeFrame())).status() == StabilityStatus::NeedMoreEvents, "pocket-flicker fixture first event waits");
+        const auto duringFlicker = stability.accept(makeEvent(2, 10, std::move(flickeringFrame)));
+        tests.expectTrue(
+            duringFlicker.status() == StabilityStatus::NeedMoreEvents,
+            "a pocket missing from just one window event keeps sliding, unlike numbered balls it cannot go Stable with a hole");
+        expectNoSuccessValue(tests, duringFlicker, "pocket flicker mid-window has no partial stable value");
+        tests.expectTrue(stability.accumulatedEventCount() == 2, "pocket flicker does not clear the sliding window");
+
+        // 事件3、4：flicker事件（#2）仍在視窗內（視窗依序是[1,2,3]→[2,3,4]），
+        // 兩次都還無法定案。
+        const auto stillInWindow3 = stability.accept(makeEvent(3, 20, makeFrame()));
+        tests.expectTrue(
+            stillInWindow3.status() == StabilityStatus::NeedMoreEvents,
+            "the flickering event is still inside the 3-window after event 3");
+        tests.expectTrue(
+            stillInWindow3.diagnostic() && stillInWindow3.diagnostic()->reason == StabilityFailureReason::PocketMoved,
+            "unresolved pocket names PocketMoved directly on the diagnostic");
+        tests.expectTrue(stability.accumulatedEventCount() == 3, "still-unresolved pocket does not clear the sliding window");
+
+        const auto stillInWindow4 = stability.accept(makeEvent(4, 30, makeFrame()));
+        tests.expectTrue(
+            stillInWindow4.status() == StabilityStatus::NeedMoreEvents,
+            "the flickering event (#2) is still inside the 3-window after event 4 ([2,3,4])");
+        tests.expectTrue(stability.accumulatedEventCount() == 3, "sliding window keeps its size at 3, not cleared");
+
+        // 事件5：視窗滑成[3,4,5]，flicker事件(#2)終於被滑出去，3筆都有
+        // 且一致，送出Stable。
+        const auto recovered = stability.accept(makeEvent(5, 40, makeFrame()));
+        tests.expectTrue(
+            recovered.status() == StabilityStatus::Stable,
+            "once the flickering event slides out of the 3-window, a fully-present agreeing window becomes Stable");
+        if (recovered.value()) {
+            tests.expectNear(
+                recovered.value()->pockets[3].x, 530.0, 0.0,
+                "recovered pocket reports the converged coordinate, not a stale or guessed position");
+        }
     }
 
     {
         ThreeEventStability stability(validConfig());
         auto invalidFrame = makeFrame();
-        invalidFrame.cueBall.x = std::numeric_limits<double>::quiet_NaN();
+        invalidFrame.cueBall->x = std::numeric_limits<double>::quiet_NaN();
         const auto invalid = stability.accept(makeEvent(1, 0, std::move(invalidFrame)));
         tests.expectTrue(invalid.status() == StabilityStatus::Unstable, "invalid fake event fails closed");
         tests.expectTrue(stability.accumulatedEventCount() == 0, "invalid fake event resets");

@@ -71,8 +71,10 @@ int main()
         tests.expectTrue(result.value().has_value(), "success has ValidatedVisionFrame");
         if (result.value()) {
             tests.expectNear(result.value()->objectBalls[0]->x, 100.0, 0.0, "Base0 X is unchanged");
-            tests.expectNear(result.value()->cueBall.x, 118.0, 0.0, "cue-ball X is unchanged");
-            tests.expectNear(result.value()->pockets[5].y, 131.0, 0.0, "pocket Y is unchanged");
+            tests.expectTrue(result.value()->cueBall.has_value(), "cue ball is present");
+            tests.expectNear(result.value()->cueBall->x, 118.0, 0.0, "cue-ball X is unchanged");
+            tests.expectTrue(result.value()->pockets[5].has_value(), "pocket is present");
+            tests.expectNear(result.value()->pockets[5]->y, 131.0, 0.0, "pocket Y is unchanged");
         }
     }
 
@@ -144,11 +146,31 @@ int main()
         auto tokens = validTokens();
         tokens[18] = "-9999";
         tokens[19] = "-9999";
-        expectParserStatus(tests, parser, tokens, SingleFrameStatus::MissingRequiredCueBall, "missing cue ball rejects");
+        const auto missingCueBall = parser.parse(join(tokens));
+        tests.expectTrue(
+            missingCueBall.status() == SingleFrameStatus::Success,
+            "missing cue ball no longer rejects the whole frame (mirrors numbered-ball/pocket absence)");
+        if (missingCueBall.value()) {
+            tests.expectFalse(
+                missingCueBall.value()->cueBall.has_value(),
+                "the momentarily-undetected cue ball is explicit nullopt, not a default Point");
+        }
+
         tokens = validTokens();
         tokens[24] = "-9999";
         tokens[25] = "-9999";
-        expectParserStatus(tests, parser, tokens, SingleFrameStatus::MissingRequiredPocket, "missing pocket rejects");
+        const auto missingPocket = parser.parse(join(tokens));
+        tests.expectTrue(
+            missingPocket.status() == SingleFrameStatus::Success,
+            "missing pocket no longer rejects the whole frame (mirrors numbered-ball absence)");
+        if (missingPocket.value()) {
+            tests.expectFalse(
+                missingPocket.value()->pockets[2].has_value(),
+                "the momentarily-undetected pocket is explicit nullopt, not a default Point");
+            tests.expectTrue(
+                missingPocket.value()->pockets[0].has_value(),
+                "other pockets in the same frame are unaffected");
+        }
     }
 
     {

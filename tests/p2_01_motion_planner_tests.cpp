@@ -329,18 +329,18 @@ int main()
     if (!directResult.value()) return tests.exitCode();
     const ShotPlan& directShot = std::get<ShotPlan>(direct->value());
     const ExecutionPlan& directPlan = *directResult.value();
-    const double expectedDistance =
-        directShot.source.ballRadiusMm + *config.readyGapMm;
     tests.expectNear(directPlan.strikeReadyPose.x,
-        directShot.source.cueBallSnapshot.x -
-            expectedDistance * directShot.shotDirectionXY.x,
+        directShot.source.cueBallSnapshot.x,
         TOLERANCE,
-        "StrikeReady X uses Base0 cue center without a second transform");
+        "StrikeReady X sits at the cue ball center (Tool1 TCP is calibrated at "
+        "the pneumatic stroke midpoint, so no ball-radius/ready-gap XY offset "
+        "is applied)");
     tests.expectNear(directPlan.strikeReadyPose.y,
-        directShot.source.cueBallSnapshot.y -
-            expectedDistance * directShot.shotDirectionXY.y,
+        directShot.source.cueBallSnapshot.y,
         TOLERANCE,
-        "StrikeReady Y uses Base0 cue center without a second transform");
+        "StrikeReady Y sits at the cue ball center (Tool1 TCP is calibrated at "
+        "the pneumatic stroke midpoint, so no ball-radius/ready-gap XY offset "
+        "is applied)");
     tests.expectNear(directPlan.strikeReadyPose.z, *config.strikeZMm,
         TOLERANCE, "StrikeReady Z comes only from approved manual calibration");
     tests.expectNear(directPlan.strikeReadyPose.c,
@@ -538,13 +538,16 @@ int main()
         *direct, geometryConfig, directOutsideEnvelope, checks).status() ==
         ExecutionPlanStatus::NoExecutablePlan,
         "geometrically valid plan outside fixed-force envelope is not executable");
-    auto kickEnvelopeTooWide = config;
-    kickEnvelopeTooWide.fixedForceEnvelope->kickPot.maxExecutableKickRailAngleDeg =
+    // [使用者2026-08核准放寬] 固定氣動力道不可調，envelope的
+    // maxExecutableKickRailAngleDeg不再需要跟Phase 1幾何算出的角度上限
+    // 比對；envelope設定值本身在validEnvelopeLimits允許範圍內即可執行。
+    auto kickEnvelopeWide = config;
+    kickEnvelopeWide.fixedForceEnvelope->kickPot.maxExecutableKickRailAngleDeg =
         90.0;
     tests.expectTrue(planner.createExecutionPlan(
-        *kick, geometryConfig, kickEnvelopeTooWide, checks).status() ==
-        ExecutionPlanStatus::InvalidConfiguration,
-        "Phase 2 Kick envelope cannot be wider than Phase 1 geometry gate");
+        *kick, geometryConfig, kickEnvelopeWide, checks).status() ==
+        ExecutionPlanStatus::Success,
+        "Kick envelope wider than Phase 1 geometry no longer blocks execution");
     const MotionPlanningChecks missingProjector{
         [](const RobotPoseABC&) { return std::optional<bool>{true}; }, {}};
     tests.expectTrue(planner.createExecutionPlan(

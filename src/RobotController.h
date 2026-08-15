@@ -36,9 +36,13 @@ struct HrSdkApi {
     std::function<int(int)> abortMotion;
     std::function<int(int, int, bool)> setDigitalOutput;
     std::function<int(int, int)> getDigitalOutput;
+    std::function<int(int, int)> getDigitalInput;
     std::function<int(int, int&, std::uint64_t*)> getAlarmCodes;
     std::function<unsigned long()> tickCountMs;
     std::function<void(unsigned long)> sleepMs;
+    // 可選：未注入（如既有test fake）時clearAlarm()略過馬達斷電確認，
+    // 行為與加入前相同。
+    std::function<int(int)> getMotorState;
 };
 
 enum class RobotAdapterStatus {
@@ -146,6 +150,7 @@ private:
     bool connected;
     bool unknownUnsafeLatched;
     HrSdkApi api;
+    std::string lastIp;
 
     MotionResult waitForMotion(int sdkCode, bool wait);
     [[nodiscard]] static HrSdkApi productionApi();
@@ -178,6 +183,10 @@ public:
     ~RobotController();
 
     bool connect(const std::string& ip);
+    // 斷線後用上次連線的ip重新連線一次；ip未知（從未成功連線過）時回傳
+    // false。只給read-only確認階段用來甩掉控制器殘留狀態，不得在motion
+    // 執行中途呼叫。
+    bool reconnect();
     RobotAdapterResult disconnect();
     RobotAdapterResult clearAlarm();
     int getId() const;
@@ -203,6 +212,11 @@ public:
         int& sdkCode
     ) const;
     std::vector<uint64_t> getAlarmCodes(int& sdkCode) const;
+    // Read-only：讀單一實體DI目前的0/1狀態。nullopt代表未連線／SDK未提供
+    // 讀取函式／讀值本身非0非1（讀取失敗）——這不是安全危害（頂多這一輪
+    // 沒偵測到Start訊號，等同沒人按），所以不latch unknownUnsafeLatched，
+    // 也不影響其他任何motion命令。
+    [[nodiscard]] std::optional<bool> readDigitalInput(int index) const;
     // Read-only：只讀目前joints並比對，不下任何motion命令。
     // SDK讀取失敗時latch unknownUnsafeLatched並回傳UnknownUnsafe＋原始
     // sdkCode；未連線／輸入無效回傳對應精確狀態，不latch。
