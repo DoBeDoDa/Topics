@@ -5,6 +5,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iomanip>
+#include <iostream>
 #include <limits>
 #include <utility>
 #include <vector>
@@ -634,10 +636,6 @@ bool ExecutionPlan::isValid() const noexcept
         cueBallCenterBase0Mm.y - physicalPlayingSurfaceBase0Mm.minY;
     const double expectedDirectionDot =
         dot(shotDirectionXY, tableDownDirectionBase0XY);
-    const StrikeMode expectedMode = resolveStrikeMode(
-        expectedBottomDistance,
-        pullModeMinBottomDistanceMm,
-        expectedDirectionDot);
     // Tool1的TCP已核准校正在氣壓推桿行程中點（縮回位置沿Tool1 +X方向6cm，
     // 12cm總行程的一半），所以XY直接對齊母球中心，母球就自然落在行程中點，
     // push/pull都一樣（差異只在C軸方向）；不再額外扣ballRadiusMm/readyGapMm。
@@ -665,8 +663,17 @@ bool ExecutionPlan::isValid() const noexcept
         std::isfinite(cueBallCenterBase0Mm.x) &&
         std::isfinite(cueBallCenterBase0Mm.y) &&
         BilliardMath::isFinite(shotDirectionXY) &&
+        // 不要求strikeMode==resolveStrikeMode(...)算出的自然偏好模式：
+        // createExecutionPlan對preferredStrikeMode搜尋失敗
+        // （NoAcceptedPoseCandidate）時會用相反模式重試（見本檔案
+        // attemptForStrikeMode呼叫端），forcedStrikeMode（preflight
+        // NotReachable後對側重試）也會明確指定非preferred的模式；這兩者
+        // 都是刻意選擇非「自然偏好」的合法模式，isValid()原本硬性要求
+        // strikeMode==expectedMode會把這兩個既有功能產生的合法plan全部
+        // 判定失敗（NumericalFailure）。合法性只需要strikeMode是Push或
+        // Pull其中之一，不需要等於單一「偏好」推導值。
         (strikeMode == StrikeMode::Push || strikeMode == StrikeMode::Pull) &&
-        strikeMode == expectedMode && validBounds(physicalPlayingSurfaceBase0Mm) &&
+        validBounds(physicalPlayingSurfaceBase0Mm) &&
         cueBallCenterBase0Mm.x >= physicalPlayingSurfaceBase0Mm.minX &&
         cueBallCenterBase0Mm.x <= physicalPlayingSurfaceBase0Mm.maxX &&
         cueBallCenterBase0Mm.y >= physicalPlayingSurfaceBase0Mm.minY &&
@@ -1212,6 +1219,50 @@ ExecutionPlanResult MotionPlanner::createExecutionPlan(
         *config->tool1ControllerCalibrationRevision,
         rankedPotCandidatesExhausted};
     if (!plan.isValid()) {
+        // [使用者2026-08-16要求的診斷] plan.isValid()是約50個條件的合取，
+        // 光靠status/reason看不出是哪一條沒過。這裡印出組成ExecutionPlan
+        // 用到的原始欄位，方便對照MotionPlanner.cpp:554 isValid()的邏輯
+        // 手動抓出是哪個條件失敗；不影響plan.isValid()本身的判定。
+        std::cout << std::setprecision(12)
+            << "[isValid失敗診斷] strikeMode=" << static_cast<int>(plan.strikeMode)
+            << " executionDirectionPolicy="
+            << static_cast<int>(plan.executionDirectionPolicy)
+            << " cueBallCenterBase0Mm=(" << plan.cueBallCenterBase0Mm.x << ","
+            << plan.cueBallCenterBase0Mm.y << ")\n"
+            << "  shotDirectionXY=(" << plan.shotDirectionXY.x << ","
+            << plan.shotDirectionXY.y << ") plannedShotDirectionXY=("
+            << plan.plannedShotDirectionXY.x << ","
+            << plan.plannedShotDirectionXY.y << ")\n"
+            << "  tableDownDirectionBase0XY=("
+            << plan.tableDownDirectionBase0XY.x << ","
+            << plan.tableDownDirectionBase0XY.y
+            << ") bottomDistanceMm=" << plan.bottomDistanceMm
+            << " tableDownDirectionDot=" << plan.tableDownDirectionDot << "\n"
+            << "  strikePositionBiasMm=" << plan.strikePositionBiasMm
+            << " ballRadiusMm=" << plan.ballRadiusMm
+            << " readyGapMm=" << plan.readyGapMm
+            << " directionUnitTolerance=" << plan.directionUnitTolerance
+            << " cToolOffsetDeg=" << plan.cToolOffsetDeg << "\n"
+            << "  validatedStrikeDirectionXY=("
+            << plan.validatedStrikeDirectionXY.x << ","
+            << plan.validatedStrikeDirectionXY.y
+            << ") cueDirectionErrorDeg=" << plan.cueDirectionErrorDeg
+            << " maxCueDirectionErrorDeg=" << plan.maxCueDirectionErrorDeg << "\n"
+            << "  safeApproachPose=(" << plan.safeApproachPose.x << ","
+            << plan.safeApproachPose.y << "," << plan.safeApproachPose.z << ","
+            << plan.safeApproachPose.a << "," << plan.safeApproachPose.b << ","
+            << plan.safeApproachPose.c << ")\n"
+            << "  strikeReadyPose=(" << plan.strikeReadyPose.x << ","
+            << plan.strikeReadyPose.y << "," << plan.strikeReadyPose.z << ","
+            << plan.strikeReadyPose.a << "," << plan.strikeReadyPose.b << ","
+            << plan.strikeReadyPose.c << ")\n"
+            << "  selectedADeg=" << plan.selectedADeg
+            << " selectedBDeg=" << plan.selectedBDeg
+            << " selectedCDeg=" << plan.selectedCDeg << "\n"
+            << "  policyMode=" << static_cast<int>(plan.policyMode)
+            << " policyDecision=" << static_cast<int>(plan.policyDecision)
+            << " rankedPotCandidatesExhausted="
+            << plan.rankedPotCandidatesExhausted << std::endl;
         return reject(
             ExecutionPlanStatus::NoExecutablePlan,
             ExecutionPlanFailureReason::NumericalFailure,

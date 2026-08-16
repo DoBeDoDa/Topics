@@ -15,6 +15,7 @@
 
 #include "BilliardConfig.h"
 #include "MathUtils.h"
+#include "VisionControlChannel.h"
 
 using namespace std;
 
@@ -226,11 +227,32 @@ ConsoleKeyPoll combinedStartPoll(
     const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config)
 {
     // lastLogged只用來在DI原始讀值「改變」時才印一行，避免每次poll都洗版；
-    // 純除錯輔助，不影響任何判斷邏輯。
+    // loggedFailure獨立追蹤「目前是否已經印過這次失敗」，確保就算從程式
+    // 一啟動就持續讀取失敗，也至少會印一次（不是只在「曾經讀成功、現在
+    // 才失敗」的轉變瞬間才印）。純除錯輔助，不影響任何判斷邏輯。
     auto lastLogged = std::make_shared<std::optional<bool>>();
-    return [keyboardPoll, &robot, &config, lastLogged]() {
+    auto loggedFailure = std::make_shared<bool>(false);
+    // [暫時性診斷，比賽前確認完index後應移除] 教導器上按DI1會顯示ON，
+    // 代表接線本身沒問題；但config裡index=1可能跟HRSDK
+    // getDigitalInput(id, index)實際吃的編號對不上（教導器標示常是
+    // 1-based人類標籤，SDK參數可能是0-based或別的分組）。這裡同時掃描
+    // index 0~7，只在個別index讀值改變時才印，讓使用者實際按DI1時能
+    // 直接看到哪個index真的有反應。
+    auto lastScanValues = std::make_shared<std::array<std::optional<bool>, 8>>();
+    return [keyboardPoll, &robot, &config, lastLogged, loggedFailure,
+            lastScanValues]() {
         std::vector<ConsoleKeyEvent> events =
             keyboardPoll ? keyboardPoll() : std::vector<ConsoleKeyEvent>{};
+        for (int scanIndex = 0; scanIndex < 8; ++scanIndex) {
+            const std::optional<bool> scanValue =
+                robot.readDigitalInput(scanIndex);
+            auto& last = (*lastScanValues)[scanIndex];
+            if (scanValue && (!last || *last != *scanValue)) {
+                cout << "[DI掃描] index=" << scanIndex << " 讀值變化："
+                     << (*scanValue ? "1" : "0") << endl;
+            }
+            last = scanValue;
+        }
         if (config && config->startDigitalInputIndex) {
             if (const std::optional<bool> di1 =
                     robot.readDigitalInput(*config->startDigitalInputIndex)) {
@@ -240,10 +262,13 @@ ConsoleKeyPoll combinedStartPoll(
                          << (!*di1 ? "true" : "false") << endl;
                     *lastLogged = *di1;
                 }
+                *loggedFailure = false;
                 events.push_back({ConsoleKey::H, !*di1});
-            } else if (*lastLogged) {
-                cout << "[DI1] 讀取失敗（未連線/SDK未提供/讀值非0或1）"
+            } else if (!*loggedFailure) {
+                cout << "[DI1] 讀取失敗（未連線/SDK未提供/讀值非0或1，"
+                     << "index=" << *config->startDigitalInputIndex << "）"
                      << endl;
+                *loggedFailure = true;
                 lastLogged->reset();
             }
         }
@@ -510,6 +535,11 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
             : CameraPoseSafetyCheck::UnknownUnsafe;
     };
     seam.acquireExecutionPlan = [&]() -> PlanningPhaseResult {
+        // 進入Planning階段當下的耗時：包含PreparationReturn（若有）+
+        // CameraPose PTP + CameraSettling，用來跟後面各節點的elapsed比較，
+        // 分辨時間到底花在「移動到位」還是「視覺收斂+規劃」。
+        cout << "[耗時] 進入Planning，距H按下經過"
+             << deadline.elapsedMs().count() << "ms" << endl;
         const unsigned long retryCutoffMs =
             BilliardConfig::SHOT_CYCLE_TIMING.planningRetryCutoffMs;
         const auto pastCutoff = [&] {
@@ -534,7 +564,8 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
                          << "未成功，安全結束這一輪" << endl;
                     return safeEndOrRecoveryAfterCutoff();
                 }
-                cout << "[連線] 嘗試連線Python視覺..." << endl;
+                cout << "[連線] 嘗試連線Python視覺...（距H按下"
+                     << deadline.elapsedMs().count() << "ms）" << endl;
                 const VisionConnectResult attempt = services.connectVision();
                 cout << "[連線] status=" << static_cast<int>(attempt.status)
                      << " socketError=" << attempt.socketError << endl;
@@ -572,8 +603,15 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
             }
 
             const OfflinePhase1Result phase1 = services.runPhase1();
-            // runPhase1()一返回（成功或失敗），這個本地capture window已經結束。
-            // V1不向Python新增控制訊息；這個callback只保留為C++內部生命週期接縫。
+            cout << "[耗時] runPhase1()返回，距H按下經過"
+                 << deadline.elapsedMs().count() << "ms（這段扣掉上面連線"
+                 << "耗時，大致就是視覺收斂三幀+Phase1選球的花費）" << endl;
+            // runPhase1()一返回，代表這次capture window已經拿到三幀穩定
+            // 資料（或確定拿不到、要放棄/重試），Python不需要再繼續拍照/
+            // 送資料——不管接下來是往下規劃、safe end，還是continue重開
+            // 一輪新的capture window，都會由下一次openCaptureWindow()送
+            // 全新的START_CAPTURE，這裡先讓Python停下來，不要在C++計算
+            // 或決定重試的這段時間內continue耗攝影機/YOLO資源。
             if (services.closeCaptureWindow) {
                 services.closeCaptureWindow(cycleIdentity);
             }
@@ -663,6 +701,11 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
                             cout << "[失敗] ExecutionPlan建立失敗，status="
                                  << static_cast<int>(planned.status())
                                  << "  reason=" << static_cast<int>(reason)
+                                 << "  evaluatedPoseCandidates="
+                                 << (planned.diagnostic()
+                                         ? planned.diagnostic()
+                                               ->evaluatedPoseCandidates
+                                         : 0)
                                  << endl;
                             if (reason == ExecutionPlanFailureReason::
                                     FixedForceEnvelopeRejected ||
@@ -732,7 +775,15 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
                         hardFailure = true;
                         return;
                     }
-                    cout << "[選定] preflight通過，採用這個候選執行" << endl;
+                    cout << "[選定] preflight通過，採用這個候選執行"
+                         << "（距H按下" << deadline.elapsedMs().count()
+                         << "ms，shotDeadlineMs="
+                         << BilliardConfig::SHOT_CYCLE_TIMING.shotDeadlineMs
+                         << "，剩餘"
+                         << (static_cast<long long>(
+                                BilliardConfig::SHOT_CYCLE_TIMING.shotDeadlineMs) -
+                             deadline.elapsedMs().count())
+                         << "ms）" << endl;
                     found = *planned;
                     return;
                 }
@@ -811,19 +862,32 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
     seam.validateStrikeReady = [&](const ExecutionPlan& plan) {
         const RobotAdapterResult activated =
             robotController.activateConfiguredToolAndBase(plan, config);
-        if (!activated.succeeded()) return step(activated);
+        if (!activated.succeeded()) {
+            cout << "[StrikeReady驗證] activateConfiguredToolAndBase失敗，"
+                 << "status=" << static_cast<int>(activated.status)
+                 << " sdkCode=" << activated.sdkCode << endl;
+            return step(activated);
+        }
         if (plan.strikeMode != StrikeMode::Pull) {
             return OfflineStepResult{OfflineStepStatus::Success};
         }
-        const RobotAdapterResult stopped = robotController.confirmStopped();
-        if (!stopped.succeeded()) return step(stopped);
-        // Pull的DO1伸出改到strikeReady+confirmStopped之後才做（見
-        // seam.runPneumatic），這裡只確認DO1/DO2已知OFF，移動途中不會伸出
-        // 推桿。
+        // 使用者2026-08-16要求拿掉這裡的confirmStopped()移動前預檢查：
+        // 這只是移動到StrikeReady「之前」的多餘檢查，實測會因為SDK
+        // motion state還沒穩定回報就誤判NotStopped，擋下整輪。真正安全
+        // 攸關的「到StrikeReady後確認真的停了才准推桿伸出」閘門是
+        // seam.confirmStrikeReadyStopped()（moveToStrikeReady之後才做），
+        // 沒有被這次改動影響，DO1伸出仍然只在那道閘門通過後才會做
+        // （見seam.runPneumatic）。這裡只確認DO1/DO2已知OFF，移動途中
+        // 不會伸出推桿。
         const RobotAdapterResult outputsKnown =
             robotController.establishSafeOutputsOff(config);
         if (outputsKnown.status == RobotAdapterStatus::UnknownUnsafe) {
             pullPreparationUnknownUnsafe = true;
+        }
+        if (!outputsKnown.succeeded()) {
+            cout << "[StrikeReady驗證] establishSafeOutputsOff失敗，status="
+                 << static_cast<int>(outputsKnown.status)
+                 << " sdkCode=" << outputsKnown.sdkCode << endl;
         }
         return step(outputsKnown);
     };
@@ -834,6 +898,26 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
             return {OfflineStepStatus::UnknownUnsafe};
         }
         if (!approach.succeeded()) return {OfflineStepStatus::Failure};
+        if (plan.strikeMode == StrikeMode::Pull) {
+            // [使用者2026-08-16確認] Pull的DO1伸出（打擊預備點＝
+            // safeApproachPose）改到這裡做，不再等LIN到strikeReadyPose
+            // （打擊點）之後才伸出。推桿是脈衝式機構：pulseExtend送出、
+            // sleep完就自行斷電，機構本身靠氣壓維持伸出狀態、不需要持續
+            // 通電，所以可以先在較遠的safeApproachPose伸出，再帶著已伸出
+            // 的推桿LIN到strikeReadyPose，到位確認停止後才retract（DO2）
+            // 完成拉擊。pulseExtend內部本來就會呼叫confirmStopped()，這裡
+            // 不用重複檢查。
+            const RealPneumaticResult extended =
+                robotController.pulseExtend(plan, config);
+            if (extended.status == RealPneumaticStatus::UnknownUnsafe) {
+                pullPreparationUnknownUnsafe = true;
+                return {OfflineStepStatus::UnknownUnsafe};
+            }
+            if (extended.status != RealPneumaticStatus::Completed) {
+                return {OfflineStepStatus::Failure};
+            }
+            pullExtendCommandCompleted = true;
+        }
         const RobotPoseAdapterResult actual =
             robotController.readActualPose(plan, config);
         if (!actual.isValid() || !actual.value) {
@@ -853,18 +937,9 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
     };
     seam.runPneumatic = [&](const ExecutionPlan& plan) -> PneumaticCompletionResult {
         if (plan.strikeMode == StrikeMode::Pull) {
-            // Pull的DO1伸出排在這裡（strikeReady+confirmStopped之後），
-            // 不在移動到strikeReady之前伸出。
-            const RealPneumaticResult extended =
-                robotController.pulseExtend(plan, config);
-            if (extended.status == RealPneumaticStatus::UnknownUnsafe) {
-                pullPreparationUnknownUnsafe = true;
-                return {PneumaticCompletionStatus::UnknownUnsafe, std::nullopt};
-            }
-            if (extended.status != RealPneumaticStatus::Completed) {
-                return mapRealPneumaticResult(extended);
-            }
-            pullExtendCommandCompleted = true;
+            // Pull的DO1伸出已經在seam.moveToStrikeReady（safeApproachPose，
+            // 打擊預備點）做過，這裡只做retract（DO2，strikeReadyPose，
+            // 打擊點）完成拉擊。
             const RobotAdapterResult directionWait =
                 robotController.waitDirectionChangeDelay(plan, config);
             if (directionWait.status == RobotAdapterStatus::UnknownUnsafe) {
@@ -1082,6 +1157,43 @@ void BilliardApp::run()
         effectiveKeyQuery = combinedStartQuery(effectiveKeyQuery, *cycleRobot, realConfig);
     }
 
+    // 使用者2026-08-16要求：程式一啟動就自動連線手臂，不用等第一次H/P。
+    // readDigitalInput()要求已連線才能讀（見RobotController.cpp），原本
+    // 懶連線設計下DI1實體按鈕在第一次H/P之前永遠讀取失敗。這裡只做
+    // socket連線本身，不做alarm清除／tool-base啟用／motor開啟等完整
+    // 硬體準備——那些仍然只在真正的H/P動作時才做（confirmRobotReadyReadOnly
+    // /prepareRobotHardwareForMotion），避免程式一啟動就寫入硬體狀態。
+    // best-effort：連線失敗不中止程式，H/P仍會依既有懶連線邏輯自動重試。
+#ifdef BILLIARDS_P2_03_TEST_SEAM
+    if (!runTestSeam)
+#endif
+    {
+        if (!cycleRobot->isConnected()) {
+            cout << "[系統] 啟動時嘗試連線機械手臂..." << endl;
+            if (cycleRobot->connect(BilliardConfig::ARM_IP)) {
+                cout << "[系統] 機械手臂連線成功，DI1現在可以使用。" << endl;
+            } else {
+                cout << "[系統] 機械手臂連線失敗，DI1暫時無法使用；"
+                     << "H/P仍會在使用時自動重試連線。" << endl;
+            }
+        }
+    }
+
+    // 實測發現：連線剛建立那瞬間，DI1~7同時讀到同一個值（疑似控制器
+    // DI快取尚未真正刷新的過渡殘值，不是真實按鈕狀態）；若不處理就直接
+    // 開始輪詢，這個過渡值會被edge-gate誤判成一次全新的down事件，程式
+    // 一啟動、使用者都還沒碰任何按鍵就自己觸發了一次H。這裡在真正開始
+    // 輪詢前先resync一次edge-gate狀態——resyncPhysicalState只設定基準、
+    // 不會產生事件，所以就算這次讀到的還是暫時性錯誤值也不會誤觸；等到
+    // 下一次真正輪詢時DI理應已經穩定，使用者若真的按下才會被判定成
+    // 全新的edge。
+#ifdef BILLIARDS_P2_03_TEST_SEAM
+    if (!runTestSeam)
+#endif
+    {
+        resyncStartControlToIdle(startControlGates, effectiveKeyPoll, effectiveKeyQuery);
+    }
+
     if (!policyMode) {
         return;
     }
@@ -1120,9 +1232,21 @@ void BilliardApp::run()
                             visionClient.connectionIdentity(), cycleIdentity)) {
                         return OfflineStepResult{OfflineStepStatus::Failure};
                     }
+                    // Python在收到START_CAPTURE前完全不累積觀測資料；本地
+                    // capture window已開但Python端control channel送失敗，
+                    // 視同這次開窗失敗（不會有任何Logical Frame進來），
+                    // 讓呼叫端走既有失敗路徑重試/fail closed，不要留下
+                    // 「本地已開、Python未開」的不一致狀態。
+                    if (sendStartCapture(visionClient, cycleIdentity) !=
+                            VisionControlSendStatus::Success) {
+                        receiveEventFactory.invalidate(
+                            ReceiveEventInvalidationReason::CycleChanged);
+                        return OfflineStepResult{OfflineStepStatus::Failure};
+                    }
                     return OfflineStepResult{OfflineStepStatus::Success};
                 };
-                services.closeCaptureWindow = [](ShotCycleIdentity) {
+                services.closeCaptureWindow = [&](ShotCycleIdentity cycleIdentity) {
+                    (void)sendStopCapture(visionClient, cycleIdentity);
                 };
                 services.runPhase1 = [&] {
                     while (true) {
@@ -1755,6 +1879,13 @@ bool BilliardApp::processReceiveEvent(const ReceiveEvent& event)
 
 void BilliardApp::invalidateVisionCycle(ReceiveEventInvalidationReason reason)
 {
+    // 告知Python這個capture window結束、回到idle等下一個START_CAPTURE；
+    // best-effort——這裡是void、從很多失敗路徑呼叫，連線本來就可能已經
+    // 斷了，STOP_CAPTURE送不出去不應該讓cycle收尾邏輯本身另外失敗。
+    if (receiveEventFactory.hasActiveCycle()) {
+        (void)sendStopCapture(
+            visionClient, receiveEventFactory.currentCycleIdentity());
+    }
     receiveEventFactory.invalidate(reason);
     stability.reset(stabilityResetReason(reason));
     pendingPlanningResult.reset();

@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iostream>
 #include <limits>
 #include <utility>
 
@@ -663,13 +664,33 @@ RobotAdapterResult RobotController::validateRealExecutionConfiguration(
             plan.pneumaticTimingProfile.directionChangeDelayMs &&
         timing.mechanismCompletionWaitMs ==
             plan.pneumaticTimingProfile.mechanismCompletionWaitMs;
-    if (!plan.isValid() ||
-        *config->authorizationRevision != plan.executionPolicyRevision ||
-        *config->base0CalibrationRevision != plan.base0PlanarCalibrationRevision ||
-        plan.tool1Number != config->tool1Number ||
-        plan.tool1ControllerCalibrationRevision !=
-            *config->requiredTool1CalibrationRevision ||
-        !timingMatches) {
+    const bool planValid = plan.isValid();
+    const bool authorizationMatches =
+        *config->authorizationRevision == plan.executionPolicyRevision;
+    const bool base0Matches =
+        *config->base0CalibrationRevision == plan.base0PlanarCalibrationRevision;
+    const bool toolNumberMatches = plan.tool1Number == config->tool1Number;
+    const bool tool1ControllerMatches =
+        plan.tool1ControllerCalibrationRevision ==
+        *config->requiredTool1CalibrationRevision;
+    if (!planValid || !authorizationMatches || !base0Matches ||
+        !toolNumberMatches || !tool1ControllerMatches || !timingMatches) {
+        // [暫時性診斷] InvalidConfiguration是好幾個條件AND在一起的結果，
+        // 單看回傳值看不出是哪一個沒過，這裡逐項印出來精準定位。
+        std::cout << "[validateRealExecutionConfiguration失敗] planValid="
+                  << planValid << " authorizationMatches=" << authorizationMatches
+                  << " (plan=" << plan.executionPolicyRevision << " config="
+                  << *config->authorizationRevision << ")"
+                  << " base0Matches=" << base0Matches
+                  << " (plan=" << plan.base0PlanarCalibrationRevision
+                  << " config=" << *config->base0CalibrationRevision << ")"
+                  << " toolNumberMatches=" << toolNumberMatches
+                  << " (plan=" << plan.tool1Number
+                  << " config=" << config->tool1Number << ")"
+                  << " tool1ControllerMatches=" << tool1ControllerMatches
+                  << " (plan=" << plan.tool1ControllerCalibrationRevision
+                  << " config=" << *config->requiredTool1CalibrationRevision << ")"
+                  << " timingMatches=" << timingMatches << std::endl;
         return {RobotAdapterStatus::InvalidConfiguration, -1};
     }
     return {RobotAdapterStatus::Success, 0};
@@ -1137,8 +1158,12 @@ RealPneumaticResult RobotController::pulseOutput(
             stopped.sdkCode};
     }
 
+    // [使用者2026-08-16要求] 拿掉中間on狀態的readback確認以減少SDK往返延遲，
+    // 只信任set指令本身的回傳碼；pulse結束後outputsElectricallyOff()的
+    // 最終off確認予以保留——那是下一步移動（SafeLift/StandbyReturn）前的
+    // 安全依據，沒有拿掉。
     int sdkCode = api.setDigitalOutput(id, mutuallyExclusiveOutput, false);
-    if (sdkCode != 0 || api.getDigitalOutput(id, mutuallyExclusiveOutput) != 0) {
+    if (sdkCode != 0) {
         return latchUnknownUnsafe(sdkCode);
     }
     sdkCode = api.setDigitalOutput(id, activeOutput, true);
@@ -1148,13 +1173,6 @@ RealPneumaticResult RobotController::pulseOutput(
             ? RealPneumaticResult{RealPneumaticStatus::KnownSafeFailure,
                 std::nullopt, sdkCode}
             : latchUnknownUnsafe(offCode);
-    }
-    const int activeState = api.getDigitalOutput(id, activeOutput);
-    const int otherState = api.getDigitalOutput(id, mutuallyExclusiveOutput);
-    if (activeState != 1 || otherState != 0) {
-        int offCode = -1;
-        (void)bestEffortOutputsOff(*config, offCode);
-        return latchUnknownUnsafe(activeState < 0 ? activeState : otherState);
     }
     api.sleepMs(config->approvedTimingProfile->pneumaticPulseMs);
     sdkCode = api.setDigitalOutput(id, activeOutput, false);

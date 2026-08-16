@@ -74,7 +74,7 @@ const int CALIBRATION_SERVER_PORT = 12347;
 // 機械手臂一般運動速度比例。
 // 20 通常代表控制器速度比例 20%，實際語意需依 HRSDK/控制器確認。
 // 真機初次測試建議使用低速；提高前需要確認安全。
-const int NORMAL_SPEED_RATIO = 40;
+const int NORMAL_SPEED_RATIO = 100;
 
 // [人工設定 / 實機確認]
 // 使用控制器中的 Tool 編號。
@@ -136,14 +136,14 @@ const double MAX_REACH_RADIUS_MM = 800.0;
 // 單筆 newline-delimited 32-value CSV 允許的最大 byte 數。
 // 需根據實際 Python 格式、數字小數位數及合理上限核准後填入。
 // 這是防止異常超長 frame 的安全限制，不是座標值限制。
-const std::optional<std::size_t> VISION_MAX_FRAME_BYTES = 1024;
+const std::optional<std::size_t> VISION_MAX_FRAME_BYTES = 2048;
 
 
 
 // C++ 等待一筆完整 newline frame 的最長時間，單位 ms。
 // 需要根據 Python 實際 frame 傳送頻率及網路狀況測試後決定。
 // 太短會誤判 timeout；太長會讓失效連線反應太慢。
-const std::optional<unsigned long> VISION_RECEIVE_TIMEOUT_MS = 2000;
+const std::optional<unsigned long> VISION_RECEIVE_TIMEOUT_MS = 10000;
 
 // [需實測 / 標定]
 // Python 傳入 Robot Base0 XY 時允許的合法觀測範圍。
@@ -179,11 +179,15 @@ const std::optional<double>
     POCKET_STABILITY_TOLERANCE_MM = 10.0;
 
 
-// 相鄰兩筆有效 ReceiveEvent 最大允許時間間隔，單位 ms。
-// 應根據相機 FPS、YOLO inference 時間與 socket 實際傳送週期決定。
+// 相鄰兩筆有效 ReceiveEvent（現在是Python累積後送出的Logical Frame，
+// 不是每次YOLO都送一筆）最大允許時間間隔，單位 ms。
+// [使用者2026-08-16核准放寬] 1000->5000：Python端一個Logical Frame要
+// 累積多張YOLO偵測都收斂才送出（見python/capture_accumulator.py），
+// YOLO本身若有閃爍/漏偵測，Logical Frame之間的間隔可能遠超過1秒，
+// 原本1000ms會讓ThreeEventStability一直TimedOut重置、永遠湊不滿三幀。
 // 超過此值代表三筆資料時間距離太遠，不應被視為同一次穩定觀測。
 const std::optional<unsigned long>
-    MAX_INTER_FRAME_INTERVAL_MS = 1000;
+    MAX_INTER_FRAME_INTERVAL_MS = 5000;
 
 
 // ============================================================
@@ -202,12 +206,12 @@ const std::optional<TableGeometryConfig>
         49.52,  // ballDiameterMm
         5.0,    // collisionMarginMm
         {{
-            {RailId::Rail1, PocketId::Pocket1, PocketId::Pocket2, 20.0, 20.0, 3.0},
-            {RailId::Rail2, PocketId::Pocket2, PocketId::Pocket3, 20.0, 20.0, 3.0},
-            {RailId::Rail3, PocketId::Pocket3, PocketId::Pocket4, 20.0, 20.0, 3.0},
-            {RailId::Rail4, PocketId::Pocket4, PocketId::Pocket5, 20.0, 20.0, 3.0},
-            {RailId::Rail5, PocketId::Pocket5, PocketId::Pocket6, 20.0, 20.0, 3.0},
-            {RailId::Rail6, PocketId::Pocket6, PocketId::Pocket1, 20.0, 20.0, 3.0}
+            {RailId::Rail1, PocketId::Pocket1, PocketId::Pocket2, 8.0, 8.0, 3.0},
+            {RailId::Rail2, PocketId::Pocket2, PocketId::Pocket3, 8.0, 8.0, 3.0},
+            {RailId::Rail3, PocketId::Pocket3, PocketId::Pocket4, 8.0, 8.0, 3.0},
+            {RailId::Rail4, PocketId::Pocket4, PocketId::Pocket5, 8.0, 8.0, 3.0},
+            {RailId::Rail5, PocketId::Pocket5, PocketId::Pocket6, 8.0, 8.0, 3.0},
+            {RailId::Rail6, PocketId::Pocket6, PocketId::Pocket1, 8.0, 8.0, 3.0}
         }}
     };
 
@@ -410,14 +414,14 @@ const unsigned long MOTION_POLL_INTERVAL_MS = 50;
 // 量測set_motor_state實際斷電延遲後調整。
 const unsigned long MOTOR_OFF_CONFIRMATION_TIMEOUT_MS = 500;
 
-// [演算法研究值，非實測]
 // 推桿後方障礙檢查：母球中心沿執行方向反方向延伸Lback=ballRadiusMm+
 // BACK_OBSTACLE_EXTRA_MM的有限線段，若其他球中心到此線段的最短距離
 // <= ballRadiusMm+BACK_OBSTACLE_LATERAL_MARGIN_MM就拒絕該執行方向
 // （怕推桿實際伸出時先撞到後方障礙球）。這不是完整Tool掃掠體積模型，
 // 之後量到實際pusherRadiusMm應改用該值取代這裡的簡化門檻。
 const double BACK_OBSTACLE_EXTRA_MM = 1.0;
-const double BACK_OBSTACLE_LATERAL_MARGIN_MM = 0.0;
+// [使用者2026-08-16確認] 側向margin 5mm。
+const double BACK_OBSTACLE_LATERAL_MARGIN_MM = 5.0;
 
 // [演算法研究值，非實測]
 const double CUE_BALL_CONTACT_ONLY_ANGULAR_STEP_DEG = 15.0;
@@ -444,12 +448,12 @@ const double LEGAL_CONTACT_KICK_GRAZING_ANGULAR_STEP_DEG = 15.0;
 //
 // 若相機、支架、Robot Base、球桌位置改變，通常需要重新教導。
 const std::array<double, 6> CAMERA_JOINT = {
-    -3.75,
-    -25.836,
-    54.055,
-    12.710,
-    -28.366,
-    -100.445
+    -3.792,
+    -26.792,
+    55.334,
+    9.579,
+    -27.804,
+    -97.606
 };
 
 // [人工可調 / 實驗參數]
@@ -480,7 +484,7 @@ const unsigned long VISION_RECONNECT_POLL_INTERVAL_MS = 200;
 // 狀態；之後若重新教導準備姿態，必須同步核准新版號，不得沿用舊字串。
 const StandbyJointReference STANDBY_JOINT_REFERENCE = {
     std::string{"standby-joint-2026-08-v1"},
-    {0.0, 0.0, 90.0, 0.0, 0.0, -90.0}
+    {0.0, 0.0, 90.0, 0.0,-27.804,-90.0}
 };
 
 
@@ -584,7 +588,7 @@ const std::optional<MotionPlanningConfig> MOTION_PLANNING_CONFIG = [] {
     config.calibrationRevision = "motion-2026-08-v1";
     config.base0PlanarCalibrationRevision = BASE0_PLANAR_CALIBRATION_REVISION;
     config.cueForwardAxisCalibrationRevision = "tool-axis-2026-08-v1";
-    config.strikeZMm = -220.0;
+    config.strikeZMm = -225.0;
     config.safeApproachZMm = -170.0;
     config.readyGapMm = 0.0;
     config.strikePositionBiasMm = 20.0;
@@ -594,7 +598,7 @@ const std::optional<MotionPlanningConfig> MOTION_PLANNING_CONFIG = [] {
     // [使用者2026-08核准放寬] A軸搜尋窗5°->10°：原窗口在部分shot方向下
     // 找不到可用姿態（NoAcceptedPoseCandidate）。41*13=533候選，未超過
     // MAX_TOTAL_POSE_CANDIDATES=1000。
-    config.deltaADeg = 10.0;
+    config.deltaADeg = 15.0;
     config.deltaBDeg = 3.0;
     config.stepADeg = 0.5;
     config.stepBDeg = 0.5;
@@ -626,10 +630,16 @@ const std::optional<MotionPlanningConfig> MOTION_PLANNING_CONFIG = [] {
         // CueBallContactOnly：沒有目標球，切球角度／反彈角度概念不適用。
         FixedForceEnvelopeLimits{true, 0.0, 1000000.0, std::nullopt, std::nullopt}
     };
+    // [使用者2026-08-16實測確認] 500ms曾經觀察到DO訊號已經送出、但推桿
+    // 機構實際還沒到位，一度改成1000ms對齊安全值；但1000ms一輪氣動序列
+    // （伸出脈衝+方向切換延遲+退回脈衝+機構完成等待）合計4秒，在15秒
+    // 賽制deadline下太久，使用者實機重測後確認改回500ms。這兩份設定
+    // 本來就必須完全一致（見RobotController.cpp
+    // validateRealExecutionConfiguration的timingMatches檢查）。
     config.pneumaticTimingProfile = PneumaticTimingProfileReference{
         "pneumatic-timing-v1", 500, 500, 500};
     config.tool1ControllerCalibrationRevision = "tool1-controller-v1";
-    config.railHuggingTriggerDistanceMm = 50.0;  // 使用者提供初始值，之後會調整
+    config.railHuggingTriggerDistanceMm = 30.0;  // [使用者2026-08-16確認] 3公分
     config.railHuggingReadyGapMm = 60.0;  // 使用者提供初始值，之後會調整
     return config;
 }();
@@ -739,19 +749,21 @@ const std::optional<RealHardwareExecutionConfig>
             2,
 
             // 15. 已核准的氣動 timing
+            // [使用者2026-08-16實機重測確認] 500ms；見BilliardConfig.cpp
+            // MOTION_PLANNING_CONFIG.pneumaticTimingProfile旁的完整說明。
             /* approvedTimingProfile */
             PneumaticTimingProfileReference{
                 /* calibrationRevision */
                 "pneumatic-timing-v1",
 
                 /* pneumaticPulseMs */
-                500,  // TODO: 實測
+                500,
 
                 /* directionChangeDelayMs */
-                500,  // TODO: 實測
+                500,
 
                 /* mechanismCompletionWaitMs */
-                500   // TODO: 實測
+                500
             },
 
             // 16. 競賽用實體Start按鈕DI index
@@ -771,6 +783,6 @@ const std::optional<RealHardwareExecutionConfig>
 // minimumExecutionReserveMs：5000ms，剩餘時間低於此值不得開始執行（Pull
 // pre-extend或前往safeApproachPose）。
 // planningRetryCutoffMs：10000ms，超過此值仍無方案時安全結束，不強制擊球。
-const ShotCycleTimingConfig SHOT_CYCLE_TIMING = {15000, 5000, 10000};
+const ShotCycleTimingConfig SHOT_CYCLE_TIMING = {150000, 50000, 100000};
 
 }  // namespace BilliardConfig
