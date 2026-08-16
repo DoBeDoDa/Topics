@@ -74,7 +74,7 @@ const int CALIBRATION_SERVER_PORT = 12347;
 // 機械手臂一般運動速度比例。
 // 20 通常代表控制器速度比例 20%，實際語意需依 HRSDK/控制器確認。
 // 真機初次測試建議使用低速；提高前需要確認安全。
-const int NORMAL_SPEED_RATIO = 70;
+const int NORMAL_SPEED_RATIO = 40;
 
 // [人工設定 / 實機確認]
 // 使用控制器中的 Tool 編號。
@@ -136,14 +136,14 @@ const double MAX_REACH_RADIUS_MM = 800.0;
 // 單筆 newline-delimited 32-value CSV 允許的最大 byte 數。
 // 需根據實際 Python 格式、數字小數位數及合理上限核准後填入。
 // 這是防止異常超長 frame 的安全限制，不是座標值限制。
-const std::optional<std::size_t> VISION_MAX_FRAME_BYTES = 2048;
+const std::optional<std::size_t> VISION_MAX_FRAME_BYTES = 1024;
 
 
 
 // C++ 等待一筆完整 newline frame 的最長時間，單位 ms。
 // 需要根據 Python 實際 frame 傳送頻率及網路狀況測試後決定。
 // 太短會誤判 timeout；太長會讓失效連線反應太慢。
-const std::optional<unsigned long> VISION_RECEIVE_TIMEOUT_MS = 10000;
+const std::optional<unsigned long> VISION_RECEIVE_TIMEOUT_MS = 2000;
 
 // [需實測 / 標定]
 // Python 傳入 Robot Base0 XY 時允許的合法觀測範圍。
@@ -202,12 +202,12 @@ const std::optional<TableGeometryConfig>
         49.52,  // ballDiameterMm
         5.0,    // collisionMarginMm
         {{
-            {RailId::Rail1, PocketId::Pocket1, PocketId::Pocket2, 8.0, 8.0, 3.0},
-            {RailId::Rail2, PocketId::Pocket2, PocketId::Pocket3, 8.0, 8.0, 3.0},
-            {RailId::Rail3, PocketId::Pocket3, PocketId::Pocket4, 8.0, 8.0, 3.0},
-            {RailId::Rail4, PocketId::Pocket4, PocketId::Pocket5, 8.0, 8.0, 3.0},
-            {RailId::Rail5, PocketId::Pocket5, PocketId::Pocket6, 8.0, 8.0, 3.0},
-            {RailId::Rail6, PocketId::Pocket6, PocketId::Pocket1, 8.0, 8.0, 3.0}
+            {RailId::Rail1, PocketId::Pocket1, PocketId::Pocket2, 20.0, 20.0, 3.0},
+            {RailId::Rail2, PocketId::Pocket2, PocketId::Pocket3, 20.0, 20.0, 3.0},
+            {RailId::Rail3, PocketId::Pocket3, PocketId::Pocket4, 20.0, 20.0, 3.0},
+            {RailId::Rail4, PocketId::Pocket4, PocketId::Pocket5, 20.0, 20.0, 3.0},
+            {RailId::Rail5, PocketId::Pocket5, PocketId::Pocket6, 20.0, 20.0, 3.0},
+            {RailId::Rail6, PocketId::Pocket6, PocketId::Pocket1, 20.0, 20.0, 3.0}
         }}
     };
 
@@ -444,12 +444,12 @@ const double LEGAL_CONTACT_KICK_GRAZING_ANGULAR_STEP_DEG = 15.0;
 //
 // 若相機、支架、Robot Base、球桌位置改變，通常需要重新教導。
 const std::array<double, 6> CAMERA_JOINT = {
-    -3.792,
-    -26.792,
-    55.334,
-    9.579,
-    -27.804,
-    -97.606
+    -3.75,
+    -25.836,
+    54.055,
+    12.710,
+    -28.366,
+    -100.445
 };
 
 // [人工可調 / 實驗參數]
@@ -584,7 +584,7 @@ const std::optional<MotionPlanningConfig> MOTION_PLANNING_CONFIG = [] {
     config.calibrationRevision = "motion-2026-08-v1";
     config.base0PlanarCalibrationRevision = BASE0_PLANAR_CALIBRATION_REVISION;
     config.cueForwardAxisCalibrationRevision = "tool-axis-2026-08-v1";
-    config.strikeZMm = -230.0;
+    config.strikeZMm = -220.0;
     config.safeApproachZMm = -170.0;
     config.readyGapMm = 0.0;
     config.strikePositionBiasMm = 20.0;
@@ -594,7 +594,7 @@ const std::optional<MotionPlanningConfig> MOTION_PLANNING_CONFIG = [] {
     // [使用者2026-08核准放寬] A軸搜尋窗5°->10°：原窗口在部分shot方向下
     // 找不到可用姿態（NoAcceptedPoseCandidate）。41*13=533候選，未超過
     // MAX_TOTAL_POSE_CANDIDATES=1000。
-    config.deltaADeg = 15.0;
+    config.deltaADeg = 10.0;
     config.deltaBDeg = 3.0;
     config.stepADeg = 0.5;
     config.stepBDeg = 0.5;

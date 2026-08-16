@@ -1,6 +1,6 @@
-"""Accumulate per-object observations across raw images within one
-START_CAPTURE window, until every tracked object resolves to a stable
-state, then emit exactly one existing-format 32-value Logical Frame.
+"""Accumulate per-object observations across consecutive raw images until
+every tracked object resolves to a stable state, then emit exactly one
+existing-format 32-value Logical Frame.
 
 Two layers of stability exist in this system:
   - This module: several raw YOLO images -> one Logical Frame.
@@ -152,8 +152,7 @@ class _PocketClusterAccumulator:
 
 
 class CaptureWindowAccumulator:
-    """一個START_CAPTURE window內的完整累積狀態。resolve一次就送一個
-    Logical Frame、reset、獨立開始累積下一個，直到STOP_CAPTURE為止。"""
+    """一個本地觀測視窗的完整累積狀態；每次resolve後由呼叫端reset。"""
 
     def __init__(self):
         self.reset()

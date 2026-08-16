@@ -1,18 +1,14 @@
 """Production RGB vision -> Base0 XY -> existing 32-value TCP service.
 
-Capture is now gated by a START_CAPTURE/STOP_CAPTURE control protocol sent
-by the C++ side over the same TCP connection (see parse_control_line()).
-Within one START_CAPTURE window, many raw images are captured and fed to a
-CaptureWindowAccumulator (capture_accumulator.py) until every tracked
-object resolves to a stable state; only then is one existing-format
-32-value Logical Frame sent, and the accumulator resets to build the next
-one independently. This module never assigns P1..P6 itself -- that stays
-inside CaptureWindowAccumulator / DetectionFilter's existing convention.
+Raw images are accumulated until every tracked object resolves to a stable
+state. Each resolved observation is emitted as one existing-format 32-value
+Logical Frame. Freshness remains owned by the existing C++ local shot-cycle
+gate, stale-buffer flush, and accumulation reset; no control handshake or
+wire metadata is added.
 """
 
 import math
 import os
-import select
 import socket
 import sys
 
@@ -37,30 +33,6 @@ DEFAULT_MODEL_PATH = os.path.join(ROOT_DIR, "bin", "best.pt")
 RAW_BALL_COLOR = (0, 255, 255)
 RAW_CUE_COLOR = (255, 255, 255)
 RAW_HOLE_COLOR = (255, 0, 255)
-
-
-def parse_control_line(line):
-    """Parse "START_CAPTURE,<cycleId>" / "STOP_CAPTURE,<cycleId>".
-
-    Returns (command, cycle_id) or None for anything unrecognized -- the
-    caller logs and ignores rather than treating it as fatal, since a
-    malformed or stray line should not take the vision service down.
-    """
-    if line is None:
-        return None
-    parts = line.split(",")
-    if len(parts) != 2:
-        return None
-    command, raw_id = parts[0].strip(), parts[1].strip()
-    if command not in ("START_CAPTURE", "STOP_CAPTURE"):
-        return None
-    try:
-        cycle_id = int(raw_id)
-    except ValueError:
-        return None
-    if cycle_id <= 0:
-        return None
-    return command, cycle_id
 
 
 class BilliardDetector:
@@ -181,14 +153,7 @@ class USBCamera:
 
 
 class BilliardVisionServer:
-    """The existing sole owner of the Python-to-C++ TCP socket.
-
-    Now bidirectional: C++ sends START_CAPTURE/STOP_CAPTURE control text on
-    this same connection, Python sends Logical Frame data lines back. This
-    is plain line-based text sharing one TCP stream, not a second port --
-    the two directions never race because Python only ever reads control
-    lines and only ever writes data lines.
-    """
+    """The existing sole owner of the one-way Python-to-C++ TCP socket."""
 
     def __init__(self, host="0.0.0.0", port=12345):
         self.host = host
@@ -196,7 +161,6 @@ class BilliardVisionServer:
         self.server_socket = None
         self.connection = None
         self.address = None
-        self._control_buffer = b""
 
     def start(self):
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -206,51 +170,6 @@ class BilliardVisionServer:
         print(f"[TCP] Waiting for the existing C++ client on port {self.port}...")
         self.connection, self.address = self.server_socket.accept()
         print(f"[TCP] C++ client connected: {self.address}")
-
-    def _drain_control_buffer(self):
-        if b"\n" not in self._control_buffer:
-            return None
-        line, _, remainder = self._control_buffer.partition(b"\n")
-        self._control_buffer = remainder
-        return line.decode("utf-8", errors="replace").strip()
-
-    def poll_control_line(self):
-        """Non-blocking: only recv()s if data is already waiting. Returns
-        one decoded line, or None if no complete line is available yet
-        (including "nothing waiting" and "connection closed")."""
-        line = self._drain_control_buffer()
-        if line is not None:
-            return line
-        if self.connection is None:
-            return None
-        ready, _, _ = select.select([self.connection], [], [], 0)
-        if not ready:
-            return None
-        try:
-            chunk = self.connection.recv(4096)
-        except socket.error:
-            return None
-        if not chunk:
-            return None
-        self._control_buffer += chunk
-        return self._drain_control_buffer()
-
-    def wait_for_control_line(self):
-        """Blocks until one complete control line arrives, or the
-        connection closes (returns None)."""
-        while True:
-            line = self._drain_control_buffer()
-            if line is not None:
-                return line
-            if self.connection is None:
-                return None
-            try:
-                chunk = self.connection.recv(4096)
-            except socket.error:
-                return None
-            if not chunk:
-                return None
-            self._control_buffer += chunk
 
     def send_coords(self, coordinates):
         if self.connection is None:
@@ -297,10 +216,10 @@ def _draw_raw_preview(frame, raw):
     return annotated
 
 
-def _print_dashboard(coordinates, cycle_id):
+def _print_dashboard(coordinates):
     os.system("cls" if os.name == "nt" else "clear")
     print("=====================================================")
-    print(f" RGB vision -> Robot Base0 XY (mm) -- cycle {cycle_id}")
+    print(" RGB vision -> Robot Base0 XY (mm)")
     print("=====================================================")
     for ball_id in range(1, 10):
         x, y = coordinates[(ball_id - 1) * 2], coordinates[(ball_id - 1) * 2 + 1]
@@ -314,7 +233,7 @@ def _print_dashboard(coordinates, cycle_id):
 
 
 class BilliardVisionApp:
-    """Coordinate startup, START_CAPTURE/STOP_CAPTURE windows, YOLO, and TCP."""
+    """Coordinate startup, continuous stable observation, YOLO, and TCP."""
 
     def __init__(self, model_path=None, port=12345, calibration_path=CURRENT_CALIBRATION_PATH):
         self.detector = BilliardDetector(model_path, calibration_path=calibration_path)
@@ -332,20 +251,46 @@ class BilliardVisionApp:
             # Camera profile verification completes before the TCP service starts.
             self.camera.start()
             self.server.start()
+            accumulator = CaptureWindowAccumulator()
 
             while True:
-                print("[CONTROL] idle; waiting for START_CAPTURE...")
-                line = self.server.wait_for_control_line()
-                if line is None:
-                    print("[TCP] control connection closed while idle")
-                    break
-                parsed = parse_control_line(line)
-                if parsed is None or parsed[0] != "START_CAPTURE":
-                    print(f"[CONTROL] ignoring unrecognized line while idle: {line!r}")
+                frame = self.camera.get_frame()
+                if frame is None:
+                    print("[CAPTURE REJECTED] RGB image capture failed; skipping this image")
                     continue
-                _, cycle_id = parsed
-                print(f"[CONTROL] START_CAPTURE cycle={cycle_id}")
-                if not self._run_capture_window(cycle_id):
+
+                try:
+                    raw = self.detector.capture_raw(frame)
+                except CaptureRejected as error:
+                    print(f"[CAPTURE REJECTED] {error}; skipping this image")
+                    cv2.imshow("Direct Arm Vision", frame)
+                    if self._quit_requested():
+                        break
+                    continue
+
+                accumulator.feed(raw, self.detector.geometry)
+
+                try:
+                    coordinates = accumulator.resolved_coordinates(self.detector.geometry)
+                except CaptureRejected as error:
+                    print(f"[CAPTURE REJECTED] {error}; resetting this Logical Frame")
+                    accumulator.reset()
+                    coordinates = None
+
+                if coordinates is not None:
+                    _print_dashboard(coordinates)
+                    if not self.server.send_coords(coordinates):
+                        break
+                    accumulator.reset()
+                elif accumulator.timed_out():
+                    print(
+                        "[WARN] Logical Frame did not resolve within the image "
+                        "budget; resetting this Logical Frame's accumulator"
+                    )
+                    accumulator.reset()
+
+                cv2.imshow("Direct Arm Vision", _draw_raw_preview(frame, raw))
+                if self._quit_requested():
                     break
         finally:
             self.camera.stop()
@@ -353,61 +298,6 @@ class BilliardVisionApp:
             self.detector.close()
             cv2.destroyAllWindows()
             print("[SYSTEM] Production vision service stopped")
-
-    def _run_capture_window(self, cycle_id):
-        """Runs one START_CAPTURE window: repeated raw capture + YOLO,
-        accumulating until each Logical Frame resolves and is sent, until
-        STOP_CAPTURE for this cycle_id arrives. Returns False if the whole
-        service should stop (connection lost, or q/Esc pressed)."""
-        accumulator = CaptureWindowAccumulator()
-
-        while True:
-            control_line = self.server.poll_control_line()
-            if control_line is not None:
-                parsed = parse_control_line(control_line)
-                if parsed == ("STOP_CAPTURE", cycle_id):
-                    print(f"[CONTROL] STOP_CAPTURE cycle={cycle_id}")
-                    return True
-                print(f"[CONTROL] ignoring line during capture: {control_line!r}")
-
-            frame = self.camera.get_frame()
-            if frame is None:
-                print("[CAPTURE REJECTED] RGB image capture failed; skipping this image")
-                continue
-
-            try:
-                raw = self.detector.capture_raw(frame)
-            except CaptureRejected as error:
-                print(f"[CAPTURE REJECTED] {error}; skipping this image")
-                cv2.imshow("Direct Arm Vision", frame)
-                if self._quit_requested():
-                    return False
-                continue
-
-            accumulator.feed(raw, self.detector.geometry)
-
-            try:
-                coordinates = accumulator.resolved_coordinates(self.detector.geometry)
-            except CaptureRejected as error:
-                print(f"[CAPTURE REJECTED] {error}; resetting this Logical Frame")
-                accumulator.reset()
-                coordinates = None
-
-            if coordinates is not None:
-                _print_dashboard(coordinates, cycle_id)
-                if not self.server.send_coords(coordinates):
-                    return False
-                accumulator.reset()
-            elif accumulator.timed_out():
-                print(
-                    "[WARN] Logical Frame did not resolve within the image "
-                    "budget; resetting this Logical Frame's accumulator"
-                )
-                accumulator.reset()
-
-            cv2.imshow("Direct Arm Vision", _draw_raw_preview(frame, raw))
-            if self._quit_requested():
-                return False
 
     @staticmethod
     def _quit_requested():

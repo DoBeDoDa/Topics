@@ -15,7 +15,6 @@
 
 #include "BilliardConfig.h"
 #include "MathUtils.h"
-#include "VisionControlChannel.h"
 
 using namespace std;
 
@@ -573,12 +572,8 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
             }
 
             const OfflinePhase1Result phase1 = services.runPhase1();
-            // runPhase1()一返回，代表這次capture window已經拿到三幀穩定
-            // 資料（或確定拿不到、要放棄/重試），Python不需要再繼續拍照/
-            // 送資料——不管接下來是往下規劃、safe end，還是continue重開
-            // 一輪新的capture window，都會由下一次openCaptureWindow()送
-            // 全新的START_CAPTURE，這裡先讓Python停下來，不要在C++計算
-            // 或決定重試的這段時間內continue耗攝影機/YOLO資源。
+            // runPhase1()一返回（成功或失敗），這個本地capture window已經結束。
+            // V1不向Python新增控制訊息；這個callback只保留為C++內部生命週期接縫。
             if (services.closeCaptureWindow) {
                 services.closeCaptureWindow(cycleIdentity);
             }
@@ -1125,21 +1120,9 @@ void BilliardApp::run()
                             visionClient.connectionIdentity(), cycleIdentity)) {
                         return OfflineStepResult{OfflineStepStatus::Failure};
                     }
-                    // Python在收到START_CAPTURE前完全不累積觀測資料；本地
-                    // capture window已開但Python端control channel送失敗，
-                    // 視同這次開窗失敗（不會有任何Logical Frame進來），
-                    // 讓呼叫端走既有失敗路徑重試/fail closed，不要留下
-                    // 「本地已開、Python未開」的不一致狀態。
-                    if (sendStartCapture(visionClient, cycleIdentity) !=
-                            VisionControlSendStatus::Success) {
-                        receiveEventFactory.invalidate(
-                            ReceiveEventInvalidationReason::CycleChanged);
-                        return OfflineStepResult{OfflineStepStatus::Failure};
-                    }
                     return OfflineStepResult{OfflineStepStatus::Success};
                 };
-                services.closeCaptureWindow = [&](ShotCycleIdentity cycleIdentity) {
-                    (void)sendStopCapture(visionClient, cycleIdentity);
+                services.closeCaptureWindow = [](ShotCycleIdentity) {
                 };
                 services.runPhase1 = [&] {
                     while (true) {
@@ -1772,13 +1755,6 @@ bool BilliardApp::processReceiveEvent(const ReceiveEvent& event)
 
 void BilliardApp::invalidateVisionCycle(ReceiveEventInvalidationReason reason)
 {
-    // 告知Python這個capture window結束、回到idle等下一個START_CAPTURE；
-    // best-effort——這裡是void、從很多失敗路徑呼叫，連線本來就可能已經
-    // 斷了，STOP_CAPTURE送不出去不應該讓cycle收尾邏輯本身另外失敗。
-    if (receiveEventFactory.hasActiveCycle()) {
-        (void)sendStopCapture(
-            visionClient, receiveEventFactory.currentCycleIdentity());
-    }
     receiveEventFactory.invalidate(reason);
     stability.reset(stabilityResetReason(reason));
     pendingPlanningResult.reset();

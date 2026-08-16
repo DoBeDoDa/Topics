@@ -70,7 +70,6 @@
 #include "RobotController.h"
 #include "SocketClient.h"
 #include "TableState.h"
-#include "VisionControlChannel.h"
 #include "VisionDataParser.h"
 
 #pragma comment(lib, "ws2_32.lib")
@@ -788,23 +787,7 @@ enum class StageOutcome {
         return StageOutcome::Failure;
     }
 
-    // Python現在只在收到START_CAPTURE後才累積觀測資料；沒有這一步，
-    // Python會一直停在idle、receiveFrame()永遠等不到資料直到30秒逾時。
-    // stopCaptureNow是這段capture window底下所有離開路徑共用的最小
-    // best-effort收尾，不是重新設計這個函式的流程。
-    const auto stopCaptureNow = [&] {
-        (void)sendStopCapture(visionClient, cycleIdentity);
-    };
-
-    if (sendStartCapture(visionClient, cycleIdentity) !=
-            VisionControlSendStatus::Success) {
-
-        cout
-            << "[失敗] 送出START_CAPTURE失敗"
-            << endl;
-
-        return StageOutcome::Failure;
-    }
+    const auto stopCaptureNow = [] {};
 
     // ------------------------------------------------------------------------
     // Receive stable frames
