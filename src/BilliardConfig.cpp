@@ -639,7 +639,7 @@ const std::optional<MotionPlanningConfig> MOTION_PLANNING_CONFIG = [] {
     config.pneumaticTimingProfile = PneumaticTimingProfileReference{
         "pneumatic-timing-v1", 500, 500, 500};
     config.tool1ControllerCalibrationRevision = "tool1-controller-v1";
-    config.railHuggingTriggerDistanceMm = 30.0;  // [使用者2026-08-16確認] 3公分
+    config.railHuggingTriggerDistanceMm = 45.0;  // [使用者2026-08-16確認] 3公分
     config.railHuggingReadyGapMm = 60.0;  // 使用者提供初始值，之後會調整
     return config;
 }();
