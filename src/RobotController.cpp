@@ -130,33 +130,43 @@ RobotAdapterResult RobotController::clearAlarm()
 {
     if (!connected) return {RobotAdapterStatus::NotConnected, -1};
     if (!api.clearAlarm) return {RobotAdapterStatus::SdkFailure, -1};
-    // 沒有active alarm時直接跳過clear_alarm：語意上沒有東西要清，呼叫
-    // 本身是多餘的，且控制器在無alarm狀態下可能因其他前提（如馬達尚未
-    // 斷電）拒絕清除（sdkCode=300，即使get_alarm_code查無alarm，容易
-    // 誤判成alarm清除失敗）。查詢本身失敗（sdkCode!=0）時無法確認有無
-    // alarm，照原路徑嘗試清除。
-    int alarmSdkCode = -1;
-    if (getAlarmCodes(alarmSdkCode).empty() && alarmSdkCode == 0) {
-        return {RobotAdapterStatus::Success, 0};
+    // 決定性準備流程：先確認馬達真的斷電（set_motor_state(0)回傳成功只
+    // 代表指令已送出，控制器實際斷電可能有延遲），逾時直接fail closed
+    // （不是「逾時仍照常嘗試」）——馬達狀態未知時不應該繼續動alarm。
+    if (!api.getMotorState || !api.tickCountMs || !api.sleepMs) {
+        return {RobotAdapterStatus::SdkFailure, -1};
     }
-    // 確定有alarm要清：set_motor_state(0)回傳成功只代表指令已送出，控制
-    // 器實際斷電可能有延遲；clear_alarm前先bounded poll確認馬達真的已
-    // 斷電，逾時仍照常嘗試（不無限等待），讓原本的sdkCode錯誤路徑處理。
-    if (api.getMotorState && api.tickCountMs && api.sleepMs) {
+    {
         const unsigned long pollStart = api.tickCountMs();
         while (api.getMotorState(id) != 0) {
             if (api.tickCountMs() - pollStart >=
                 BilliardConfig::MOTOR_OFF_CONFIRMATION_TIMEOUT_MS) {
-                break;
+                return {RobotAdapterStatus::SdkFailure, -1};
             }
             api.sleepMs(BilliardConfig::MOTION_POLL_INTERVAL_MS);
         }
+    }
+    // 沒有active alarm時直接跳過clear_alarm：語意上沒有東西要清，呼叫
+    // 本身是多餘的，且控制器在無alarm狀態下可能因其他前提拒絕清除
+    // （sdkCode=300，即使get_alarm_code查無alarm，容易誤判成alarm清除
+    // 失敗）。查詢本身失敗（sdkCode!=0）時無法確認有無alarm，照原路徑
+    // 嘗試清除。
+    int alarmSdkCode = -1;
+    if (getAlarmCodes(alarmSdkCode).empty() && alarmSdkCode == 0) {
+        return {RobotAdapterStatus::Success, 0};
     }
     const int sdkCode = api.clearAlarm(id);
     if (sdkCode != 0) {
         return {RobotAdapterStatus::SdkFailure, sdkCode};
     }
-    if (api.sleepMs) api.sleepMs(200);
+    api.sleepMs(200);
+    // 清除後重新查詢、要求真的歸零：不假設clear_alarm的sdkCode=0就代表
+    // 控制器內部真的清乾淨；查詢本身失敗或仍有殘留alarm都視為失敗。
+    int requeryCode = -1;
+    const std::vector<uint64_t> remaining = getAlarmCodes(requeryCode);
+    if (requeryCode != 0 || !remaining.empty()) {
+        return {RobotAdapterStatus::SdkFailure, requeryCode};
+    }
     return {RobotAdapterStatus::Success, 0};
 }
 

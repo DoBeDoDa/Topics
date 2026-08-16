@@ -198,6 +198,15 @@ std::optional<ShotExecutionMetrics> shotMetrics(const ShotPlan& plan) noexcept
             std::nullopt,
             value->candidate.incidenceAngleDeg};
     }
+    if (std::get_if<CueBallContactOnlyShotPlanPayload>(&plan.payload)) {
+        // 沒有目標球，唯一有意義的距離量是母球到cuePathSegments終點的
+        // bookkeeping長度；不代表任何真實碰撞路徑。
+        if (plan.cuePathSegments.empty()) return std::nullopt;
+        const Segment2D& segment = plan.cuePathSegments.front();
+        const double length = std::hypot(
+            segment.end.x - segment.start.x, segment.end.y - segment.start.y);
+        return ShotExecutionMetrics{length, std::nullopt, std::nullopt};
+    }
     return std::nullopt;
 }
 
@@ -210,6 +219,7 @@ const BilliardConfig::FixedForceEnvelopeLimits* envelopeFor(
     case ShotPlanType::KickPot: return &config.kickPot;
     case ShotPlanType::DirectLegalContact: return &config.directLegalContact;
     case ShotPlanType::KickLegalContact: return &config.kickLegalContact;
+    case ShotPlanType::CueBallContactOnly: return &config.cueBallContactOnly;
     }
     return nullptr;
 }
@@ -243,7 +253,10 @@ bool validFixedForceConfig(
         !config.directLegalContact.maxCuttingAngleDeg &&
         !config.directLegalContact.maxExecutableKickRailAngleDeg &&
         !config.kickLegalContact.maxCuttingAngleDeg &&
-        config.kickLegalContact.maxExecutableKickRailAngleDeg;
+        config.kickLegalContact.maxExecutableKickRailAngleDeg &&
+        validEnvelopeLimits(config.cueBallContactOnly) &&
+        !config.cueBallContactOnly.maxCuttingAngleDeg &&
+        !config.cueBallContactOnly.maxExecutableKickRailAngleDeg;
 }
 
 bool validTimingProfile(
@@ -578,7 +591,28 @@ bool ExecutionPlan::isValid() const noexcept
          !fixedForceEnvelope.kickRailAngleDeg) ||
         (sourceShotType == ShotPlanType::KickLegalContact &&
          !fixedForceEnvelope.cuttingAngleDeg &&
-         fixedForceEnvelope.kickRailAngleDeg);
+         fixedForceEnvelope.kickRailAngleDeg) ||
+        (sourceShotType == ShotPlanType::CueBallContactOnly &&
+         !fixedForceEnvelope.cuttingAngleDeg &&
+         !fixedForceEnvelope.kickRailAngleDeg);
+    const double plannedDirectionLength = std::hypot(
+        plannedShotDirectionXY.x, plannedShotDirectionXY.y);
+    const bool sameDirection =
+        std::fabs(shotDirectionXY.x - plannedShotDirectionXY.x) <=
+            directionUnitTolerance &&
+        std::fabs(shotDirectionXY.y - plannedShotDirectionXY.y) <=
+            directionUnitTolerance;
+    // 貼庫覆寫方向後執行方向一定跟原始方向不同（railHugging的方向來自
+    // 庫邊切線，不會剛好等於原本入袋方向）；Normal政策下兩者必須逐位元
+    // 一致，不允許悄悄覆寫方向卻標成Normal。
+    const bool validDirectionPolicy =
+        BilliardMath::isFinite(plannedShotDirectionXY) &&
+        std::isfinite(plannedDirectionLength) &&
+        std::fabs(plannedDirectionLength - 1.0) <= directionUnitTolerance &&
+        ((executionDirectionPolicy == ExecutionDirectionPolicy::Normal &&
+          sameDirection) ||
+         (executionDirectionPolicy == ExecutionDirectionPolicy::RailHugging &&
+          !sameDirection));
     const double directionLength = std::hypot(
         shotDirectionXY.x, shotDirectionXY.y);
     const double tableDownLength = std::hypot(
@@ -610,7 +644,9 @@ bool ExecutionPlan::isValid() const noexcept
     const std::optional<double> measuredError =
         BilliardMath::getAngleBetweenVectorsDeg(
             validatedStrikeDirectionXY, shotDirectionXY);
-    return (isPot(sourceShotType) || legal) && sourcePlanIdentity.isValid() &&
+    return (isPot(sourceShotType) || legal ||
+            sourceShotType == ShotPlanType::CueBallContactOnly) &&
+        validDirectionPolicy && sourcePlanIdentity.isValid() &&
         !base0PlanarCalibrationRevision.empty() &&
         !tableGeometryRevision.empty() && !motionCalibrationRevision.empty() &&
         !cueForwardAxisCalibrationRevision.empty() &&
@@ -885,12 +921,41 @@ ExecutionPlanResult MotionPlanner::createExecutionPlan(
     // 貼庫安全繞行：母球貼近庫邊時，用平行庫邊、背離最近端點的方向取代
     // Phase1算出的入袋方向，只求安全碰到球；沒貼庫或功能未設定時
     // effectiveDirection就是原本的shotDirectionXY，行為完全不變。
+    // directionPolicy記錄是否觸發，寫進ExecutionPlan.executionDirectionPolicy
+    // audit欄位，不會悄悄覆寫方向卻不留痕跡。
     Vector2D effectiveDirection = shotPlan->shotDirectionXY;
+    ExecutionDirectionPolicy directionPolicy = ExecutionDirectionPolicy::Normal;
     if (resolvedTableGeometry && config->railHuggingTriggerDistanceMm) {
         if (const std::optional<Vector2D> railDirection = resolveRailHuggingDirection(
                 cueBall, *resolvedTableGeometry,
                 *config->railHuggingTriggerDistanceMm)) {
             effectiveDirection = *railDirection;
+            directionPolicy = ExecutionDirectionPolicy::RailHugging;
+        }
+    }
+    // 推桿後方障礙檢查：母球中心沿執行方向反方向、長度
+    // ballRadiusMm+BACK_OBSTACLE_EXTRA_MM的有限線段內，若有其他球中心
+    // 太近（<= ballRadiusMm+BACK_OBSTACLE_LATERAL_MARGIN_MM），代表推桿
+    // 實際伸出時會先撞到那顆球，此執行方向（含rail-hugging覆寫後的方向）
+    // 不可用。不是完整Tool掃掠體積模型，只擋掉這一個候選，換下一個。
+    {
+        const double lback = shotPlan->source.ballRadiusMm +
+            BilliardConfig::BACK_OBSTACLE_EXTRA_MM;
+        const Point rearEnd{
+            cueBall.x - lback * effectiveDirection.x,
+            cueBall.y - lback * effectiveDirection.y};
+        const double rejectDistance = shotPlan->source.ballRadiusMm +
+            BilliardConfig::BACK_OBSTACLE_LATERAL_MARGIN_MM;
+        for (const std::optional<Point>& obstacle :
+                shotPlan->source.otherBallsSnapshot) {
+            if (!obstacle) continue;
+            const double distance =
+                distancePointToSegment(*obstacle, cueBall, rearEnd);
+            if (!std::isfinite(distance) || distance <= rejectDistance) {
+                return reject(
+                    ExecutionPlanStatus::NoExecutablePlan,
+                    ExecutionPlanFailureReason::RearObstacleBlocked);
+            }
         }
     }
     const double bottomDistanceMm = cueBall.y - physicalSurface.minY;
@@ -903,10 +968,28 @@ ExecutionPlanResult MotionPlanner::createExecutionPlan(
             ExecutionPlanStatus::NoExecutablePlan,
             ExecutionPlanFailureReason::NumericalFailure);
     }
-    const StrikeMode strikeMode = resolveStrikeMode(
+    const StrikeMode preferredStrikeMode = resolveStrikeMode(
         bottomDistanceMm,
         *config->pullModeMinBottomDistanceMm,
         tableDownDirectionDot);
+
+    const std::vector<double> aValues = axisCandidates(
+        *config->a0Deg,
+        *config->deltaADeg,
+        *config->stepADeg,
+        *config->axisOffsetOrder);
+    const std::vector<double> bValues = axisCandidates(
+        *config->b0Deg,
+        *config->deltaBDeg,
+        *config->stepBDeg,
+        *config->axisOffsetOrder);
+
+    // Push/Pull的姿態搜尋、readyXY偏移、C角全部包成一個吃strikeMode參數
+    // 的嘗試，讓下面可以先試偏好模式，只有「候選局部失敗」
+    // （NoAcceptedPoseCandidate）才用相反模式重試同一個execution
+    // direction；安全/硬體/設定/數值類失敗不會走到重試。
+    const auto attemptForStrikeMode =
+        [&](StrikeMode strikeMode) -> ExecutionPlanResult {
     const std::optional<double> pushCDeg = directionToCDeg(
         effectiveDirection,
         *config->cToolOffsetDeg,
@@ -919,28 +1002,23 @@ ExecutionPlanResult MotionPlanner::createExecutionPlan(
     // Tool1的TCP已核准校正在氣壓推桿行程中點（縮回位置沿Tool1 +X方向6cm，
     // 12cm總行程的一半），所以XY直接對齊母球中心，母球就自然落在行程中點，
     // push/pull都一樣（差異只在C軸方向）；不再額外扣ballRadiusMm/readyGapMm。
+    // 貼庫繞行觸發且railHuggingReadyGapMm已設定時，用這個專用值取代
+    // strikePositionBiasMm（不是疊加）；貼庫時力道需求跟一般擊球不同。
+    const double strikeOffsetMm =
+        directionPolicy == ExecutionDirectionPolicy::RailHugging &&
+            config->railHuggingReadyGapMm
+        ? *config->railHuggingReadyGapMm
+        : *config->strikePositionBiasMm;
     const double biasSign = strikeMode == StrikeMode::Push ? 1.0 : -1.0;
     const Point readyXY{
-        cueBall.x + biasSign * *config->strikePositionBiasMm *
-            effectiveDirection.x,
-        cueBall.y + biasSign * *config->strikePositionBiasMm *
-            effectiveDirection.y};
+        cueBall.x + biasSign * strikeOffsetMm * effectiveDirection.x,
+        cueBall.y + biasSign * strikeOffsetMm * effectiveDirection.y};
     if (!cDeg || !BilliardMath::isFinite(readyXY)) {
         return reject(
             ExecutionPlanStatus::NoExecutablePlan,
             ExecutionPlanFailureReason::NumericalFailure);
     }
 
-    const std::vector<double> aValues = axisCandidates(
-        *config->a0Deg,
-        *config->deltaADeg,
-        *config->stepADeg,
-        *config->axisOffsetOrder);
-    const std::vector<double> bValues = axisCandidates(
-        *config->b0Deg,
-        *config->deltaBDeg,
-        *config->stepBDeg,
-        *config->axisOffsetOrder);
     std::size_t evaluated = 0;
     std::optional<RobotPoseABC> selectedReady;
     std::optional<RobotPoseABC> selectedApproach;
@@ -1044,6 +1122,8 @@ ExecutionPlanResult MotionPlanner::createExecutionPlan(
         *config->calibrationRevision,
         *config->cueForwardAxisCalibrationRevision,
         shotPlan->source.cueBallSnapshot,
+        shotPlan->shotDirectionXY,
+        directionPolicy,
         effectiveDirection,
         strikeMode,
         physicalSurface,
@@ -1051,7 +1131,7 @@ ExecutionPlanResult MotionPlanner::createExecutionPlan(
         *config->pullModeMinBottomDistanceMm,
         bottomDistanceMm,
         tableDownDirectionDot,
-        *config->strikePositionBiasMm,
+        strikeOffsetMm,
         shotPlan->source.ballRadiusMm,
         *config->readyGapMm,
         *config->directionUnitTolerance,
@@ -1123,6 +1203,19 @@ ExecutionPlanResult MotionPlanner::createExecutionPlan(
             evaluated);
     }
     return ExecutionPlanResult::success(plan);
+    };
+
+    const ExecutionPlanResult preferredAttempt =
+        attemptForStrikeMode(preferredStrikeMode);
+    if (preferredAttempt.status() == ExecutionPlanStatus::Success ||
+        !preferredAttempt.diagnostic() ||
+        preferredAttempt.diagnostic()->reason !=
+            ExecutionPlanFailureReason::NoAcceptedPoseCandidate) {
+        return preferredAttempt;
+    }
+    return attemptForStrikeMode(
+        preferredStrikeMode == StrikeMode::Push ? StrikeMode::Pull
+                                                 : StrikeMode::Push);
 }
 
 #ifdef BILLIARDS_P2_01_TEST_SEAM

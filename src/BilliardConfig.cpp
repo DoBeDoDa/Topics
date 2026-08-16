@@ -410,6 +410,21 @@ const unsigned long MOTION_POLL_INTERVAL_MS = 50;
 // 量測set_motor_state實際斷電延遲後調整。
 const unsigned long MOTOR_OFF_CONFIRMATION_TIMEOUT_MS = 500;
 
+// [演算法研究值，非實測]
+// 推桿後方障礙檢查：母球中心沿執行方向反方向延伸Lback=ballRadiusMm+
+// BACK_OBSTACLE_EXTRA_MM的有限線段，若其他球中心到此線段的最短距離
+// <= ballRadiusMm+BACK_OBSTACLE_LATERAL_MARGIN_MM就拒絕該執行方向
+// （怕推桿實際伸出時先撞到後方障礙球）。這不是完整Tool掃掠體積模型，
+// 之後量到實際pusherRadiusMm應改用該值取代這裡的簡化門檻。
+const double BACK_OBSTACLE_EXTRA_MM = 30.0;
+const double BACK_OBSTACLE_LATERAL_MARGIN_MM = 0.0;
+
+// [演算法研究值，非實測]
+const double CUE_BALL_CONTACT_ONLY_ANGULAR_STEP_DEG = 15.0;
+
+// [演算法研究值，非實測]
+const double LEGAL_CONTACT_GRAZING_ANGULAR_STEP_DEG = 15.0;
+
 
 // ============================================================
 // 13. CameraPose
@@ -604,12 +619,15 @@ const std::optional<MotionPlanningConfig> MOTION_PLANNING_CONFIG = [] {
         FixedForceEnvelopeLimits{true, 0.0, 1000000.0, 180.0, std::nullopt},
         FixedForceEnvelopeLimits{true, 0.0, 1000000.0, 180.0, 180.0},
         FixedForceEnvelopeLimits{true, 0.0, 1000000.0, std::nullopt, std::nullopt},
-        FixedForceEnvelopeLimits{true, 0.0, 1000000.0, std::nullopt, 180.0}
+        FixedForceEnvelopeLimits{true, 0.0, 1000000.0, std::nullopt, 180.0},
+        // CueBallContactOnly：沒有目標球，切球角度／反彈角度概念不適用。
+        FixedForceEnvelopeLimits{true, 0.0, 1000000.0, std::nullopt, std::nullopt}
     };
     config.pneumaticTimingProfile = PneumaticTimingProfileReference{
         "pneumatic-timing-v1", 500, 500, 500};
     config.tool1ControllerCalibrationRevision = "tool1-controller-v1";
     config.railHuggingTriggerDistanceMm = 50.0;  // 使用者提供初始值，之後會調整
+    config.railHuggingReadyGapMm = 60.0;  // 使用者提供初始值，之後會調整
     return config;
 }();
 const ExecutionPolicyMode PRODUCTION_RUNTIME_MODE = ExecutionPolicyMode::RealHardware;

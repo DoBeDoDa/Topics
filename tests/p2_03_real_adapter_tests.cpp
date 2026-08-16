@@ -183,6 +183,11 @@ ExecutionPlan validExecutionPlan(
         plan.cueBallCenterBase0Mm = {100.0, 100.0};
         plan.shotDirectionXY = {1.0, 0.0};
     }
+    // 非貼庫覆寫：executionDirectionPolicy=Normal時
+    // plannedShotDirectionXY必須跟shotDirectionXY逐位元一致（見
+    // ExecutionPlan::isValid()的validDirectionPolicy不變量）。
+    plan.plannedShotDirectionXY = plan.shotDirectionXY;
+    plan.executionDirectionPolicy = ExecutionDirectionPolicy::Normal;
     plan.bottomDistanceMm =
         plan.cueBallCenterBase0Mm.y - plan.physicalPlayingSurfaceBase0Mm.minY;
     plan.tableDownDirectionDot =
@@ -298,6 +303,13 @@ struct FakeSdk {
     int setToolCode = 0;
     int setBaseCode = 0;
     int motorCode = 0;
+    // clearAlarm()新的決定性流程：預設「馬達已斷電」讓poll立刻通過；
+    // getAlarmCodes預設回報「有一筆待清alarm」讓既有測試斷言的
+    // "clearAlarm"呼叫仍會發生，clearAlarm()執行過一次後才轉報0筆，
+    // 讓新增的「清除後re-query必須歸零」通過。
+    int motorState = 0;
+    int getAlarmCodesSdkCode = 0;
+    bool alarmClearedOnce = false;
     int reachableCode = 0;
     bool reachable = true;
     std::vector<bool> reachableResponses;
@@ -350,7 +362,11 @@ struct FakeSdk {
         return {
             [&](const char*) { calls.push_back("open"); return openCode; },
             [&](int) { calls.push_back("close"); },
-            [&](int) { calls.push_back("clearAlarm"); return clearAlarmCode; },
+            [&](int) {
+                calls.push_back("clearAlarm");
+                alarmClearedOnce = true;
+                return clearAlarmCode;
+            },
             [&](int, int) { calls.push_back("motor"); return motorCode; },
             [&](int, int) { calls.push_back("override"); return 0; },
             [&](int, int value) {
@@ -441,13 +457,19 @@ struct FakeSdk {
                 calls.push_back(std::string{"readDi"} + std::to_string(index));
                 return digitalInputValue;
             },
-            [&](int, int&, std::uint64_t*) { return 0; },
+            [&](int, int& count, std::uint64_t* alarms) {
+                calls.push_back("getAlarmCodes");
+                count = alarmClearedOnce ? 0 : 1;
+                if (count > 0) alarms[0] = 0x1;
+                return getAlarmCodesSdkCode;
+            },
             [&] { ticks += tickStep; return ticks; },
             [&](unsigned long duration) {
                 calls.push_back("sleep");
                 sleepDurations.push_back(duration);
                 if (onSleepCallback) onSleepCallback();
-            }};
+            },
+            [&](int) { calls.push_back("getMotorState"); return motorState; }};
     }
 };
 

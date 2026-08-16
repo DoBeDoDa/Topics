@@ -586,7 +586,9 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
                         if (reason == ExecutionPlanFailureReason::
                                 FixedForceEnvelopeRejected ||
                             reason == ExecutionPlanFailureReason::
-                                NoAcceptedPoseCandidate) {
+                                NoAcceptedPoseCandidate ||
+                            reason == ExecutionPlanFailureReason::
+                                RearObstacleBlocked) {
                             continue;
                         }
                         hardFailure = true;
@@ -612,6 +614,11 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
             tryCandidates(candidates.rankedPotPlans, false);
             if (!found && !hardFailure && !candidateUnknownUnsafe) {
                 tryCandidates(candidates.legalContactPlans, true);
+            }
+            if (!found && !hardFailure && !candidateUnknownUnsafe) {
+                // Pot與LegalContact都窮盡才會有候選；立刻嘗試，不等
+                // planningRetryCutoff。
+                tryCandidates(candidates.cueBallContactOnlyPlans, true);
             }
             if (candidateUnknownUnsafe) {
                 return {PlanningPhaseStatus::UnknownUnsafe, std::nullopt};
@@ -644,25 +651,15 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
         }
         const RobotAdapterResult stopped = robotController.confirmStopped();
         if (!stopped.succeeded()) return step(stopped);
+        // Pull的DO1伸出改到strikeReady+confirmStopped之後才做（見
+        // seam.runPneumatic），這裡只確認DO1/DO2已知OFF，移動途中不會伸出
+        // 推桿。
         const RobotAdapterResult outputsKnown =
             robotController.establishSafeOutputsOff(config);
-        if (!outputsKnown.succeeded()) {
-            if (outputsKnown.status == RobotAdapterStatus::UnknownUnsafe) {
-                pullPreparationUnknownUnsafe = true;
-            }
-            return step(outputsKnown);
-        }
-        const RealPneumaticResult prepared =
-            robotController.pulseExtend(plan, config);
-        if (prepared.status == RealPneumaticStatus::UnknownUnsafe) {
+        if (outputsKnown.status == RobotAdapterStatus::UnknownUnsafe) {
             pullPreparationUnknownUnsafe = true;
-            return OfflineStepResult{OfflineStepStatus::Failure};
         }
-        if (prepared.status != RealPneumaticStatus::Completed) {
-            return OfflineStepResult{OfflineStepStatus::Failure};
-        }
-        pullExtendCommandCompleted = true;
-        return step(robotController.waitDirectionChangeDelay(plan, config));
+        return step(outputsKnown);
     };
     seam.moveToStrikeReady = [&](const ExecutionPlan& plan) -> OfflineStepResult {
         const RobotAdapterResult approach =
@@ -690,6 +687,27 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
     };
     seam.runPneumatic = [&](const ExecutionPlan& plan) -> PneumaticCompletionResult {
         if (plan.strikeMode == StrikeMode::Pull) {
+            // Pull的DO1伸出排在這裡（strikeReady+confirmStopped之後），
+            // 不在移動到strikeReady之前伸出。
+            const RealPneumaticResult extended =
+                robotController.pulseExtend(plan, config);
+            if (extended.status == RealPneumaticStatus::UnknownUnsafe) {
+                pullPreparationUnknownUnsafe = true;
+                return {PneumaticCompletionStatus::UnknownUnsafe, std::nullopt};
+            }
+            if (extended.status != RealPneumaticStatus::Completed) {
+                return mapRealPneumaticResult(extended);
+            }
+            pullExtendCommandCompleted = true;
+            const RobotAdapterResult directionWait =
+                robotController.waitDirectionChangeDelay(plan, config);
+            if (directionWait.status == RobotAdapterStatus::UnknownUnsafe) {
+                return {PneumaticCompletionStatus::UnknownUnsafe, std::nullopt};
+            }
+            if (!directionWait.succeeded()) {
+                return PneumaticCompletionResult{
+                    PneumaticCompletionStatus::Failure, std::nullopt};
+            }
             const RealPneumaticResult retracted =
                 robotController.pulseRetract(plan, config);
             pullRetractCommandCompleted =

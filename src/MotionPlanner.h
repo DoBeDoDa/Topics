@@ -113,6 +113,11 @@ struct PoseSearchAudit {
         std::size_t selectedOrdinal) const noexcept;
 };
 
+enum class ExecutionDirectionPolicy {
+    Normal,
+    RailHugging
+};
+
 struct ExecutionPlan {
     Phase1PlanIdentity sourcePlanIdentity;
     ShotPlanType sourceShotType;
@@ -121,6 +126,13 @@ struct ExecutionPlan {
     std::string motionCalibrationRevision;
     std::string cueForwardAxisCalibrationRevision;
     Point cueBallCenterBase0Mm;
+    // Phase1原本算出的入袋/接觸方向，未被貼庫安全繞行覆寫；audit用，
+    // 不驅動任何姿態計算。
+    Vector2D plannedShotDirectionXY;
+    // 實際執行方向；貼庫繞行觸發時才會 != plannedShotDirectionXY。
+    // shotDirectionXY與此值必為同一個值（見isValid()），保留
+    // shotDirectionXY是為了不動既有讀取端。
+    ExecutionDirectionPolicy executionDirectionPolicy;
     Vector2D shotDirectionXY;
     StrikeMode strikeMode;
     AxisAlignedBounds2D physicalPlayingSurfaceBase0Mm;
@@ -185,7 +197,8 @@ enum class ExecutionPlanFailureReason {
     InvalidExecutionPlanValue,
     NoAcceptedPoseCandidate,
     NumericalFailure,
-    ReachabilityCheckFailed
+    ReachabilityCheckFailed,
+    RearObstacleBlocked
 };
 
 struct ExecutionPlanDiagnostic {

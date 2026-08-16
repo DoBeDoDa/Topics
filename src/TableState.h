@@ -1566,7 +1566,10 @@ enum class ShotPlanType {
     DirectPot,
     KickPot,
     DirectLegalContact,
-    KickLegalContact
+    KickLegalContact,
+    // 保底：Pot與LegalContact候選都窮盡時，只求母球被安全推出、不要求
+    // 碰到任何特定目標球/袋口（給對面自由球也可以接受）。
+    CueBallContactOnly
 };
 
 enum class FixedForceMode {
@@ -1590,6 +1593,9 @@ struct PlanningSourceAudit {
     std::string tableGeometryRevision;
     Point cueBallSnapshot;
     double ballRadiusMm;
+    // 該輪穩定球位快照（index=球號-1，缺席代表這輪沒偵測到／已不在場上）。
+    // 供Phase2 rear-obstacle check使用，不是Phase1選球依據。
+    std::array<std::optional<Point>, 9> otherBallsSnapshot;
 
     [[nodiscard]] bool isValid() const noexcept
     {
@@ -1598,6 +1604,11 @@ struct PlanningSourceAudit {
             !std::isfinite(cueBallSnapshot.y) || !std::isfinite(ballRadiusMm) ||
             ballRadiusMm <= 0.0) {
             return false;
+        }
+        for (const auto& ball : otherBallsSnapshot) {
+            if (ball && (!std::isfinite(ball->x) || !std::isfinite(ball->y))) {
+                return false;
+            }
         }
         for (std::size_t index = 0; index < sourceEvents.size(); ++index) {
             if (sourceEvents[index].eventId == 0 ||
@@ -1765,11 +1776,25 @@ struct KickLegalContactShotPlanPayload {
     LegalContactAuditFields audit;
 };
 
+// CueBallContactOnly：沒有真正的目標球幾何，executionDirectionXY就是唯一
+// 權威的執行方向（跟ShotPlan.shotDirectionXY逐位元相同）。
+struct CueBallContactOnlyShotPlanPayload {
+    Vector2D executionDirectionXY;
+
+    [[nodiscard]] bool isValid() const noexcept
+    {
+        const double length = std::hypot(
+            executionDirectionXY.x, executionDirectionXY.y);
+        return std::isfinite(length) && std::fabs(length - 1.0) < 1e-9;
+    }
+};
+
 using ShotPlanPayload = std::variant<
     DirectPotShotPlanPayload,
     KickPotShotPlanPayload,
     DirectLegalContactShotPlanPayload,
-    KickLegalContactShotPlanPayload>;
+    KickLegalContactShotPlanPayload,
+    CueBallContactOnlyShotPlanPayload>;
 
 struct ShotPlan {
     ShotPlanType type;
@@ -1855,6 +1880,14 @@ struct ShotPlan {
                 samePoint(kick->candidate.cuePathSecond.end,
                     cuePathSegments[1].end) &&
                 kick->scoring.rawCosts.minimumClearanceMm == minimumClearanceMm;
+        }
+        if (type == ShotPlanType::CueBallContactOnly) {
+            const auto* fallback =
+                std::get_if<CueBallContactOnlyShotPlanPayload>(&payload);
+            return fallback && cuePathSegments.size() == 1 &&
+                fallback->isValid() &&
+                fallback->executionDirectionXY.x == shotDirectionXY.x &&
+                fallback->executionDirectionXY.y == shotDirectionXY.y;
         }
         const double contactDistance = std::hypot(
             selectedTarget.center.x - ghostBallPoint.center.x,
@@ -2048,12 +2081,16 @@ using PlanningOutcome = std::variant<ShotPlan, NoPlan>;
 struct Phase1ExecutionCandidates {
     std::vector<ShotPlan> rankedPotPlans;
     std::vector<ShotPlan> legalContactPlans;
+    // Pot與LegalContact都窮盡時的保底候選；只有兩者都空時才會產生。
+    std::vector<ShotPlan> cueBallContactOnlyPlans;
 
     [[nodiscard]] bool isValid() const noexcept
     {
         const ShotPlan* anchor = !rankedPotPlans.empty()
             ? &rankedPotPlans.front()
-            : (!legalContactPlans.empty() ? &legalContactPlans.front() : nullptr);
+            : (!legalContactPlans.empty() ? &legalContactPlans.front()
+                : (!cueBallContactOnlyPlans.empty()
+                    ? &cueBallContactOnlyPlans.front() : nullptr));
         const auto samePhase1Target = [anchor](const ShotPlan& plan) {
             return !anchor ||
                 (plan.source.planIdentity.connectionIdentity ==
@@ -2082,6 +2119,12 @@ struct Phase1ExecutionCandidates {
                         samePhase1Target(plan) &&
                         (plan.type == ShotPlanType::DirectLegalContact ||
                          plan.type == ShotPlanType::KickLegalContact);
+                }) &&
+            std::all_of(
+                cueBallContactOnlyPlans.begin(), cueBallContactOnlyPlans.end(),
+                [&](const ShotPlan& plan) {
+                    return plan.isValid() && samePhase1Target(plan) &&
+                        plan.type == ShotPlanType::CueBallContactOnly;
                 });
     }
 };

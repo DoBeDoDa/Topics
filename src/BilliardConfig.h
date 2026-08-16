@@ -152,6 +152,7 @@ struct FixedForceEnvelopeConfig {
     FixedForceEnvelopeLimits kickPot;
     FixedForceEnvelopeLimits directLegalContact;
     FixedForceEnvelopeLimits kickLegalContact;
+    FixedForceEnvelopeLimits cueBallContactOnly;
 };
 
 struct PneumaticTimingProfileReference {
@@ -202,6 +203,10 @@ struct MotionPlanningConfig {
     // 貼庫安全繞行：母球中心距最近庫邊小於此值時，改用平行庫邊方向而非
     // Phase1算出的入袋方向。nullopt＝功能關閉（維持今天的行為）。
     std::optional<double> railHuggingTriggerDistanceMm;
+    // 貼庫安全繞行專用的strikeReady offset，取代（不是疊加）一般
+    // strikePositionBiasMm；貼庫時力道需求跟一般擊球不同，用獨立參數
+    // 才不會互相牽動。nullopt＝功能關閉（沿用strikePositionBiasMm）。
+    std::optional<double> railHuggingReadyGapMm;
 };
 
 enum class RobotAngleComponent {
@@ -278,6 +283,24 @@ extern const unsigned long MOTION_START_CONFIRMATION_TIMEOUT_MS;
 extern const unsigned long MOTION_TIMEOUT_MS;
 extern const unsigned long MOTION_POLL_INTERVAL_MS;
 extern const unsigned long MOTOR_OFF_CONFIRMATION_TIMEOUT_MS;
+
+// 推桿後方障礙檢查（rear-obstacle check）：不是完整Tool掃掠體積模型，
+// 只是「母球中心沿執行方向反方向Lback=ballRadiusMm+BACK_OBSTACLE_EXTRA_MM
+// 的有限線段」跟其他球中心的最短距離門檻。之後量到實際pusherRadiusMm，
+// 可把BACK_OBSTACLE_LATERAL_MARGIN_MM的門檻改成
+// ballRadiusMm+pusherRadiusMm+margin，不需重新設計。
+extern const double BACK_OBSTACLE_EXTRA_MM;
+extern const double BACK_OBSTACLE_LATERAL_MARGIN_MM;
+
+// [演算法研究值，非實測]
+// CueBallContactOnly保底360度方向搜尋的角度間距。
+extern const double CUE_BALL_CONTACT_ONLY_ANGULAR_STEP_DEG;
+
+// [演算法研究值，非實測]
+// Legal Contact擦撞（grazing）角度掃描間距：head-on以外，往左右每隔
+// 這個角度多算一個接觸點候選，直到切線極限（超過就會先撞到目標球
+// 本體，不是真的碰到那個角度）。
+extern const double LEGAL_CONTACT_GRAZING_ANGULAR_STEP_DEG;
 
 extern const std::array<double, 6> CAMERA_JOINT;
 extern const double CAMERA_JOINT_TOLERANCE_DEG;
