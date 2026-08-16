@@ -70,6 +70,7 @@
 #include "RobotController.h"
 #include "SocketClient.h"
 #include "TableState.h"
+#include "VisionControlChannel.h"
 #include "VisionDataParser.h"
 
 #pragma comment(lib, "ws2_32.lib")
@@ -708,6 +709,26 @@ enum class StageOutcome {
         return StageOutcome::Failure;
     }
 
+    // confirmStopped()只確認「目前沒在動」，不確認「真的到了CameraPose」
+    // ——checkedConfiguredJointPtp的moveToAxis若被控制器拒絕/中途中止，
+    // 手臂會停在別的姿態，但仍然「沒在動」，只看confirmStopped()會被
+    // 誤判成已到位，直接Sleep後開始拍照。這裡額外用isAtConfiguredJoint
+    // 重新讀真實關節角度核對位置，跟BilliardApp.cpp的
+    // seam.confirmCameraPoseStopped用同一套邏輯。
+    if (const auto atCamera = robot.isAtConfiguredJoint(
+            BilliardConfig::CAMERA_JOINT,
+            BilliardConfig::CAMERA_JOINT_TOLERANCE_DEG);
+        atCamera.status != RobotAdapterStatus::Success ||
+        !atCamera.value || !*atCamera.value) {
+
+        printFailure(
+            "CameraPose位置確認",
+            atCamera.status,
+            atCamera.sdkCode);
+
+        return StageOutcome::Failure;
+    }
+
     cout
         << "[完成] 已到CameraPose，Sleep "
         << BilliardConfig::CAMERA_SETTLE_MS
@@ -767,6 +788,24 @@ enum class StageOutcome {
         return StageOutcome::Failure;
     }
 
+    // Python現在只在收到START_CAPTURE後才累積觀測資料；沒有這一步，
+    // Python會一直停在idle、receiveFrame()永遠等不到資料直到30秒逾時。
+    // stopCaptureNow是這段capture window底下所有離開路徑共用的最小
+    // best-effort收尾，不是重新設計這個函式的流程。
+    const auto stopCaptureNow = [&] {
+        (void)sendStopCapture(visionClient, cycleIdentity);
+    };
+
+    if (sendStartCapture(visionClient, cycleIdentity) !=
+            VisionControlSendStatus::Success) {
+
+        cout
+            << "[失敗] 送出START_CAPTURE失敗"
+            << endl;
+
+        return StageOutcome::Failure;
+    }
+
     // ------------------------------------------------------------------------
     // Receive stable frames
     // ------------------------------------------------------------------------
@@ -798,6 +837,7 @@ enum class StageOutcome {
                 << "[失敗] SocketReceiveResult invariant失敗"
                 << endl;
 
+            stopCaptureNow();
             return StageOutcome::Failure;
         }
 
@@ -818,6 +858,7 @@ enum class StageOutcome {
                 << "）"
                 << endl;
 
+            stopCaptureNow();
             return StageOutcome::Failure;
         }
 
@@ -834,6 +875,7 @@ enum class StageOutcome {
 
             printReceiveEventFailure(eventResult, *received.frame);
 
+            stopCaptureNow();
             return StageOutcome::Failure;
         }
 
@@ -847,6 +889,7 @@ enum class StageOutcome {
                 << "[失敗] StabilityResult invariant失敗"
                 << endl;
 
+            stopCaptureNow();
             return StageOutcome::Failure;
         }
 
@@ -914,6 +957,7 @@ enum class StageOutcome {
                 << "[失敗] PlanningResult invariant失敗"
                 << endl;
 
+            stopCaptureNow();
             return StageOutcome::Failure;
         }
 
@@ -923,6 +967,8 @@ enum class StageOutcome {
 
         break;
     }
+
+    stopCaptureNow();
 
     if (!planningResult) {
 
@@ -1120,14 +1166,78 @@ enum class StageOutcome {
                 : nullopt;
         };
 
-    const ExecutionPlanResult planResult =
+    // 跟BilliardApp.cpp的services.buildExecutionPlan診斷入口用同一個算法：
+    // 沒有ranked pot候選、但有legal contact候選，才算「pot已窮盡」。
+    // 這裡固定傳false會讓legal contact的production fallback授權
+    // （isProductionLegalContactFallback）永遠判定成沒窮盡，即使Phase1
+    // 明明就是pot都失敗才退到legal contact——no_fire這個低速監督測試
+    // 工具因此永遠測不到legal contact fallback。
+    const Phase1ExecutionCandidates& shotPlanCandidates =
+        planningResult->executionCandidates();
+    const bool rankedPotCandidatesExhausted =
+        shotPlanCandidates.rankedPotPlans.empty() &&
+        !shotPlanCandidates.legalContactPlans.empty();
+
+    ExecutionPlanResult planResult =
         motionPlanner.createExecutionPlan(
             *planningResult,
             BilliardConfig::TABLE_GEOMETRY,
             motionConfig,
             hardwareChecks,
-            false,
+            rankedPotCandidatesExhausted,
             resolvedTableGeometry);
+
+    // 母球僅觸碰保底：Phase1當初判定shotPlan幾何可行、沒有預先生成
+    // cueBallContactOnlyPlans，但shotPlan剛剛在ExecutionPlan建立
+    // （P2-01姿態搜尋／FixedForceEnvelope／後方障礙）失敗——例如母球
+    // 位置在手臂實際可達範圍邊緣。現場用同一個PlanningSourceAudit補
+    // 生成360度方向候選重試一次，讓母球至少有安全推出的機會，不必
+    // 這一輪直接失敗、回Unknown。UnknownUnsafe／硬體/設定/數值類失敗
+    // 不在這個可重試清單內，維持fail closed。
+    if ((!planResult.isValid() ||
+         planResult.status() != ExecutionPlanStatus::Success ||
+         !planResult.value()) &&
+        planResult.diagnostic() &&
+        (planResult.diagnostic()->reason ==
+             ExecutionPlanFailureReason::FixedForceEnvelopeRejected ||
+         planResult.diagnostic()->reason ==
+             ExecutionPlanFailureReason::NoAcceptedPoseCandidate ||
+         planResult.diagnostic()->reason ==
+             ExecutionPlanFailureReason::RearObstacleBlocked) &&
+        shotPlanCandidates.cueBallContactOnlyPlans.empty() &&
+        resolvedTableGeometry) {
+
+        cout
+            << "[保底] shotPlan的ExecutionPlan建立失敗（reason="
+            << static_cast<int>(planResult.diagnostic()->reason)
+            << "），現場補生成CueBallContactOnly候選重試一次..."
+            << endl;
+
+        for (const ShotPlan& fallback :
+                BilliardAlgorithm::generateCueBallContactOnlyExecutionFallback(
+                    shotPlan->source, *resolvedTableGeometry)) {
+
+            ExecutionPlanResult fallbackResult =
+                motionPlanner.createExecutionPlan(
+                    PlanningResult::shotPlan(fallback),
+                    BilliardConfig::TABLE_GEOMETRY,
+                    motionConfig,
+                    hardwareChecks,
+                    true,
+                    resolvedTableGeometry);
+
+            if (fallbackResult.isValid() &&
+                fallbackResult.status() == ExecutionPlanStatus::Success &&
+                fallbackResult.value()) {
+
+                cout
+                    << "[保底] CueBallContactOnly候選建立ExecutionPlan成功"
+                    << endl;
+                planResult = std::move(fallbackResult);
+                break;
+            }
+        }
+    }
 
     if (!planResult.isValid() ||
         planResult.status() !=

@@ -251,29 +251,54 @@ int main()
     }
 
     {
-        // 一顆球在第3幀從present變absent（閃爍）：滑動視窗設計下不再讓整批
-        // 結果作廢，改成該球這一輪回報nullopt，其餘（cueBall／袋口）維持
-        // 一致就照常送出Stable結果。
+        // 一顆球在單一事件缺席（跟母球/袋口一樣）：Item 4C——三事件視窗
+        // 內presence不一致（mixed present/absent）時，這一輪還不能定案，
+        // 必須維持NeedMoreEvents繼續滑動，絕不能把那顆球單獨收斂成
+        // "unknown/nullopt"、放行其餘欄位照常送出Stable（那樣會讓一顆
+        // 其實還在桌上、只是這一瞬間被遮擋/漏偵測的球，被Phase1誤判成
+        // 「確定不在桌上」）。直到flicker事件被滑出視窗、視窗內3筆
+        // presence一致時，才送出Stable——跟母球/袋口既有行為完全對齊。
         ThreeEventStability stability(validConfig());
-        tests.expectTrue(stability.accept(makeEvent(1, 0, makeFrame())).status() == StabilityStatus::NeedMoreEvents, "presence fixture first event waits");
-        tests.expectTrue(stability.accept(makeEvent(2, 10, makeFrame())).status() == StabilityStatus::NeedMoreEvents, "presence fixture second event waits");
-        const auto changed = stability.accept(makeEvent(3, 20, makeFrame({100.0, 200.0}, std::nullopt)));
+        auto flickeringFrame = makeFrame({100.0, 200.0}, std::nullopt);
+        tests.expectTrue(stability.accept(makeEvent(1, 0, makeFrame())).status() == StabilityStatus::NeedMoreEvents, "ball-flicker fixture first event waits");
+        const auto duringFlicker = stability.accept(makeEvent(2, 10, std::move(flickeringFrame)));
         tests.expectTrue(
-            changed.status() == StabilityStatus::Stable,
-            "a single ball's presence flicker does not block the rest of the frame from stabilizing");
-        tests.expectTrue(changed.isValid(), "flicker-tolerant stable result invariant holds");
-        if (changed.value()) {
-            tests.expectFalse(
-                changed.value()->objectBalls[0].has_value(),
-                "the flickering ball itself is reported as unknown (nullopt) this round, "
-                "not a stale or guessed position");
+            duringFlicker.status() == StabilityStatus::NeedMoreEvents,
+            "a ball missing from just one window event keeps sliding; mixed presence must never collapse into a stable absent");
+        expectNoSuccessValue(tests, duringFlicker, "ball flicker mid-window has no partial stable value");
+        tests.expectTrue(stability.accumulatedEventCount() == 2, "ball flicker does not clear the sliding window");
+
+        const auto stillInWindow3 = stability.accept(makeEvent(3, 20, makeFrame()));
+        tests.expectTrue(
+            stillInWindow3.status() == StabilityStatus::NeedMoreEvents,
+            "the flickering event is still inside the 3-window after event 3");
+        tests.expectTrue(
+            stillInWindow3.diagnostic() && stillInWindow3.diagnostic()->reason == StabilityFailureReason::BallMoved,
+            "unresolved ball presence names BallMoved directly on the diagnostic, same as cue-ball/pocket");
+        tests.expectTrue(stability.accumulatedEventCount() == 3, "still-unresolved ball does not clear the sliding window");
+
+        const auto stillInWindow4 = stability.accept(makeEvent(4, 30, makeFrame()));
+        tests.expectTrue(
+            stillInWindow4.status() == StabilityStatus::NeedMoreEvents,
+            "the flickering event (#2) is still inside the 3-window after event 4 ([2,3,4])");
+        tests.expectTrue(stability.accumulatedEventCount() == 3, "sliding window keeps its size at 3, not cleared");
+
+        const auto recovered = stability.accept(makeEvent(5, 40, makeFrame()));
+        tests.expectTrue(
+            recovered.status() == StabilityStatus::Stable,
+            "once the flickering event slides out of the 3-window, a fully-present agreeing window becomes Stable");
+        if (recovered.value()) {
+            tests.expectTrue(
+                recovered.value()->objectBalls[0].has_value(),
+                "the previously-flickering ball is reported present once the window fully agrees again, "
+                "never silently downgraded to absent");
             tests.expectNear(
-                changed.value()->cueBall.x, 100.0, 0.0,
+                recovered.value()->cueBall.x, 100.0, 0.0,
                 "cueBall, unaffected by the flicker, is still reported correctly");
         }
         tests.expectTrue(
             stability.accumulatedEventCount() == 0,
-            "a Stable result (even with one ball excluded) still closes and resets the window");
+            "a Stable result closes and resets the window");
     }
 
     {

@@ -408,14 +408,29 @@ struct RealExecutionCycleServices {
     std::function<OfflineStepResult()> resetCycleAccumulation;
     // 呼叫端必須每次都傳入同一個已配置cycleIdentity，本函式不得自行配置。
     std::function<OfflineStepResult(ShotCycleIdentity)> openCaptureWindow;
+    // runPhase1()一返回（不論結果為何）就呼叫，告知Python這次capture
+    // window已經不需要更多資料；best-effort、未設定時（例如既有測試
+    // fixture沒配置）視同no-op，不影響cycle成功/失敗判定。
+    std::function<void(ShotCycleIdentity)> closeCaptureWindow;
     std::function<OfflinePhase1Result()> runPhase1;
     std::function<bool()> isVisionConnected;
     // 單次連線嘗試；重試／deadline由呼叫端負責。
     std::function<VisionConnectResult()> connectVision;
     std::function<const PlanningResult*()> currentPlanningResult;
+    // runRealSingleCycle是static member function、沒有this，這裡是它
+    // 讀取pendingResolvedTableGeometry（供tryCandidates的CueBallContactOnly
+    // 執行層保底做前方碰撞檢查用）的唯一管道，跟currentPlanningResult
+    // 同一個wiring模式。回傳nullptr代表目前沒有已解析的桌面幾何，
+    // 呼叫端必須fail closed（不產生候選），不能假設沒有障礙。
+    std::function<const std::optional<ResolvedTableGeometry>*()>
+        currentResolvedTableGeometry;
+    // 第三個參數是forcedStrikeMode：nullopt時沿用MotionPlanner既有的
+    // preferredStrikeMode自動選擇；有值時強制指定StrikeMode，供preflight
+    // NotReachable後的對側重試使用（見tryCandidates）。
     std::function<ExecutionPlanResult(
         const ShotPlan&,
-        bool)> buildExecutionPlanForShot;
+        bool,
+        std::optional<StrikeMode>)> buildExecutionPlanForShot;
     // PlanningTest診斷模式使用：單一計畫入口（挑選第一順位候選），
     // 不含retry／reconnect，只服務不動硬體的診斷輸出。
     std::function<ExecutionPlanResult()> buildExecutionPlan;

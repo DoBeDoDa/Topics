@@ -900,6 +900,175 @@ generateGrazingDirectLegalContactCandidates(
     return candidates;
 }
 
+// Kick擦撞（grazing）角度掃描：對每個rail，head-on kick（由generateLegalContact
+// 算過）以外，以「鏡射母球到目標」的方向為基準，往左右每隔angularStepDeg多算
+// 一個接觸點候選，直到切線極限arcsin(ballDiameterMm/鏡射母球到目標距離)為止
+// （含極限本身）。跟generateGrazingDirectLegalContactCandidates用同一套角度
+// 掃描邏輯，只是先鏡射母球，再重用generateLegalContact既有kick loop那套
+// intersectRayWithEffectiveRail／reflection invariant／maxKickRailAngleDeg／
+// 前後兩段collision檢查，確保產出的候選跟head-on kick滿足同一組幾何不變量
+// （KickLegalContactCandidate::isValid()會檢查這些）。只補充額外候選，不取代
+// /不排擠head-on最佳候選。
+std::vector<KickLegalContactCandidate>
+generateGrazingKickLegalContactCandidates(
+    const StableTableState& table,
+    const EligibleTarget& selectedTarget,
+    const ResolvedTableGeometry& geometry,
+    const BilliardConfig::KickGeometryConfig& kickConfig,
+    double angularStepDeg)
+{
+    std::vector<KickLegalContactCandidate> candidates;
+    if (!std::isfinite(angularStepDeg) || angularStepDeg <= 0.0 ||
+        angularStepDeg >= 90.0) {
+        return candidates;
+    }
+    std::vector<Point> obstacles;
+    obstacles.reserve(table.objectBalls.size());
+    std::optional<std::size_t> selectedObstacleIndex;
+    for (std::size_t index = 0; index < table.objectBalls.size(); ++index) {
+        if (!table.objectBalls[index]) continue;
+        if (index == static_cast<std::size_t>(selectedTarget.ballNumber - 1)) {
+            selectedObstacleIndex = obstacles.size();
+        }
+        obstacles.push_back(*table.objectBalls[index]);
+    }
+    if (!selectedObstacleIndex) return candidates;
+    const std::vector<std::size_t> targetExclusion{*selectedObstacleIndex};
+
+    for (std::size_t railIndex = 0;
+         railIndex < geometry.railReflectionRegion.rails.size();
+         ++railIndex) {
+        const EffectiveCueBallRailSegment& rail =
+            geometry.railReflectionRegion.rails[railIndex];
+        const auto mirroredCue = BilliardPhysics::mirrorPointAcrossEffectiveRail(
+            table.cueBall, rail);
+        if (!mirroredCue.value()) continue;
+
+        const auto mirroredToTargetRaw = BilliardMath::getVector(
+            *mirroredCue.value(), selectedTarget.center);
+        const auto mirroredToTargetDistance = BilliardMath::getDistance(
+            *mirroredCue.value(), selectedTarget.center);
+        const auto direction = mirroredToTargetRaw
+            ? BilliardMath::normalize(*mirroredToTargetRaw)
+            : std::nullopt;
+        if (!direction || !mirroredToTargetDistance ||
+            *mirroredToTargetDistance < geometry.ballDiameterMm) {
+            continue;
+        }
+        const double tangentLimitRad = std::asin(
+            geometry.ballDiameterMm / *mirroredToTargetDistance);
+        const double tangentLimitDeg = tangentLimitRad * (180.0 / BilliardMath::PI);
+
+        std::vector<double> angles;
+        for (double angle = angularStepDeg; angle < tangentLimitDeg;
+             angle += angularStepDeg) {
+            angles.push_back(angle);
+            angles.push_back(-angle);
+        }
+        angles.push_back(tangentLimitDeg);
+        angles.push_back(-tangentLimitDeg);
+
+        for (const double angleDeg : angles) {
+            const double angleRad = angleDeg * (BilliardMath::PI / 180.0);
+            const Vector2D rotated{
+                direction->x * std::cos(angleRad) -
+                    direction->y * std::sin(angleRad),
+                direction->x * std::sin(angleRad) +
+                    direction->y * std::cos(angleRad)};
+            const Point ghost{
+                selectedTarget.center.x - geometry.ballDiameterMm * rotated.x,
+                selectedTarget.center.y - geometry.ballDiameterMm * rotated.y};
+            if (!BilliardMath::isFinite(ghost)) continue;
+
+            const auto rebound = BilliardPhysics::intersectRayWithEffectiveRail(
+                *mirroredCue.value(), ghost, rail);
+            if (!rebound.value()) continue;
+
+            const Segment2D first{table.cueBall, *rebound.value()};
+            const Segment2D second{*rebound.value(), ghost};
+            const auto incomingRaw =
+                BilliardMath::getVector(first.start, first.end);
+            const auto outgoingRaw =
+                BilliardMath::getVector(second.start, second.end);
+            const auto incoming = incomingRaw
+                ? BilliardMath::normalize(*incomingRaw) : std::nullopt;
+            const auto outgoing = outgoingRaw
+                ? BilliardMath::normalize(*outgoingRaw) : std::nullopt;
+            if (!incoming || !outgoing) continue;
+
+            const double incomingNormal =
+                incoming->x * rail.inwardUnitNormal.x +
+                incoming->y * rail.inwardUnitNormal.y;
+            const double outgoingNormal =
+                outgoing->x * rail.inwardUnitNormal.x +
+                outgoing->y * rail.inwardUnitNormal.y;
+            const Vector2D idealReflected{
+                incoming->x - 2.0 * incomingNormal * rail.inwardUnitNormal.x,
+                incoming->y - 2.0 * incomingNormal * rail.inwardUnitNormal.y};
+            const double reflectionDifference = std::hypot(
+                outgoing->x - idealReflected.x,
+                outgoing->y - idealReflected.y);
+            const Vector2D negativeIncoming{-incoming->x, -incoming->y};
+            const auto incidenceAngle = angleFromNormal(
+                negativeIncoming, rail.inwardUnitNormal);
+            const auto reflectionAngle = angleFromNormal(
+                *outgoing, rail.inwardUnitNormal);
+            if (!std::isfinite(incomingNormal) || !std::isfinite(outgoingNormal) ||
+                incomingNormal >= 0.0 || outgoingNormal <= 0.0 ||
+                !std::isfinite(reflectionDifference) ||
+                reflectionDifference > kickConfig.reflectionDirectionTolerance ||
+                !incidenceAngle || !reflectionAngle ||
+                std::fabs(*incidenceAngle - *reflectionAngle) >
+                    kickConfig.reflectionAngleToleranceDeg) {
+                continue;
+            }
+            if (*incidenceAngle > kickConfig.maxKickRailAngleDeg) continue;
+
+            const GeometryCheckResult firstCollision =
+                BilliardPhysics::checkSegmentCollision(
+                    first,
+                    obstacles,
+                    {},
+                    geometry.ballDiameterMm,
+                    geometry.collisionMarginMm);
+            const GeometryCheckResult secondCollision =
+                BilliardPhysics::checkSegmentCollision(
+                    second,
+                    obstacles,
+                    targetExclusion,
+                    geometry.ballDiameterMm,
+                    geometry.collisionMarginMm);
+            if (firstCollision.status() != GeometryStatus::Clear ||
+                secondCollision.status() != GeometryStatus::Clear) {
+                continue;
+            }
+
+            std::optional<double> minimumClearance;
+            double totalDistance = 0.0;
+            if (!accumulateClearance(minimumClearance, first, obstacles, {}) ||
+                !accumulateClearance(
+                    minimumClearance, second, obstacles, targetExclusion) ||
+                !accumulateDistance(totalDistance, first) ||
+                !accumulateDistance(totalDistance, second)) {
+                continue;
+            }
+
+            candidates.push_back(KickLegalContactCandidate{
+                selectedTarget,
+                rail.physicalRailId,
+                GhostBallPoint{ghost},
+                *rebound.value(),
+                rail.segment,
+                first,
+                second,
+                minimumClearance,
+                totalDistance,
+                *incidenceAngle});
+        }
+    }
+    return candidates;
+}
+
 std::optional<ShotPlan> makePotShotPlan(
     const StableTableState& table,
     const PlanningSourceAudit& source,
@@ -1764,15 +1933,28 @@ PotSelectionResult BilliardAlgorithm::selectBestPot(
 // 任何特定目標球。Phase1只列舉候選，rear-obstacle／reachability／pose
 // search／LIN／preflight全部留給Phase2逐一篩選，跟直擊/反彈/legal
 // contact共用同一套「試下一個候選」重試機制（BilliardApp.cpp）。
+// 每個方向的synthetic 300mm路徑都要跟source.otherBallsSnapshot裡的其他
+// 球做碰撞檢查（跟Direct/Kick候選生成用同一個checkSegmentCollision）；
+// CueBallContactOnly沒有真正的目標球，obstacles不需要排除任何index。
+// 撞到其他球的方向直接不產生候選，不是留給MotionPlanner事後擋——
+// MotionPlanner目前只檢查母球「後方」（推桿自己的退讓空間），從來沒檢查
+// 「前方」執行路徑本身，這裡是CueBallContactOnly唯一會做前方碰撞檢查
+// 的地方。
 std::vector<ShotPlan> generateCueBallContactOnlyCandidates(
     const PlanningSourceAudit& source,
     const EligibleTarget& selectedTarget,
+    const ResolvedTableGeometry& geometry,
     double angularStepDeg)
 {
     std::vector<ShotPlan> candidates;
     if (!std::isfinite(angularStepDeg) || angularStepDeg <= 0.0 ||
         angularStepDeg > 180.0) {
         return candidates;
+    }
+    std::vector<Point> obstacles;
+    obstacles.reserve(source.otherBallsSnapshot.size());
+    for (const auto& ball : source.otherBallsSnapshot) {
+        if (ball) obstacles.push_back(*ball);
     }
     // 純bookkeeping用的路徑長度，不代表任何真實碰撞路徑或安全距離。
     constexpr double SYNTHETIC_REACH_MM = 300.0;
@@ -1785,13 +1967,19 @@ std::vector<ShotPlan> generateCueBallContactOnlyCandidates(
         const Point syntheticEnd{
             source.cueBallSnapshot.x + SYNTHETIC_REACH_MM * direction.x,
             source.cueBallSnapshot.y + SYNTHETIC_REACH_MM * direction.y};
+        const Segment2D cuePath{source.cueBallSnapshot, syntheticEnd};
+        const GeometryCheckResult collision =
+            BilliardPhysics::checkSegmentCollision(
+                cuePath, obstacles, {},
+                geometry.ballDiameterMm, geometry.collisionMarginMm);
+        if (collision.status() != GeometryStatus::Clear) continue;
         ShotPlan plan{
             ShotPlanType::CueBallContactOnly,
             source,
             selectedTarget,
             direction,
             GhostBallPoint{syntheticEnd},
-            {Segment2D{source.cueBallSnapshot, syntheticEnd}},
+            {cuePath},
             std::nullopt,
             FixedForceMode::Fixed,
             Phase1ModelLimitations{true, true, true},
@@ -1803,6 +1991,20 @@ std::vector<ShotPlan> generateCueBallContactOnlyCandidates(
         }
     }
     return candidates;
+}
+
+std::vector<ShotPlan>
+BilliardAlgorithm::generateCueBallContactOnlyExecutionFallback(
+    const PlanningSourceAudit& source,
+    const ResolvedTableGeometry& geometry)
+{
+    // ballNumber/center只是滿足ShotPlan::isValid()的結構性欄位，不對應
+    // 任何真實球——用母球自身位置當center，不發明座標。跟Phase1
+    // NoEligibleTarget那條既有保底路徑用同一組佔位規則。
+    const EligibleTarget placeholderTarget{1, source.cueBallSnapshot};
+    return generateCueBallContactOnlyCandidates(
+        source, placeholderTarget, geometry,
+        BilliardConfig::CUE_BALL_CONTACT_ONLY_ANGULAR_STEP_DEG);
 }
 
 PlanningResult BilliardAlgorithm::planShot(
@@ -1886,6 +2088,31 @@ PlanningResult BilliardAlgorithm::planShot(
         const TargetQualificationStatus status = targetResult.isValid()
             ? targetResult.status()
             : TargetQualificationStatus::InvalidStableState;
+        // 保底：完全沒有可選目標球（NoEligibleTarget）時，CueBallContactOnly
+        // 不需要真正的目標球幾何——executionDirectionXY才是權威執行方向
+        // （見CueBallContactOnlyShotPlanPayload），可以在這裡直接產生360度
+        // 方向掃描候選，讓MotionPlanner既有的貼庫安全繞行（rail-hugging）
+        // 有機會在「桌上沒有任何球」時仍然評估到，而不是連候選都不存在。
+        // 跟下面「Pot/LegalContact都窮盡」那條既有保底路徑用同一個
+        // ManualResearch gate，不擴大production PotOnly模式目前的授權
+        // 範圍。ballNumber/center只是滿足ShotPlan::isValid()的結構性欄位，
+        // 不對應任何真實球——用母球自身位置當center，不發明座標。
+        if (status == TargetQualificationStatus::NoEligibleTarget &&
+            brainConfig.scoring->planningMode ==
+                BilliardConfig::PlanningMode::ManualResearch) {
+            const EligibleTarget placeholderTarget{1, source.cueBallSnapshot};
+            std::vector<ShotPlan> noTargetCandidates =
+                generateCueBallContactOnlyCandidates(
+                    source, placeholderTarget, geometry,
+                    BilliardConfig::CUE_BALL_CONTACT_ONLY_ANGULAR_STEP_DEG);
+            if (!noTargetCandidates.empty()) {
+                ShotPlan selectedFallback = noTargetCandidates.front();
+                Phase1ExecutionCandidates candidates;
+                candidates.cueBallContactOnlyPlans = std::move(noTargetCandidates);
+                return PlanningResult::shotPlan(
+                    std::move(selectedFallback), std::move(candidates));
+            }
+        }
         return noPlan(
             status == TargetQualificationStatus::NoEligibleTarget
                 ? NoPlanReason::NoEligibleTarget
@@ -2034,6 +2261,14 @@ PlanningResult BilliardAlgorithm::planShot(
     for (const auto& kick : precomputedLegal.feasibleKicks) {
         if (kick) orderedKicks.push_back(*kick);
     }
+    // 擦撞角度掃描（kick版）：只補充額外候選，不取代head-on kick最佳候選；
+    // 找不到任何切線內可行角度不影響其他候選來源。
+    for (const KickLegalContactCandidate& grazingKick :
+            generateGrazingKickLegalContactCandidates(
+                table, selectedTarget, geometry, *brainConfig.kickGeometry,
+                BilliardConfig::LEGAL_CONTACT_KICK_GRAZING_ANGULAR_STEP_DEG)) {
+        orderedKicks.push_back(grazingKick);
+    }
     std::sort(
         orderedKicks.begin(), orderedKicks.end(),
         [](const KickLegalContactCandidate& first,
@@ -2091,7 +2326,7 @@ PlanningResult BilliardAlgorithm::planShot(
         if (executionCandidates.legalContactPlans.empty()) {
             executionCandidates.cueBallContactOnlyPlans =
                 generateCueBallContactOnlyCandidates(
-                    source, selectedTarget,
+                    source, selectedTarget, geometry,
                     BilliardConfig::CUE_BALL_CONTACT_ONLY_ANGULAR_STEP_DEG);
             if (executionCandidates.cueBallContactOnlyPlans.empty()) {
                 return noPlan(

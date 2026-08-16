@@ -38,6 +38,7 @@
                 "${workspaceFolder}\\src\\MotionPlanner.cpp",
                 "${workspaceFolder}\\src\\TargetSelector.cpp",
                 "${workspaceFolder}\\src\\VisionDataParser.cpp",
+                "${workspaceFolder}\\src\\VisionControlChannel.cpp",
                 "${workspaceFolder}\\lib\\HRSDK.lib"
             ],
             "options": {
@@ -79,6 +80,7 @@
         "${workspaceFolder}\\src\\MotionPlanner.cpp",
         "${workspaceFolder}\\src\\TargetSelector.cpp",
         "${workspaceFolder}\\src\\VisionDataParser.cpp",
+        "${workspaceFolder}\\src\\VisionControlChannel.cpp",
 
         "${workspaceFolder}\\lib\\HRSDK.lib"
     ],

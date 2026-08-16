@@ -418,9 +418,16 @@ struct FakeSdk {
                 if (linCode == 0) motionJustCommanded = true;
                 return linCode;
             },
-            [&](int, int, double*) {
+            [&](int, int, double* joints) {
                 calls.push_back("ptpAxis");
-                if (jointPtpCode == 0) motionJustCommanded = true;
+                if (jointPtpCode == 0) {
+                    motionJustCommanded = true;
+                    // 模擬真的到位：readJoints讀的currentJoints要跟著更新，
+                    // 否則同一輪cycle內先後對Standby/CameraPose的位置確認
+                    // （isAtConfiguredJoint）不可能同時成立，靜態值只能滿足
+                    // 其中一個目標關節角度。
+                    std::copy(joints, joints + 6, currentJoints.begin());
+                }
                 return jointPtpCode;
             },
             [&](int) {
@@ -605,7 +612,10 @@ struct FakeRealServices {
         s.currentPlanningResult = [this]() -> const PlanningResult* {
             return &planningResult;
         };
-        s.buildExecutionPlanForShot = [this](const ShotPlan& shot, bool potsExhausted) {
+        s.buildExecutionPlanForShot = [this](
+            const ShotPlan& shot,
+            bool potsExhausted,
+            std::optional<StrikeMode>) {
             calls.push_back("buildPlan");
             return buildPlan
                 ? buildPlan(shot, potsExhausted)
@@ -1235,7 +1245,8 @@ int main()
         services.currentPlanningResult = [&]() -> const PlanningResult* {
             return &fake.planningResult;
         };
-        services.buildExecutionPlanForShot = [&fake, plan](const ShotPlan&, bool) {
+        services.buildExecutionPlanForShot = [&fake, plan](
+            const ShotPlan&, bool, std::optional<StrikeMode>) {
             fake.calls.push_back("buildPlan");
             return ExecutionPlanResult::success(plan);
         };
@@ -1262,12 +1273,18 @@ int main()
         const ShotPlan* candidate1Ptr = &candidates.rankedPotPlans[1];
         fake.planningResult =
             PlanningResult::shotPlan(buildRealShotPlan(), std::move(candidates));
+        // strikeMode=Pull（不是預設Push）：preflight NotReachable後的
+        // Push->Pull對側重試只在原始strikeMode為Push時觸發（見
+        // tryCandidates），Pull本身沒有反向fallback，這裡才單純測到
+        // 「NotReachable換下一個candidate、不是重試同一個candidate」，
+        // 不會跟新加的對側重試機制混在一起。
+        const ExecutionPlan pullPlan = validExecutionPlan(1, StrikeMode::Pull);
         std::vector<int> attemptedCandidateIndices;
-        fake.buildPlan = [plan, candidate0Ptr, candidate1Ptr, &attemptedCandidateIndices](
+        fake.buildPlan = [pullPlan, candidate0Ptr, candidate1Ptr, &attemptedCandidateIndices](
                 const ShotPlan& shot, bool) {
             attemptedCandidateIndices.push_back(
                 &shot == candidate0Ptr ? 0 : (&shot == candidate1Ptr ? 1 : -1));
-            return ExecutionPlanResult::success(plan);
+            return ExecutionPlanResult::success(pullPlan);
         };
         const ExecutionCycleResult result = BilliardApp::runRealSingleCycle(
             runtime, 1, *robot, config, fake.services(), deadlineFor(clock));
@@ -1588,17 +1605,28 @@ int main()
     {
         // Section 10: 重連成功後、重開capture window前必須重新確認
         // CameraPose是否仍正確；姿態不符時必須ManualRecoveryRequired，
-        // 不可假設重連期間機構完全沒動過。
+        // 不可假設重連期間機構完全沒動過。sdk.currentJoints維持預設
+        // CAMERA_JOINT，讓最初seam.moveToCameraPose/confirmCameraPoseStopped
+        // （現在也會核對真實關節角度，見P1-04後CameraPose位置確認修正）
+        // 正常通過；只在connectVision成功那一刻才把currentJoints改成別的
+        // 值，模擬重連期間機構真的動過，這樣才單獨測到
+        // confirmSafeAtCameraPose在重連路徑上的檢查，不會跟seam自己的
+        // CameraPose位置確認混在一起、在更早的步驟就先失敗。
         FakeSdk sdk;
-        sdk.currentJoints = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};  // 明顯不是CAMERA_JOINT
         auto robot = connected(sdk);
         OfflineExecutionRuntime runtime;
         FakeClock clock;
         FakeRealServices fake = singleCandidateSuccess(validExecutionPlan(1));
         fake.visionConnected = false;
-        fake.connectResponses = {{VisionConnectStatus::Connected, 0}};
+        RealExecutionCycleServices services = fake.services();
+        services.connectVision = [&]() -> VisionConnectResult {
+            fake.calls.push_back("connectVision");
+            sdk.currentJoints = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};  // 明顯不是CAMERA_JOINT
+            fake.visionConnected = true;
+            return {VisionConnectStatus::Connected, 0};
+        };
         const ExecutionCycleResult result = BilliardApp::runRealSingleCycle(
-            runtime, 1, *robot, config, fake.services(), deadlineFor(clock));
+            runtime, 1, *robot, config, services, deadlineFor(clock));
         tests.expectTrue(
             result.status == ExecutionCycleStatus::SafeFailure &&
             result.diagnostic->reason ==
@@ -1692,6 +1720,14 @@ int main()
         // 尚未處理」那個時間點的呼叫紀錄快照，直接證明P自己的流程完全
         // 不含pneumatic或full-strike motion（不是只看最終總數）。
         FakeSdk sdk;
+        // 2026-08-16新增：H/DI1按下時若手臂還沒在Standby，run()現在會先
+        // 做未計時的runPOnly()式回Standby準備、不算成一次shot cycle
+        // （見run()裡的pre-standby check）。這裡的P本來就會PTP到
+        // STANDBY_JOINT_REFERENCE，但FakeSdk.currentJoints是靜態欄位、
+        // 不會真的因為模擬的PTP指令而更新，所以要顯式設成Standby，讓
+        // 之後的H直接被視為「已在Standby」，才能照原本測試意圖驗證
+        // P→H的cycle-identity/呼叫次序，不被新加的pre-standby check擋下。
+        sdk.currentJoints = BilliardConfig::STANDBY_JOINT_REFERENCE.jointDeg;
         auto robot = connected(sdk);
         FakeRealServices fakeServices = singleCandidateSuccess(validExecutionPlan(1));
         int pollCall = 0;
@@ -1750,6 +1786,9 @@ int main()
         // Section 10: active cycle期間排入console queue的H事件不得在回到
         // WaitingForStart後自動啟動下一輪。
         FakeSdk sdk;
+        // 見上一個測試區塊的說明：顯式設成Standby，讓H不被新加的
+        // pre-standby check攔截成未計時的準備動作。
+        sdk.currentJoints = BilliardConfig::STANDBY_JOINT_REFERENCE.jointDeg;
         auto robot = connected(sdk);
         FakeRealServices fakeServices = singleCandidateSuccess(validExecutionPlan(1));
         int pollCall = 0;
@@ -1800,6 +1839,9 @@ int main()
         // standbyEdge分支呼叫；resync本身結構上不可能觸發它，這裡用
         // ptpAxis計數驗證沒有多出一次runPOnly()專屬的standby PTP）。
         FakeSdk sdk;
+        // 見前面測試區塊的說明：顯式設成Standby，讓H不被新加的
+        // pre-standby check攔截成未計時的準備動作。
+        sdk.currentJoints = BilliardConfig::STANDBY_JOINT_REFERENCE.jointDeg;
         auto robot = connected(sdk);
         FakeRealServices fakeServices = singleCandidateSuccess(validExecutionPlan(1));
         int pollCall = 0;

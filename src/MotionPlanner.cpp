@@ -142,19 +142,31 @@ bool isLegalContact(ShotPlanType type) noexcept
         type == ShotPlanType::KickLegalContact;
 }
 
+// ManualResearch標籤只代表Phase1 BrainConfig用了ManualResearch
+// planningMode（見Algorithm.cpp的legalAuthority），跟這裡要判斷的
+// 「RealHardware執行時pot是否已窮盡」是兩個獨立的軸——Phase1不得讀取
+// Phase2的policyMode，所以無法自己標成ProductionFallbackEligible。
+// LegalContactAuditFields::isValid()本來就允許ManualResearch標籤對應
+// potSearchExhausted==true（TableState.h），這裡兩種標籤都接受，
+// productionLegalContactFallbackAuthorized這個既有核准開關才真正生效；
+// legalContactExecutionAuthorized維持獨立、不受影響。
 bool isProductionLegalContactFallback(const ShotPlan& plan) noexcept
 {
     if (const auto* direct =
             std::get_if<DirectLegalContactShotPlanPayload>(&plan.payload)) {
         return direct->audit.activationAuthority ==
-            LegalContactAuditFields::ActivationAuthority::
-                ProductionFallbackEligible;
+                LegalContactAuditFields::ActivationAuthority::
+                    ProductionFallbackEligible ||
+            direct->audit.activationAuthority ==
+                LegalContactAuditFields::ActivationAuthority::ManualResearch;
     }
     if (const auto* kick =
             std::get_if<KickLegalContactShotPlanPayload>(&plan.payload)) {
         return kick->audit.activationAuthority ==
-            LegalContactAuditFields::ActivationAuthority::
-                ProductionFallbackEligible;
+                LegalContactAuditFields::ActivationAuthority::
+                    ProductionFallbackEligible ||
+            kick->audit.activationAuthority ==
+                LegalContactAuditFields::ActivationAuthority::ManualResearch;
     }
     return false;
 }
@@ -786,7 +798,8 @@ ExecutionPlanResult MotionPlanner::createExecutionPlan(
     const std::optional<BilliardConfig::MotionPlanningConfig>& config,
     const MotionPlanningChecks& checks,
     bool rankedPotCandidatesExhausted,
-    const std::optional<ResolvedTableGeometry>& resolvedTableGeometry) const
+    const std::optional<ResolvedTableGeometry>& resolvedTableGeometry,
+    std::optional<StrikeMode> forcedStrikeMode) const
 {
     if (!planningResult.isValid()) {
         return reject(
@@ -968,10 +981,12 @@ ExecutionPlanResult MotionPlanner::createExecutionPlan(
             ExecutionPlanStatus::NoExecutablePlan,
             ExecutionPlanFailureReason::NumericalFailure);
     }
-    const StrikeMode preferredStrikeMode = resolveStrikeMode(
-        bottomDistanceMm,
-        *config->pullModeMinBottomDistanceMm,
-        tableDownDirectionDot);
+    const StrikeMode preferredStrikeMode = forcedStrikeMode
+        ? *forcedStrikeMode
+        : resolveStrikeMode(
+            bottomDistanceMm,
+            *config->pullModeMinBottomDistanceMm,
+            tableDownDirectionDot);
 
     const std::vector<double> aValues = axisCandidates(
         *config->a0Deg,
@@ -1207,7 +1222,10 @@ ExecutionPlanResult MotionPlanner::createExecutionPlan(
 
     const ExecutionPlanResult preferredAttempt =
         attemptForStrikeMode(preferredStrikeMode);
-    if (preferredAttempt.status() == ExecutionPlanStatus::Success ||
+    // forcedStrikeMode是呼叫端（preflight NotReachable後的對側重試）明確
+    // 指定的單一模式，不再套用這裡的NoAcceptedPoseCandidate對側自動重試。
+    if (forcedStrikeMode ||
+        preferredAttempt.status() == ExecutionPlanStatus::Success ||
         !preferredAttempt.diagnostic() ||
         preferredAttempt.diagnostic()->reason !=
             ExecutionPlanFailureReason::NoAcceptedPoseCandidate) {

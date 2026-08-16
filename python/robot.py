@@ -1,21 +1,31 @@
-"""Production RGB vision -> Base0 XY -> existing 32-value TCP service."""
+"""Production RGB vision -> Base0 XY -> existing 32-value TCP service.
+
+Capture is now gated by a START_CAPTURE/STOP_CAPTURE control protocol sent
+by the C++ side over the same TCP connection (see parse_control_line()).
+Within one START_CAPTURE window, many raw images are captured and fed to a
+CaptureWindowAccumulator (capture_accumulator.py) until every tracked
+object resolves to a stable state; only then is one existing-format
+32-value Logical Frame sent, and the accumulator resets to build the next
+one independently. This module never assigns P1..P6 itself -- that stays
+inside CaptureWindowAccumulator / DetectionFilter's existing convention.
+"""
 
 import math
 import os
+import select
 import socket
 import sys
-import time
 
 import cv2
 
+from capture_accumulator import CaptureWindowAccumulator
 from detection_filter import CaptureRejected, DetectionFilter
 from rgb_base0_geometry import (
     CURRENT_CALIBRATION_PATH,
     CalibrationStartupError,
     RgbBase0Geometry,
 )
-from vision_payload import build_projected_frame, detection_name, format_wire_message
-from vision_renderer import VisionRenderer
+from vision_payload import format_wire_message
 from yolo_inference import YoloInference
 
 
@@ -24,14 +34,33 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(SCRIPT_DIR)
 DEFAULT_MODEL_PATH = os.path.join(ROOT_DIR, "bin", "best.pt")
 
+RAW_BALL_COLOR = (0, 255, 255)
+RAW_CUE_COLOR = (255, 255, 255)
+RAW_HOLE_COLOR = (255, 0, 255)
 
-def _box_confidence(box):
-    return float(box.conf[0])
 
+def parse_control_line(line):
+    """Parse "START_CAPTURE,<cycleId>" / "STOP_CAPTURE,<cycleId>".
 
-def _box_center(box):
-    x1, y1, x2, y2 = map(float, box.xyxy[0].tolist())
-    return (x1 + x2) / 2.0, (y1 + y2) / 2.0
+    Returns (command, cycle_id) or None for anything unrecognized -- the
+    caller logs and ignores rather than treating it as fatal, since a
+    malformed or stray line should not take the vision service down.
+    """
+    if line is None:
+        return None
+    parts = line.split(",")
+    if len(parts) != 2:
+        return None
+    command, raw_id = parts[0].strip(), parts[1].strip()
+    if command not in ("START_CAPTURE", "STOP_CAPTURE"):
+        return None
+    try:
+        cycle_id = int(raw_id)
+    except ValueError:
+        return None
+    if cycle_id <= 0:
+        return None
+    return command, cycle_id
 
 
 class BilliardDetector:
@@ -50,7 +79,6 @@ class BilliardDetector:
             raise
 
         self.filter = DetectionFilter()
-        self.renderer = VisionRenderer()
         print(f"[CALIBRATION] fixed path: {self.geometry.calibration_path}")
         print(
             "[CALIBRATION] profile="
@@ -63,12 +91,15 @@ class BilliardDetector:
             "runtime checks enforce image dimensions, FPS, and MJPG where exposed."
         )
 
-    def detect(self, frame):
+    def capture_raw(self, frame):
+        """One raw RGB image -> one YOLO pass -> ungated per-image
+        detections. Unlike the old single-shot pipeline, fewer than six
+        holes or missing balls is not rejected here; that judgment moved to
+        CaptureWindowAccumulator, which sees many images per Logical Frame.
+        """
         if frame is None or not hasattr(frame, "shape") or len(frame.shape) < 2:
             raise CaptureRejected("Captured RGB image is invalid")
         height, width = frame.shape[:2]
-        print(f"[CAPTURE] calibration path={self.geometry.calibration_path}")
-        print(f"[CAPTURE] image dimensions={width}x{height}")
         if width != self.geometry.width or height != self.geometry.height:
             raise CaptureRejected(
                 f"Captured RGB image is {width}x{height}; calibration requires "
@@ -76,39 +107,7 @@ class BilliardDetector:
             )
 
         results = self.inference.infer(frame)
-        filtered = self.filter.filter(results)
-        detections = filtered.detections
-        projected = build_projected_frame(detections, self.geometry)
-
-        accepted = [
-            f"{detection_name(class_id)}(conf={_box_confidence(box):.4f})"
-            for class_id, box in sorted(detections.items())
-        ]
-        print(f"[YOLO] accepted detections: {accepted}")
-        print(f"[YOLO] duplicate ball detections dropped: {filtered.duplicate_ball_drops}")
-        print(f"[YOLO] raw hole count: {filtered.raw_hole_count}")
-        print(
-            "[YOLO] selected six holes: "
-            f"{[(_box_confidence(box), _box_center(box)) for box in filtered.selected_holes]}"
-        )
-        pocket_pixels = {
-            name: center for name, center in projected.pixel_centers.items() if name.startswith("P")
-        }
-        ball_pixels = {
-            name: center for name, center in projected.pixel_centers.items() if not name.startswith("P")
-        }
-        print(f"[PIXEL] assigned P1-P6 centers: {pocket_pixels}")
-        print(f"[PIXEL] final ball centers: {ball_pixels}")
-        for name, point in projected.base0_points.items():
-            print(f"[BASE0] {name}=({point[0]:.6f}, {point[1]:.6f}) mm")
-        for name in projected.missing_ball_names:
-            print(f"[MISSING] {name}=-9999.0,-9999.0")
-        print(f"[PAYLOAD] {projected.wire_message.rstrip()}")
-
-        annotated, display_data = self.renderer.render(
-            frame, detections, projected.coordinates
-        )
-        return annotated, projected, display_data
+        return self.filter.extract_raw(results)
 
     def close(self):
         self.geometry.close()
@@ -182,7 +181,14 @@ class USBCamera:
 
 
 class BilliardVisionServer:
-    """The existing sole owner of the Python-to-C++ TCP socket."""
+    """The existing sole owner of the Python-to-C++ TCP socket.
+
+    Now bidirectional: C++ sends START_CAPTURE/STOP_CAPTURE control text on
+    this same connection, Python sends Logical Frame data lines back. This
+    is plain line-based text sharing one TCP stream, not a second port --
+    the two directions never race because Python only ever reads control
+    lines and only ever writes data lines.
+    """
 
     def __init__(self, host="0.0.0.0", port=12345):
         self.host = host
@@ -190,6 +196,7 @@ class BilliardVisionServer:
         self.server_socket = None
         self.connection = None
         self.address = None
+        self._control_buffer = b""
 
     def start(self):
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -199,6 +206,51 @@ class BilliardVisionServer:
         print(f"[TCP] Waiting for the existing C++ client on port {self.port}...")
         self.connection, self.address = self.server_socket.accept()
         print(f"[TCP] C++ client connected: {self.address}")
+
+    def _drain_control_buffer(self):
+        if b"\n" not in self._control_buffer:
+            return None
+        line, _, remainder = self._control_buffer.partition(b"\n")
+        self._control_buffer = remainder
+        return line.decode("utf-8", errors="replace").strip()
+
+    def poll_control_line(self):
+        """Non-blocking: only recv()s if data is already waiting. Returns
+        one decoded line, or None if no complete line is available yet
+        (including "nothing waiting" and "connection closed")."""
+        line = self._drain_control_buffer()
+        if line is not None:
+            return line
+        if self.connection is None:
+            return None
+        ready, _, _ = select.select([self.connection], [], [], 0)
+        if not ready:
+            return None
+        try:
+            chunk = self.connection.recv(4096)
+        except socket.error:
+            return None
+        if not chunk:
+            return None
+        self._control_buffer += chunk
+        return self._drain_control_buffer()
+
+    def wait_for_control_line(self):
+        """Blocks until one complete control line arrives, or the
+        connection closes (returns None)."""
+        while True:
+            line = self._drain_control_buffer()
+            if line is not None:
+                return line
+            if self.connection is None:
+                return None
+            try:
+                chunk = self.connection.recv(4096)
+            except socket.error:
+                return None
+            if not chunk:
+                return None
+            self._control_buffer += chunk
 
     def send_coords(self, coordinates):
         if self.connection is None:
@@ -210,7 +262,7 @@ class BilliardVisionServer:
             return False
         try:
             self.connection.sendall(message.encode("utf-8"))
-            print("[TCP] one validated 32-value payload sent")
+            print("[TCP] one validated Logical Frame sent")
             return True
         except socket.error as error:
             print(f"[TCP ERROR] C++ connection failed: {error}")
@@ -225,8 +277,44 @@ class BilliardVisionServer:
             self.server_socket = None
 
 
+def _draw_raw_preview(frame, raw):
+    """Lightweight per-image preview: labels detected balls, and marks raw
+    (still-unlabeled -- P1..P6 identity isn't known until the accumulator
+    resolves six stable clusters) hole detections generically."""
+    annotated = frame.copy()
+    for class_id, box in raw.balls.items():
+        x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+        color = RAW_CUE_COLOR if class_id == 9 else RAW_BALL_COLOR
+        label = "bw" if class_id == 9 else f"b{class_id + 1}"
+        cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
+        cv2.putText(
+            annotated, label, (x1, y1 - 10),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2,
+        )
+    for box in raw.raw_holes:
+        x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+        cv2.rectangle(annotated, (x1, y1), (x2, y2), RAW_HOLE_COLOR, 1)
+    return annotated
+
+
+def _print_dashboard(coordinates, cycle_id):
+    os.system("cls" if os.name == "nt" else "clear")
+    print("=====================================================")
+    print(f" RGB vision -> Robot Base0 XY (mm) -- cycle {cycle_id}")
+    print("=====================================================")
+    for ball_id in range(1, 10):
+        x, y = coordinates[(ball_id - 1) * 2], coordinates[(ball_id - 1) * 2 + 1]
+        print(f" [Ball_{ball_id}] {x:>9.2f}, {y:>9.2f}")
+    print(f" [Ball_cue] {coordinates[18]:>9.2f}, {coordinates[19]:>9.2f}")
+    for pocket_id in range(1, 7):
+        field_index = 20 + (pocket_id - 1) * 2
+        print(f" [P{pocket_id}] {coordinates[field_index]:>9.2f}, {coordinates[field_index + 1]:>9.2f}")
+    print("=====================================================")
+    print(" Press q or Esc to stop")
+
+
 class BilliardVisionApp:
-    """Coordinate startup, one-image capture events, YOLO, and existing TCP."""
+    """Coordinate startup, START_CAPTURE/STOP_CAPTURE windows, YOLO, and TCP."""
 
     def __init__(self, model_path=None, port=12345, calibration_path=CURRENT_CALIBRATION_PATH):
         self.detector = BilliardDetector(model_path, calibration_path=calibration_path)
@@ -239,54 +327,25 @@ class BilliardVisionApp:
         )
         self.server = BilliardVisionServer(port=port)
 
-    @staticmethod
-    def print_dashboard(display_data):
-        os.system("cls" if os.name == "nt" else "clear")
-        print("=====================================================")
-        print(" RGB vision -> Robot Base0 XY (mm)")
-        print("=====================================================")
-        for ball_id in range(1, 10):
-            print(f" [Ball_{ball_id}] {display_data[f'b{ball_id}']}")
-        print(f" [Ball_cue] {display_data['bw']}")
-        for pocket_id in range(1, 7):
-            print(f" [P{pocket_id}] {display_data[f'p{pocket_id}']}")
-        print("=====================================================")
-        print(" Press q or Esc to stop")
-
     def run(self):
         try:
             # Camera profile verification completes before the TCP service starts.
             self.camera.start()
             self.server.start()
-            last_print_time = 0.0
 
             while True:
-                frame = self.camera.get_frame()  # Exactly one raw RGB image per event.
-                if frame is None:
-                    print("[CAPTURE REJECTED] RGB image capture failed; payload not sent")
-                    continue
-
-                try:
-                    annotated, projected, display_data = self.detector.detect(frame)  # YOLO once.
-                except CaptureRejected as error:
-                    print(f"[CAPTURE REJECTED] {error}; payload not sent")
-                    cv2.imshow("Direct Arm Vision", frame)
-                    key = cv2.waitKey(1) & 0xFF
-                    if key in (ord("q"), ord("Q"), 27):
-                        break
-                    continue
-
-                current_time = time.time()
-                if current_time - last_print_time > 0.5:
-                    self.print_dashboard(display_data)
-                    last_print_time = current_time
-
-                if not self.server.send_coords(projected.coordinates):
+                print("[CONTROL] idle; waiting for START_CAPTURE...")
+                line = self.server.wait_for_control_line()
+                if line is None:
+                    print("[TCP] control connection closed while idle")
                     break
-
-                cv2.imshow("Direct Arm Vision", annotated)
-                key = cv2.waitKey(1) & 0xFF
-                if key in (ord("q"), ord("Q"), 27):
+                parsed = parse_control_line(line)
+                if parsed is None or parsed[0] != "START_CAPTURE":
+                    print(f"[CONTROL] ignoring unrecognized line while idle: {line!r}")
+                    continue
+                _, cycle_id = parsed
+                print(f"[CONTROL] START_CAPTURE cycle={cycle_id}")
+                if not self._run_capture_window(cycle_id):
                     break
         finally:
             self.camera.stop()
@@ -294,6 +353,66 @@ class BilliardVisionApp:
             self.detector.close()
             cv2.destroyAllWindows()
             print("[SYSTEM] Production vision service stopped")
+
+    def _run_capture_window(self, cycle_id):
+        """Runs one START_CAPTURE window: repeated raw capture + YOLO,
+        accumulating until each Logical Frame resolves and is sent, until
+        STOP_CAPTURE for this cycle_id arrives. Returns False if the whole
+        service should stop (connection lost, or q/Esc pressed)."""
+        accumulator = CaptureWindowAccumulator()
+
+        while True:
+            control_line = self.server.poll_control_line()
+            if control_line is not None:
+                parsed = parse_control_line(control_line)
+                if parsed == ("STOP_CAPTURE", cycle_id):
+                    print(f"[CONTROL] STOP_CAPTURE cycle={cycle_id}")
+                    return True
+                print(f"[CONTROL] ignoring line during capture: {control_line!r}")
+
+            frame = self.camera.get_frame()
+            if frame is None:
+                print("[CAPTURE REJECTED] RGB image capture failed; skipping this image")
+                continue
+
+            try:
+                raw = self.detector.capture_raw(frame)
+            except CaptureRejected as error:
+                print(f"[CAPTURE REJECTED] {error}; skipping this image")
+                cv2.imshow("Direct Arm Vision", frame)
+                if self._quit_requested():
+                    return False
+                continue
+
+            accumulator.feed(raw, self.detector.geometry)
+
+            try:
+                coordinates = accumulator.resolved_coordinates(self.detector.geometry)
+            except CaptureRejected as error:
+                print(f"[CAPTURE REJECTED] {error}; resetting this Logical Frame")
+                accumulator.reset()
+                coordinates = None
+
+            if coordinates is not None:
+                _print_dashboard(coordinates, cycle_id)
+                if not self.server.send_coords(coordinates):
+                    return False
+                accumulator.reset()
+            elif accumulator.timed_out():
+                print(
+                    "[WARN] Logical Frame did not resolve within the image "
+                    "budget; resetting this Logical Frame's accumulator"
+                )
+                accumulator.reset()
+
+            cv2.imshow("Direct Arm Vision", _draw_raw_preview(frame, raw))
+            if self._quit_requested():
+                return False
+
+    @staticmethod
+    def _quit_requested():
+        key = cv2.waitKey(1) & 0xFF
+        return key in (ord("q"), ord("Q"), 27)
 
 
 def main():

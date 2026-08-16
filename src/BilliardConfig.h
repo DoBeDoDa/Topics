@@ -302,6 +302,13 @@ extern const double CUE_BALL_CONTACT_ONLY_ANGULAR_STEP_DEG;
 // 本體，不是真的碰到那個角度）。
 extern const double LEGAL_CONTACT_GRAZING_ANGULAR_STEP_DEG;
 
+// [演算法研究值，非實測]
+// Kick Legal Contact擦撞（grazing）角度掃描間距：對每個rail的head-on kick
+// 候選以外，以鏡射母球到目標的方向為基準，往左右每隔這個角度多算一個
+// 接觸點候選，直到切線極限。跟LEGAL_CONTACT_GRAZING_ANGULAR_STEP_DEG各自
+// 獨立設定，未來可分開校正。
+extern const double LEGAL_CONTACT_KICK_GRAZING_ANGULAR_STEP_DEG;
+
 extern const std::array<double, 6> CAMERA_JOINT;
 extern const double CAMERA_JOINT_TOLERANCE_DEG;
 

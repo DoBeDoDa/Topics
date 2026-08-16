@@ -15,6 +15,7 @@
 
 #include "BilliardConfig.h"
 #include "MathUtils.h"
+#include "VisionControlChannel.h"
 
 using namespace std;
 
@@ -215,18 +216,36 @@ ConsoleKeyDownQuery productionConsoleKeyDownQuery()
 // 觸發完全共用既有機制，這裡不新增另一套判斷。DI讀取失敗（未連線、
 // SDK未提供、讀值非0/1）視為「這一輪沒偵測到訊號」，不latch
 // unknownUnsafeLatched——誤判成沒按鍵不是安全危害，頂多這一輪沒觸發。
+//
+// [2026-08-16實測確認] DI1是active-low：沒按時讀到1（高電位），按下時
+// 讀到0——不是原本假設的active-high。這裡一律把讀值反相成「按下=true」
+// 再送進edge-gate，否則連線後第一次讀值(未按=1)會被誤判成剛按下的
+// rising edge，程式一啟動就自己觸發一輪H。
 ConsoleKeyPoll combinedStartPoll(
     ConsoleKeyPoll keyboardPoll,
     RobotController& robot,
     const std::optional<BilliardConfig::RealHardwareExecutionConfig>& config)
 {
-    return [keyboardPoll, &robot, &config]() {
+    // lastLogged只用來在DI原始讀值「改變」時才印一行，避免每次poll都洗版；
+    // 純除錯輔助，不影響任何判斷邏輯。
+    auto lastLogged = std::make_shared<std::optional<bool>>();
+    return [keyboardPoll, &robot, &config, lastLogged]() {
         std::vector<ConsoleKeyEvent> events =
             keyboardPoll ? keyboardPoll() : std::vector<ConsoleKeyEvent>{};
         if (config && config->startDigitalInputIndex) {
             if (const std::optional<bool> di1 =
                     robot.readDigitalInput(*config->startDigitalInputIndex)) {
-                events.push_back({ConsoleKey::H, *di1});
+                if (!*lastLogged || **lastLogged != *di1) {
+                    cout << "[DI1] 原始讀值變化：" << (*di1 ? "1" : "0")
+                         << "  ->反相後送進edge-gate的keyDown="
+                         << (!*di1 ? "true" : "false") << endl;
+                    *lastLogged = *di1;
+                }
+                events.push_back({ConsoleKey::H, !*di1});
+            } else if (*lastLogged) {
+                cout << "[DI1] 讀取失敗（未連線/SDK未提供/讀值非0或1）"
+                     << endl;
+                lastLogged->reset();
             }
         }
         return events;
@@ -246,7 +265,7 @@ ConsoleKeyDownQuery combinedStartQuery(
         }
         const std::optional<bool> di1 =
             robot.readDigitalInput(*config->startDigitalInputIndex);
-        return di1 && *di1;
+        return di1 && !*di1;
     };
 }
 
@@ -438,8 +457,24 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
         return step(robotController.checkedConfiguredJointPtp(
             BilliardConfig::CAMERA_JOINT, config));
     };
-    seam.confirmCameraPoseStopped = [&] {
-        return step(robotController.confirmStopped());
+    seam.confirmCameraPoseStopped = [&]() -> OfflineStepResult {
+        // confirmStopped()只確認「目前沒在動」，不確認「真的到了
+        // CameraPose」——checkedConfiguredJointPtp的moveToAxis若被控制器
+        // 拒絕/中途中止，手臂會停在別的姿態，但仍然「沒在動」，若只看
+        // confirmStopped()會被誤判成已到位，直接進CameraSettling／開始
+        // 拍照。這裡比照confirmSafeAtCameraPose既有作法，額外用
+        // isAtConfiguredJoint重新讀真實關節角度核對位置。
+        const RobotAdapterResult stopped = robotController.confirmStopped();
+        if (!stopped.succeeded()) return step(stopped);
+        const RobotBoolAdapterResult atCamera = robotController.isAtConfiguredJoint(
+            BilliardConfig::CAMERA_JOINT, BilliardConfig::CAMERA_JOINT_TOLERANCE_DEG);
+        if (atCamera.status != RobotAdapterStatus::Success || !atCamera.value) {
+            return step({atCamera.status, atCamera.sdkCode});
+        }
+        if (!*atCamera.value) {
+            return {OfflineStepStatus::Failure};
+        }
+        return step(stopped);
     };
     seam.settleCamera = services.settleCamera;
     // 三態：CameraPose是否確認安全（read-only）。共用於「重連後再開capture
@@ -495,16 +530,28 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
 
         while (true) {
             while (!services.isVisionConnected()) {
-                if (pastCutoff()) return safeEndOrRecoveryAfterCutoff();
+                if (pastCutoff()) {
+                    cout << "[連線] Python視覺連線在planningRetryCutoff內"
+                         << "未成功，安全結束這一輪" << endl;
+                    return safeEndOrRecoveryAfterCutoff();
+                }
+                cout << "[連線] 嘗試連線Python視覺..." << endl;
                 const VisionConnectResult attempt = services.connectVision();
+                cout << "[連線] status=" << static_cast<int>(attempt.status)
+                     << " socketError=" << attempt.socketError << endl;
                 if (attempt.status == VisionConnectStatus::Connected) break;
                 if (attempt.status == VisionConnectStatus::NonRetriable) {
+                    cout << "[連線] NonRetriable，放棄這一輪" << endl;
                     return {PlanningPhaseStatus::Failure, std::nullopt};
                 }
                 if (services.sleepMs) {
                     services.sleepMs(BilliardConfig::VISION_RECONNECT_POLL_INTERVAL_MS);
                 }
-                if (pastCutoff()) return safeEndOrRecoveryAfterCutoff();
+                if (pastCutoff()) {
+                    cout << "[連線] Python視覺連線在planningRetryCutoff內"
+                         << "未成功，安全結束這一輪" << endl;
+                    return safeEndOrRecoveryAfterCutoff();
+                }
             }
             if (pastCutoff()) return safeEndOrRecoveryAfterCutoff();
 
@@ -526,6 +573,15 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
             }
 
             const OfflinePhase1Result phase1 = services.runPhase1();
+            // runPhase1()一返回，代表這次capture window已經拿到三幀穩定
+            // 資料（或確定拿不到、要放棄/重試），Python不需要再繼續拍照/
+            // 送資料——不管接下來是往下規劃、safe end，還是continue重開
+            // 一輪新的capture window，都會由下一次openCaptureWindow()送
+            // 全新的START_CAPTURE，這裡先讓Python停下來，不要在C++計算
+            // 或決定重試的這段時間內continue耗攝影機/YOLO資源。
+            if (services.closeCaptureWindow) {
+                services.closeCaptureWindow(cycleIdentity);
+            }
             if (!phase1.isValid()) {
                 return {PlanningPhaseStatus::Failure, std::nullopt};
             }
@@ -572,53 +628,168 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
             const auto tryCandidates = [&](const std::vector<ShotPlan>& plans,
                                            bool potsExhausted) {
                 for (const ShotPlan& shot : plans) {
-                    const ExecutionPlanResult planned =
-                        services.buildExecutionPlanForShot(shot, potsExhausted);
-                    if (!planned.isValid()) {
-                        hardFailure = true;
-                        return;
-                    }
-                    if (planned.status() != ExecutionPlanStatus::Success ||
-                        !planned.value()) {
-                        const ExecutionPlanFailureReason reason = planned.diagnostic()
-                            ? planned.diagnostic()->reason
-                            : ExecutionPlanFailureReason::InvalidExecutionPlanValue;
-                        if (reason == ExecutionPlanFailureReason::
-                                FixedForceEnvelopeRejected ||
-                            reason == ExecutionPlanFailureReason::
-                                NoAcceptedPoseCandidate ||
-                            reason == ExecutionPlanFailureReason::
-                                RearObstacleBlocked) {
-                            continue;
+                    cout << "[ShotPlan] 目標球=" << shot.selectedTarget.ballNumber
+                         << "  類型=" << static_cast<int>(shot.type)
+                         << "  母球位置=(" << shot.source.cueBallSnapshot.x
+                         << "," << shot.source.cueBallSnapshot.y << ")"
+                         << "  擊球方向=(" << shot.shotDirectionXY.x << ","
+                         << shot.shotDirectionXY.y << ")" << endl;
+                    // 對單一(shot, forcedStrikeMode)組合建ExecutionPlan；
+                    // nullopt代表local-skip理由（下一個forcedStrikeMode或
+                    // candidate都可能有用），hardFailure旗標另外代表
+                    // 硬體/設定/數值類失敗，呼叫端必須立刻放棄整個candidate
+                    // 搜尋，不得再嘗試對側StrikeMode。
+                    const auto attemptPlan =
+                        [&](std::optional<StrikeMode> forcedStrikeMode)
+                            -> std::optional<ExecutionPlan> {
+                        cout << "[規劃] 計算ExecutionPlan（P2-01姿態搜尋"
+                             << (forcedStrikeMode
+                                     ? (*forcedStrikeMode == StrikeMode::Push
+                                            ? "，強制Push）..."
+                                            : "，強制Pull）...")
+                                     : "）...")
+                             << endl;
+                        const ExecutionPlanResult planned =
+                            services.buildExecutionPlanForShot(
+                                shot, potsExhausted, forcedStrikeMode);
+                        if (!planned.isValid()) {
+                            cout << "[硬失敗] ExecutionPlanResult invariant失敗"
+                                 << endl;
+                            hardFailure = true;
+                            return std::nullopt;
                         }
-                        hardFailure = true;
-                        return;
+                        if (planned.status() != ExecutionPlanStatus::Success ||
+                            !planned.value()) {
+                            const ExecutionPlanFailureReason reason =
+                                planned.diagnostic()
+                                ? planned.diagnostic()->reason
+                                : ExecutionPlanFailureReason::
+                                      InvalidExecutionPlanValue;
+                            cout << "[失敗] ExecutionPlan建立失敗，status="
+                                 << static_cast<int>(planned.status())
+                                 << "  reason=" << static_cast<int>(reason)
+                                 << endl;
+                            if (reason == ExecutionPlanFailureReason::
+                                    FixedForceEnvelopeRejected ||
+                                reason == ExecutionPlanFailureReason::
+                                    NoAcceptedPoseCandidate ||
+                                reason == ExecutionPlanFailureReason::
+                                    RearObstacleBlocked) {
+                                return std::nullopt;
+                            }
+                            hardFailure = true;
+                            return std::nullopt;
+                        }
+                        cout << "[ExecutionPlan已建立] strikeMode="
+                             << (planned.value()->strikeMode == StrikeMode::Push
+                                     ? "Push" : "Pull")
+                             << "  strikeReadyPose=("
+                             << planned.value()->strikeReadyPose.x << ","
+                             << planned.value()->strikeReadyPose.y << ","
+                             << planned.value()->strikeReadyPose.z << ")"
+                             << endl;
+                        return *planned.value();
+                    };
+                    std::optional<ExecutionPlan> planned = attemptPlan(std::nullopt);
+                    if (hardFailure) return;
+                    if (!planned) {
+                        cout << "[跳過] 換下一個候選" << endl;
+                        continue;
                     }
-                    const RobotAdapterResult preflight =
-                        robotController.preflightExecution(*planned.value(), config);
+                    cout << "[確認] preflight可達性確認中..." << endl;
+                    RobotAdapterResult preflight =
+                        robotController.preflightExecution(*planned, config);
+                    // preflight是硬體可達性檢查，跟MotionPlanner自己的pose
+                    // search是不同層級的失敗來源。NotReachable且原本規劃是
+                    // Push時，用同一個execution direction重建強制Pull的
+                    // ExecutionPlan再試一次preflight，才真的放棄這個
+                    // candidate；Pull只做為Push的對側重試，反向不需要
+                    // （既有Push優先、Pull為fallback的政策）。UnknownUnsafe
+                    // 或其他硬失敗不觸發這個重試。
+                    if (preflight.status == RobotAdapterStatus::NotReachable &&
+                        planned->strikeMode == StrikeMode::Push) {
+                        cout << "[preflight] Push NotReachable，改試Pull..."
+                             << endl;
+                        const std::optional<ExecutionPlan> pullPlanned =
+                            attemptPlan(StrikeMode::Pull);
+                        if (hardFailure) return;
+                        if (pullPlanned) {
+                            planned = pullPlanned;
+                            cout << "[確認] Pull preflight可達性確認中..."
+                                 << endl;
+                            preflight = robotController.preflightExecution(
+                                *planned, config);
+                        }
+                    }
                     if (preflight.status == RobotAdapterStatus::NotReachable) {
+                        cout << "[preflight] NotReachable，換下一個候選"
+                             << endl;
                         continue;
                     }
                     if (preflight.status == RobotAdapterStatus::UnknownUnsafe) {
+                        cout << "[preflight] UnknownUnsafe，latch" << endl;
                         candidateUnknownUnsafe = true;
                         return;
                     }
                     if (!preflight.succeeded()) {
+                        cout << "[preflight] 硬失敗，status="
+                             << static_cast<int>(preflight.status) << endl;
                         hardFailure = true;
                         return;
                     }
-                    found = *planned.value();
+                    cout << "[選定] preflight通過，採用這個候選執行" << endl;
+                    found = *planned;
                     return;
                 }
             };
+            cout << "[候選] rankedPotPlans（共" << candidates.rankedPotPlans.size()
+                 << "筆）..." << endl;
             tryCandidates(candidates.rankedPotPlans, false);
             if (!found && !hardFailure && !candidateUnknownUnsafe) {
+                cout << "[候選] legalContactPlans（共"
+                     << candidates.legalContactPlans.size() << "筆）..." << endl;
                 tryCandidates(candidates.legalContactPlans, true);
             }
             if (!found && !hardFailure && !candidateUnknownUnsafe) {
                 // Pot與LegalContact都窮盡才會有候選；立刻嘗試，不等
                 // planningRetryCutoff。
+                cout << "[候選] cueBallContactOnlyPlans（共"
+                     << candidates.cueBallContactOnlyPlans.size() << "筆）..."
+                     << endl;
                 tryCandidates(candidates.cueBallContactOnlyPlans, true);
+            }
+            if (!found && !hardFailure && !candidateUnknownUnsafe &&
+                candidates.cueBallContactOnlyPlans.empty()) {
+                // Phase1當初判定rankedPotPlans/legalContactPlans幾何可行，
+                // 所以沒有預先生成cueBallContactOnlyPlans；但它們剛剛在
+                // P2-01姿態搜尋／硬體可達性檢查全部失敗（例如母球位置在
+                // 手臂實際可達範圍邊緣）。現場用同一個PlanningSourceAudit
+                // 補生成最後一層保底，讓母球至少有安全推出的機會，不必
+                // 整輪直接失敗、回Unknown。
+                const PlanningSourceAudit* fallbackSource =
+                    !candidates.rankedPotPlans.empty()
+                    ? &candidates.rankedPotPlans.front().source
+                    : (!candidates.legalContactPlans.empty()
+                        ? &candidates.legalContactPlans.front().source
+                        : nullptr);
+                // 沒有geometry就不產生候選（fail closed）：這裡的方向
+                // 篩選需要ballDiameterMm/collisionMarginMm才能對
+                // otherBallsSnapshot做前方路徑碰撞檢查，不能在沒有這組
+                // 資料時盲目產生候選，讓母球有機會直接撞進其他球。
+                const std::optional<ResolvedTableGeometry>* resolvedGeometry =
+                    services.currentResolvedTableGeometry
+                    ? services.currentResolvedTableGeometry()
+                    : nullptr;
+                if (fallbackSource && resolvedGeometry && *resolvedGeometry) {
+                    const std::vector<ShotPlan> onDemandFallback =
+                        BilliardAlgorithm::
+                            generateCueBallContactOnlyExecutionFallback(
+                                *fallbackSource, **resolvedGeometry);
+                    cout << "[保底] rankedPotPlans/legalContactPlans全部失敗，"
+                         << "現場補生成CueBallContactOnly候選（共"
+                         << onDemandFallback.size() << "筆）重試..." << endl;
+                    tryCandidates(onDemandFallback, true);
+                }
             }
             if (candidateUnknownUnsafe) {
                 return {PlanningPhaseStatus::UnknownUnsafe, std::nullopt};
@@ -950,11 +1121,25 @@ void BilliardApp::run()
                     }
                     receiveEventFactory.beginCycle(
                         visionClient.connectionIdentity(), cycleIdentity);
-                    return OfflineStepResult{
-                        receiveEventFactory.openCaptureWindow(
-                            visionClient.connectionIdentity(), cycleIdentity)
-                            ? OfflineStepStatus::Success
-                            : OfflineStepStatus::Failure};
+                    if (!receiveEventFactory.openCaptureWindow(
+                            visionClient.connectionIdentity(), cycleIdentity)) {
+                        return OfflineStepResult{OfflineStepStatus::Failure};
+                    }
+                    // Python在收到START_CAPTURE前完全不累積觀測資料；本地
+                    // capture window已開但Python端control channel送失敗，
+                    // 視同這次開窗失敗（不會有任何Logical Frame進來），
+                    // 讓呼叫端走既有失敗路徑重試/fail closed，不要留下
+                    // 「本地已開、Python未開」的不一致狀態。
+                    if (sendStartCapture(visionClient, cycleIdentity) !=
+                            VisionControlSendStatus::Success) {
+                        receiveEventFactory.invalidate(
+                            ReceiveEventInvalidationReason::CycleChanged);
+                        return OfflineStepResult{OfflineStepStatus::Failure};
+                    }
+                    return OfflineStepResult{OfflineStepStatus::Success};
+                };
+                services.closeCaptureWindow = [&](ShotCycleIdentity cycleIdentity) {
+                    (void)sendStopCapture(visionClient, cycleIdentity);
                 };
                 services.runPhase1 = [&] {
                     while (true) {
@@ -1139,6 +1324,12 @@ void BilliardApp::run()
                 return pendingPlanningResult ? &*pendingPlanningResult : nullptr;
             };
         }
+        if (!services.currentResolvedTableGeometry && !injectedServices) {
+            services.currentResolvedTableGeometry =
+                [&]() -> const std::optional<ResolvedTableGeometry>* {
+                return &pendingResolvedTableGeometry;
+            };
+        }
         if (!services.buildExecutionPlanForShot && !injectedServices) {
             MotionPlanningChecks hardwareChecks =
                 offlineMotionPlanningChecks.value_or(MotionPlanningChecks{});
@@ -1157,14 +1348,18 @@ void BilliardApp::run()
                     : std::optional<bool>{};
             };
             services.buildExecutionPlanForShot =
-                [&, hardwareChecks](const ShotPlan& shot, bool potsExhausted) {
+                [&, hardwareChecks](
+                    const ShotPlan& shot,
+                    bool potsExhausted,
+                    std::optional<StrikeMode> forcedStrikeMode) {
                 return motionPlanner.createExecutionPlan(
                     PlanningResult::shotPlan(shot),
                     tableGeometryConfig,
                     motionPlanningConfig,
                     hardwareChecks,
                     potsExhausted,
-                    pendingResolvedTableGeometry);
+                    pendingResolvedTableGeometry,
+                    forcedStrikeMode);
             };
         }
         if (!services.buildExecutionPlan) {
@@ -1288,6 +1483,27 @@ void BilliardApp::run()
         if (!event.startEdge) {
             Sleep(BilliardConfig::MOTION_POLL_INTERVAL_MS);
             continue;
+        }
+        // 使用者2026-08-16要求：H/DI1按下時如果手臂還沒在Standby，只做
+        // 跟P鍵完全同一套、未計時的回Standby準備，不算成一次shot cycle、
+        // 不消耗shot deadline；確認已經在Standby後，下一次H/DI1才真正
+        // 開始計時的cycle。原因：PreparationReturn這段移動時間曾經吃光
+        // 15秒的planningRetryCutoff budget，導致vision連線都還沒機會
+        // 嘗試就被判定逾時、安全結束，第一次H形同浪費掉。
+        if (cycleRobot) {
+            const RobotBoolAdapterResult atStandby = cycleRobot->isAtConfiguredJoint(
+                BilliardConfig::STANDBY_JOINT_REFERENCE.jointDeg,
+                BilliardConfig::STANDBY_JOINT_TOLERANCE_DEG);
+            if (atStandby.status != RobotAdapterStatus::Success ||
+                !atStandby.value || !*atStandby.value) {
+                cout << "[H] 尚未在Standby，先做未計時的回Standby準備"
+                     << "（不計入shot cycle）..." << endl;
+                runPOnly();
+                if (executionRuntime.state != ExecutionCycleState::WaitingForStart) {
+                    break;
+                }
+                continue;
+            }
         }
         if (nextShotCycleIdentity == 0) {
             cout << "[系統] shot-cycle identity已耗盡，fail closed，需重啟程式。"
@@ -1556,6 +1772,13 @@ bool BilliardApp::processReceiveEvent(const ReceiveEvent& event)
 
 void BilliardApp::invalidateVisionCycle(ReceiveEventInvalidationReason reason)
 {
+    // 告知Python這個capture window結束、回到idle等下一個START_CAPTURE；
+    // best-effort——這裡是void、從很多失敗路徑呼叫，連線本來就可能已經
+    // 斷了，STOP_CAPTURE送不出去不應該讓cycle收尾邏輯本身另外失敗。
+    if (receiveEventFactory.hasActiveCycle()) {
+        (void)sendStopCapture(
+            visionClient, receiveEventFactory.currentCycleIdentity());
+    }
     receiveEventFactory.invalidate(reason);
     stability.reset(stabilityResetReason(reason));
     pendingPlanningResult.reset();

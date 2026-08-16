@@ -246,6 +246,11 @@ struct MotionPlanningChecks {
 
 class MotionPlanner {
 public:
+    // forcedStrikeMode有值時跳過preferredStrikeMode自動選擇與其內部
+    // NoAcceptedPoseCandidate對側重試，只嘗試呼叫端指定的單一StrikeMode並
+    // 直接回傳結果；提供給BilliardApp在preflight（硬體可達性，跟這裡的
+    // pose search是不同層級的檢查）回NotReachable時，用同一個
+    // execution direction重建對側StrikeMode的ExecutionPlan。
     [[nodiscard]] ExecutionPlanResult createExecutionPlan(
         const PlanningResult& planningResult,
         const std::optional<BilliardConfig::TableGeometryConfig>& tableGeometry,
@@ -253,7 +258,8 @@ public:
         const MotionPlanningChecks& checks,
         bool rankedPotCandidatesExhausted = false,
         const std::optional<ResolvedTableGeometry>& resolvedTableGeometry =
-            std::nullopt) const;
+            std::nullopt,
+        std::optional<StrikeMode> forcedStrikeMode = std::nullopt) const;
 
 #ifdef BILLIARDS_P2_01_TEST_SEAM
     [[nodiscard]] static std::optional<double> directionToCDegForTest(

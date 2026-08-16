@@ -675,10 +675,12 @@ private:
                 events_[1].frame.objectBalls[index] &&
                 events_[2].frame.objectBalls[index];
             if (!allPresent) {
-                // 這3幀內presence不一致（閃爍）：這顆球這一輪先不送出，
-                // 不當成「確定不在桌上」，也不讓它拖垮其餘物件或整批結果。
-                balls[index] = std::nullopt;
-                continue;
+                // 這3筆Logical Frame內presence不一致（mixed present/
+                // absent）：既不是確定在桌上，也不是確定不在——絕不能
+                // 擅自收斂成nullopt（等同「確定不在」）讓Phase1誤判成
+                // 缺席，整批StableTableState這一輪不能定案，跟母球/袋口
+                // 一樣走NeedMoreEvents讓視窗繼續滑動等收斂。
+                return {std::nullopt, StabilityFailureReason::BallMoved};
             }
             const Point center = medianPoint(
                 *events_[0].frame.objectBalls[index],
@@ -694,7 +696,12 @@ private:
                     break;
                 }
             }
-            balls[index] = withinAll ? std::optional<Point>{center} : std::nullopt;
+            if (!withinAll) {
+                // 3筆都present但位置還沒收斂到容差內：同樣不得收斂成
+                // nullopt，整批這一輪不能定案。
+                return {std::nullopt, StabilityFailureReason::BallMoved};
+            }
+            balls[index] = center;
         }
 
         // 母球跟袋口一樣是StableTableState的必要（非optional）欄位：單幀
