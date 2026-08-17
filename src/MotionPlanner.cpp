@@ -639,7 +639,12 @@ bool ExecutionPlan::isValid() const noexcept
     // Tool1的TCP已核准校正在氣壓推桿行程中點（縮回位置沿Tool1 +X方向6cm，
     // 12cm總行程的一半），所以XY直接對齊母球中心，母球就自然落在行程中點，
     // push/pull都一樣（差異只在C軸方向）；不再額外扣ballRadiusMm/readyGapMm。
-    const double biasSign = strikeMode == StrikeMode::Push ? 1.0 : -1.0;
+    // 一般擊球偏移依人工校正採Push=-、Pull=+；貼庫的獨立ready gap
+    // 維持既有Push=+、Pull=-方向，避免改動另一組尚未要求調整的參數。
+    const double biasSign = executionDirectionPolicy ==
+            ExecutionDirectionPolicy::RailHugging
+        ? (strikeMode == StrikeMode::Push ? 1.0 : -1.0)
+        : (strikeMode == StrikeMode::Push ? -1.0 : 1.0);
     const double expectedX =
         cueBallCenterBase0Mm.x + biasSign * strikePositionBiasMm * shotDirectionXY.x;
     const double expectedY =
@@ -1031,7 +1036,11 @@ ExecutionPlanResult MotionPlanner::createExecutionPlan(
             config->railHuggingReadyGapMm
         ? *config->railHuggingReadyGapMm
         : *config->strikePositionBiasMm;
-    const double biasSign = strikeMode == StrikeMode::Push ? 1.0 : -1.0;
+    // 一般strikePositionBiasMm：Push=-、Pull=+；貼庫使用自己的
+    // railHuggingReadyGapMm，保留原本Push=+、Pull=-方向。
+    const double biasSign = directionPolicy == ExecutionDirectionPolicy::RailHugging
+        ? (strikeMode == StrikeMode::Push ? 1.0 : -1.0)
+        : (strikeMode == StrikeMode::Push ? -1.0 : 1.0);
     const Point readyXY{
         cueBall.x + biasSign * strikeOffsetMm * effectiveDirection.x,
         cueBall.y + biasSign * strikeOffsetMm * effectiveDirection.y};

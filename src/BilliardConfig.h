@@ -169,7 +169,7 @@ struct MotionPlanningConfig {
     std::optional<double> strikeZMm;  // 人工核准的擊球Z。
     std::optional<double> safeApproachZMm;  // 人工核准的接近Z。
     std::optional<double> readyGapMm;  // 縮回桿尖至母球表面的間距。
-    // 從nominal strike XY沿擊球方向微調；Push為+b*d，Pull為-b*d。
+    // 從nominal strike XY沿擊球方向微調；Push為-b*d，Pull為+b*d。
     std::optional<double> strikePositionBiasMm;
     // 人工可調／實驗門檻：母球中心距physicalPlayingSurface下沿超過此值
     // 且擊球方向朝tableDownDirectionBase0XY時選Pull。

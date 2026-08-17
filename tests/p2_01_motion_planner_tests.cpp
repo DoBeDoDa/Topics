@@ -341,6 +341,45 @@ int main()
         "StrikeReady Y sits at the cue ball center (Tool1 TCP is calibrated at "
         "the pneumatic stroke midpoint, so no ball-radius/ready-gap XY offset "
         "is applied)");
+    auto biasedConfig = config;
+    constexpr double STRIKE_POSITION_BIAS_MM = 20.0;
+    biasedConfig.strikePositionBiasMm = STRIKE_POSITION_BIAS_MM;
+    const ExecutionPlanResult biasedPushResult = planner.createExecutionPlan(
+        *direct, geometryConfig, biasedConfig, checks, false, std::nullopt,
+        StrikeMode::Push);
+    const ExecutionPlanResult biasedPullResult = planner.createExecutionPlan(
+        *direct, geometryConfig, biasedConfig, checks, false, std::nullopt,
+        StrikeMode::Pull);
+    tests.expectTrue(
+        biasedPushResult.isValid() && biasedPushResult.value().has_value(),
+        "non-zero strikePositionBiasMm creates a valid forced Push plan");
+    tests.expectTrue(
+        biasedPullResult.isValid() && biasedPullResult.value().has_value(),
+        "non-zero strikePositionBiasMm creates a valid forced Pull plan");
+    if (biasedPushResult.value() && biasedPullResult.value()) {
+        const ExecutionPlan& biasedPushPlan = *biasedPushResult.value();
+        const ExecutionPlan& biasedPullPlan = *biasedPullResult.value();
+        tests.expectNear(biasedPushPlan.strikeReadyPose.x,
+            directShot.source.cueBallSnapshot.x -
+                STRIKE_POSITION_BIAS_MM * directShot.shotDirectionXY.x,
+            TOLERANCE,
+            "Push applies strikePositionBiasMm opposite the shot direction in X");
+        tests.expectNear(biasedPushPlan.strikeReadyPose.y,
+            directShot.source.cueBallSnapshot.y -
+                STRIKE_POSITION_BIAS_MM * directShot.shotDirectionXY.y,
+            TOLERANCE,
+            "Push applies strikePositionBiasMm opposite the shot direction in Y");
+        tests.expectNear(biasedPullPlan.strikeReadyPose.x,
+            directShot.source.cueBallSnapshot.x +
+                STRIKE_POSITION_BIAS_MM * directShot.shotDirectionXY.x,
+            TOLERANCE,
+            "Pull applies strikePositionBiasMm along the shot direction in X");
+        tests.expectNear(biasedPullPlan.strikeReadyPose.y,
+            directShot.source.cueBallSnapshot.y +
+                STRIKE_POSITION_BIAS_MM * directShot.shotDirectionXY.y,
+            TOLERANCE,
+            "Pull applies strikePositionBiasMm along the shot direction in Y");
+    }
     tests.expectNear(directPlan.strikeReadyPose.z, *config.strikeZMm,
         TOLERANCE, "StrikeReady Z comes only from approved manual calibration");
     tests.expectNear(directPlan.strikeReadyPose.c,
