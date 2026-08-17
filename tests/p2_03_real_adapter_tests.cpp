@@ -476,7 +476,13 @@ struct FakeSdk {
                 sleepDurations.push_back(duration);
                 if (onSleepCallback) onSleepCallback();
             },
-            [&](int) { calls.push_back("getMotorState"); return motorState; }};
+            [&](int) { calls.push_back("getMotorState"); return motorState; },
+            [&](int, int) { calls.push_back("setAccDecRatio"); return 0; },
+            [&](int, int) { calls.push_back("setPtpSpeed"); return 0; },
+            [&](int, double) { calls.push_back("setLinSpeed"); return 0; },
+            [&](int) { calls.push_back("getAccDecRatio"); return 0; },
+            [&](int) { calls.push_back("getPtpSpeed"); return 0; },
+            [&](int) { calls.push_back("getLinSpeed"); return 0.0; }};
     }
 };
 

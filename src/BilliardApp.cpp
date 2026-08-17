@@ -388,6 +388,55 @@ OfflineStepResult BilliardApp::prepareRobotHardwareForMotion(
             robot.setOverrideRatio(BilliardConfig::NORMAL_SPEED_RATIO))) {
         return {*bad};
     }
+    // 唯讀查詢目前的加減速比／PTP速度／LIN速度，不管有沒有要設定新值都
+    // 印出來，讓使用者知道機器現在實際的基準值量級（不代表這是SDK允許的
+    // 上下限，只是目前設定值）。
+    cout << "[目前速度] accDecRatio="
+         << (robot.getCurrentAccDecRatio()
+                 ? std::to_string(*robot.getCurrentAccDecRatio())
+                 : std::string("查詢失敗"))
+         << " ptpSpeed="
+         << (robot.getCurrentPtpSpeed()
+                 ? std::to_string(*robot.getCurrentPtpSpeed())
+                 : std::string("查詢失敗"))
+         << " linSpeed="
+         << (robot.getCurrentLinSpeed()
+                 ? std::to_string(*robot.getCurrentLinSpeed())
+                 : std::string("查詢失敗"))
+         << endl;
+    if (BilliardConfig::ACC_DEC_RATIO) {
+        const RobotAdapterResult accDec =
+            robot.setAccDecRatio(*BilliardConfig::ACC_DEC_RATIO);
+        if (const auto bad = requireRobotAdapterSuccess(accDec)) {
+            cout << "[prepareRobotHardwareForMotion] setAccDecRatio("
+                 << *BilliardConfig::ACC_DEC_RATIO << ")失敗，status="
+                 << static_cast<int>(accDec.status)
+                 << " sdkCode=" << accDec.sdkCode << endl;
+            return {*bad};
+        }
+    }
+    if (BilliardConfig::PTP_SPEED) {
+        const RobotAdapterResult ptpSpeed =
+            robot.setPtpSpeed(*BilliardConfig::PTP_SPEED);
+        if (const auto bad = requireRobotAdapterSuccess(ptpSpeed)) {
+            cout << "[prepareRobotHardwareForMotion] setPtpSpeed("
+                 << *BilliardConfig::PTP_SPEED << ")失敗，status="
+                 << static_cast<int>(ptpSpeed.status)
+                 << " sdkCode=" << ptpSpeed.sdkCode << endl;
+            return {*bad};
+        }
+    }
+    if (BilliardConfig::LIN_SPEED) {
+        const RobotAdapterResult linSpeed =
+            robot.setLinSpeed(*BilliardConfig::LIN_SPEED);
+        if (const auto bad = requireRobotAdapterSuccess(linSpeed)) {
+            cout << "[prepareRobotHardwareForMotion] setLinSpeed("
+                 << *BilliardConfig::LIN_SPEED << ")失敗，status="
+                 << static_cast<int>(linSpeed.status)
+                 << " sdkCode=" << linSpeed.sdkCode << endl;
+            return {*bad};
+        }
+    }
     return {OfflineStepStatus::Success};
 }
 

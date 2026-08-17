@@ -43,6 +43,14 @@ struct HrSdkApi {
     // 可選：未注入（如既有test fake）時clearAlarm()略過馬達斷電確認，
     // 行為與加入前相同。
     std::function<int(int)> getMotorState;
+    // 加減速比／PTP速度／LIN速度：可選，未注入時對應方法直接回
+    // SdkFailure，不影響既有呼叫端。
+    std::function<int(int, int)> setAccDecRatio;
+    std::function<int(int, int)> setPtpSpeed;
+    std::function<int(int, double)> setLinSpeed;
+    std::function<int(int)> getAccDecRatio;
+    std::function<int(int)> getPtpSpeed;
+    std::function<double(int)> getLinSpeed;
 };
 
 enum class RobotAdapterStatus {
@@ -194,6 +202,13 @@ public:
 
     RobotAdapterResult setMotorState(int state);
     RobotAdapterResult setOverrideRatio(int ratio);
+    RobotAdapterResult setAccDecRatio(int ratio);
+    RobotAdapterResult setPtpSpeed(int speed);
+    RobotAdapterResult setLinSpeed(double speed);
+    // 唯讀查詢：連線失敗或SDK未注入時回nullopt，不代表數值真的是那樣。
+    std::optional<int> getCurrentAccDecRatio() const;
+    std::optional<int> getCurrentPtpSpeed() const;
+    std::optional<double> getCurrentLinSpeed() const;
     RobotAdapterResult setToolNumber(int toolNumber);
     RobotAdapterResult setBaseNumber(int baseNumber);
     int getCurrentToolNumber() const;

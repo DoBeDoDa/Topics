@@ -252,6 +252,12 @@ extern const int VISION_SERVER_PORT;  // 32值CSV服務連接埠。
 extern const int CALIBRATION_SERVER_PORT;  // 標定服務連接埠。
 
 extern const int NORMAL_SPEED_RATIO;
+// 加減速比／PTP速度／LIN速度：HRSDK可設定但目前完全沒被呼叫過，手臂沿用
+// 出廠或教導器上次手動設定值。nullopt＝不主動設定（維持現狀，不改變
+// 行為）；要調整請填入實測後確認安全的數值。
+extern const std::optional<int> ACC_DEC_RATIO;
+extern const std::optional<int> PTP_SPEED;
+extern const std::optional<double> LIN_SPEED;
 extern const int TOOL_NUMBER;
 extern const int BASE_NUMBER;
 extern const int START_BUTTON_DI_INDEX;

@@ -88,7 +88,13 @@ HrSdkApi RobotController::productionApi()
         },
         [] { return GetTickCount(); },
         [](unsigned long durationMs) { Sleep(durationMs); },
-        [](int robot) { return get_motor_state(robot); }};
+        [](int robot) { return get_motor_state(robot); },
+        [](int robot, int ratio) { return set_acc_dec_ratio(robot, ratio); },
+        [](int robot, int speed) { return set_ptp_speed(robot, speed); },
+        [](int robot, double speed) { return set_lin_speed(robot, speed); },
+        [](int robot) { return get_acc_dec_ratio(robot); },
+        [](int robot) { return get_ptp_speed(robot); },
+        [](int robot) { return get_lin_speed(robot); }};
 #endif
 }
 
@@ -213,6 +219,45 @@ RobotAdapterResult RobotController::setOverrideRatio(int ratio) {
     const int sdkCode = api.setOverrideRatio(id, ratio);
     return {sdkCode == 0 ? RobotAdapterStatus::Success : RobotAdapterStatus::SdkFailure,
         sdkCode};
+}
+
+RobotAdapterResult RobotController::setAccDecRatio(int ratio) {
+    if (!connected) return {RobotAdapterStatus::NotConnected, -1};
+    if (!api.setAccDecRatio) return {RobotAdapterStatus::SdkFailure, -1};
+    const int sdkCode = api.setAccDecRatio(id, ratio);
+    return {sdkCode == 0 ? RobotAdapterStatus::Success : RobotAdapterStatus::SdkFailure,
+        sdkCode};
+}
+
+RobotAdapterResult RobotController::setPtpSpeed(int speed) {
+    if (!connected) return {RobotAdapterStatus::NotConnected, -1};
+    if (!api.setPtpSpeed) return {RobotAdapterStatus::SdkFailure, -1};
+    const int sdkCode = api.setPtpSpeed(id, speed);
+    return {sdkCode == 0 ? RobotAdapterStatus::Success : RobotAdapterStatus::SdkFailure,
+        sdkCode};
+}
+
+RobotAdapterResult RobotController::setLinSpeed(double speed) {
+    if (!connected) return {RobotAdapterStatus::NotConnected, -1};
+    if (!api.setLinSpeed) return {RobotAdapterStatus::SdkFailure, -1};
+    const int sdkCode = api.setLinSpeed(id, speed);
+    return {sdkCode == 0 ? RobotAdapterStatus::Success : RobotAdapterStatus::SdkFailure,
+        sdkCode};
+}
+
+std::optional<int> RobotController::getCurrentAccDecRatio() const {
+    if (!connected || !api.getAccDecRatio) return std::nullopt;
+    return api.getAccDecRatio(id);
+}
+
+std::optional<int> RobotController::getCurrentPtpSpeed() const {
+    if (!connected || !api.getPtpSpeed) return std::nullopt;
+    return api.getPtpSpeed(id);
+}
+
+std::optional<double> RobotController::getCurrentLinSpeed() const {
+    if (!connected || !api.getLinSpeed) return std::nullopt;
+    return api.getLinSpeed(id);
 }
 
 RobotAdapterResult RobotController::setToolNumber(int toolNumber) {

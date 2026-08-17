@@ -456,6 +456,31 @@ void printReceiveEventFailure(
         return false;
     }
 
+    if (BilliardConfig::ACC_DEC_RATIO) {
+        if (const auto r = robot.setAccDecRatio(*BilliardConfig::ACC_DEC_RATIO);
+            !r.succeeded()) {
+            cout << "失敗（setAccDecRatio, " << adapterStatusName(r.status)
+                 << ")" << endl;
+            return false;
+        }
+    }
+    if (BilliardConfig::PTP_SPEED) {
+        if (const auto r = robot.setPtpSpeed(*BilliardConfig::PTP_SPEED);
+            !r.succeeded()) {
+            cout << "失敗（setPtpSpeed, " << adapterStatusName(r.status)
+                 << ")" << endl;
+            return false;
+        }
+    }
+    if (BilliardConfig::LIN_SPEED) {
+        if (const auto r = robot.setLinSpeed(*BilliardConfig::LIN_SPEED);
+            !r.succeeded()) {
+            cout << "失敗（setLinSpeed, " << adapterStatusName(r.status)
+                 << ")" << endl;
+            return false;
+        }
+    }
+
     cout << "OK" << endl;
     return true;
 }

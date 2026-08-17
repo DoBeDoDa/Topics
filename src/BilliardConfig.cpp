@@ -76,6 +76,17 @@ const int CALIBRATION_SERVER_PORT = 12347;
 // 真機初次測試建議使用低速；提高前需要確認安全。
 const int NORMAL_SPEED_RATIO = 100;
 
+// [使用者2026-08-17要求新增] 加減速比／PTP速度／LIN速度：HRSDK
+// （set_acc_dec_ratio／set_ptp_speed／set_lin_speed）可設定但過去從未被
+// 呼叫過，手臂目前沿用出廠或教導器上次手動設定值，跟override_ratio是
+// 各自獨立的兩層——override_ratio只是「目前已編程速度」的百分比倍率，
+// 如果這三個底數本身偏保守，override_ratio開到100%也不會變快。
+// nullopt＝不主動設定（維持現狀，不改變行為）；要啟用請填入實測後確認
+// 安全的數值再重新編譯。
+const std::optional<int> ACC_DEC_RATIO = std::nullopt;
+const std::optional<int> PTP_SPEED = std::nullopt;
+const std::optional<double> LIN_SPEED = std::nullopt;
+
 // [人工設定 / 實機確認]
 // 使用控制器中的 Tool 編號。
 // 若控制器 Tool 設定改變，此值必須同步修改。
@@ -637,7 +648,7 @@ const std::optional<MotionPlanningConfig> MOTION_PLANNING_CONFIG = [] {
     // 本來就必須完全一致（見RobotController.cpp
     // validateRealExecutionConfiguration的timingMatches檢查）。
     config.pneumaticTimingProfile = PneumaticTimingProfileReference{
-        "pneumatic-timing-v1", 500, 500, 500};
+        "pneumatic-timing-v1", 100, 300, 0};
     config.tool1ControllerCalibrationRevision = "tool1-controller-v1";
     config.railHuggingTriggerDistanceMm = 45.0;  // [使用者2026-08-16確認] 3公分
     config.railHuggingReadyGapMm = 60.0;  // 使用者提供初始值，之後會調整
