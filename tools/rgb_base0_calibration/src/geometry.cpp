@@ -321,11 +321,17 @@ void validateCalibration(const CalibrationData& calibration) {
     if(!std::all_of(distortion.begin(), distortion.end(), finite)) {
         throw std::runtime_error("Calibration distortion contains a non-finite value");
     }
-    if(calibration.distortionFamily != "orbbec_brown"
-       || calibration.distortionVariant != "not_exposed_by_profile_api"
+    const bool factoryOrbbecMetadata =
+        calibration.distortionFamily == "orbbec_brown"
+        && calibration.distortionVariant == "not_exposed_by_profile_api"
+        && calibration.distortionModelAssumption ==
+               "engineering_assumption_pending_ground_truth_validation";
+    const bool manualOfflineMetadata =
+        calibration.distortionFamily == "brown_rational"
+        && calibration.distortionVariant == "manual_offline_chessboard_5_parameter"
+        && calibration.distortionModelAssumption == "manual_offline_chessboard_calibration";
+    if((!factoryOrbbecMetadata && !manualOfflineMetadata)
        || calibration.distortionHandling != "versioned_iterative_brown_inverse"
-       || calibration.distortionModelAssumption !=
-              "engineering_assumption_pending_ground_truth_validation"
        || calibration.distortionCoefficientMapping !=
               "radial_numerator=k1,k2,k3; radial_denominator=k4,k5,k6; tangential=p1,p2"
        || calibration.inverseProjectionVersion != "rgb_brown_rational_v1"

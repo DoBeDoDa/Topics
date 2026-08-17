@@ -23,12 +23,16 @@ public:
     OrbbecCamera(const OrbbecCamera&) = delete;
     OrbbecCamera& operator=(const OrbbecCamera&) = delete;
 
-    void copyCameraFieldsTo(CalibrationData& calibration) const;
+    // Copies live camera identity and profile only. Formal K/D always remains
+    // owned by the fixed calibration JSON.
+    void copyLiveCameraMetadataTo(CalibrationData& calibration) const;
     void requireMatches(const CalibrationData& stored) const;
     std::vector<CapturedFrame> captureMjpgFrames(const std::filesystem::path& directory,
                                                  int count,
                                                  int warmupFrames = 5);
-    PixelRayDiagnostics pixelToUnitRay(double u, double v) const;
+    PixelRayDiagnostics pixelToUnitRay(double u,
+                                       double v,
+                                       const CalibrationData& calibration) const;
     std::vector<std::string> diagnosticLines() const;
     std::string profileDescription() const;
 

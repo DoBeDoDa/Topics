@@ -26,10 +26,6 @@ std::string sdkVersionString() {
     return version.str();
 }
 
-bool near(const double left, const double right, const double absoluteTolerance = 1e-6) {
-    return std::abs(left - right) <= absoluteTolerance * std::max({1.0, std::abs(left), std::abs(right)});
-}
-
 std::string boolText(const bool value) {
     return value ? "true" : "false";
 }
@@ -189,20 +185,17 @@ public:
 OrbbecCamera::OrbbecCamera() : impl_(std::make_unique<Impl>()) {}
 OrbbecCamera::~OrbbecCamera() noexcept = default;
 
-void OrbbecCamera::copyCameraFieldsTo(CalibrationData& value) const {
+void OrbbecCamera::copyLiveCameraMetadataTo(CalibrationData& value) const {
     value.sdkVersion = sdkVersionString();
     value.deviceName = impl_->deviceName;
     value.serialNumber = impl_->serialNumber;
     value.firmwareVersion = impl_->firmwareVersion;
     value.profile = impl_->actualProfile;
-    value.intrinsic = {impl_->intrinsic.fx, impl_->intrinsic.fy, impl_->intrinsic.cx, impl_->intrinsic.cy};
-    value.distortion = {impl_->distortion.k1, impl_->distortion.k2, impl_->distortion.k3, impl_->distortion.k4,
-                        impl_->distortion.k5, impl_->distortion.k6, impl_->distortion.p1, impl_->distortion.p2};
 }
 
 void OrbbecCamera::requireMatches(const CalibrationData& stored) const {
     CalibrationData live = stored;
-    copyCameraFieldsTo(live);
+    copyLiveCameraMetadataTo(live);
     if(live.sdkVersion != stored.sdkVersion || live.deviceName != stored.deviceName
        || live.serialNumber != stored.serialNumber || live.firmwareVersion != stored.firmwareVersion
        || live.profile.width != stored.profile.width
@@ -214,19 +207,6 @@ void OrbbecCamera::requireMatches(const CalibrationData& stored) const {
                 << stored.profile.format << "; live=" << live.serialNumber << ' ' << live.profile.width << 'x'
                 << live.profile.height << '@' << live.profile.fps << ' ' << live.profile.format;
         throw std::runtime_error(message.str());
-    }
-    const std::vector<std::pair<double, double>> pairs{
-        {stored.intrinsic.fx, live.intrinsic.fx}, {stored.intrinsic.fy, live.intrinsic.fy},
-        {stored.intrinsic.cx, live.intrinsic.cx}, {stored.intrinsic.cy, live.intrinsic.cy},
-        {stored.distortion.k1, live.distortion.k1}, {stored.distortion.k2, live.distortion.k2},
-        {stored.distortion.k3, live.distortion.k3}, {stored.distortion.k4, live.distortion.k4},
-        {stored.distortion.k5, live.distortion.k5}, {stored.distortion.k6, live.distortion.k6},
-        {stored.distortion.p1, live.distortion.p1}, {stored.distortion.p2, live.distortion.p2},
-    };
-    for(const auto& pair : pairs) {
-        if(!near(pair.first, pair.second)) {
-            throw std::runtime_error("Live RGB intrinsic/distortion does not match the stored calibration");
-        }
     }
 }
 
@@ -282,15 +262,11 @@ std::vector<CapturedFrame> OrbbecCamera::captureMjpgFrames(const std::filesystem
     return result;
 }
 
-PixelRayDiagnostics OrbbecCamera::pixelToUnitRay(const double u, const double v) const {
-    const CameraProfileData& profile = impl_->actualProfile;
-    const CameraIntrinsicData intrinsic{impl_->intrinsic.fx, impl_->intrinsic.fy,
-                                        impl_->intrinsic.cx, impl_->intrinsic.cy};
-    const CameraDistortionData distortion{
-        impl_->distortion.k1, impl_->distortion.k2, impl_->distortion.k3, impl_->distortion.k4,
-        impl_->distortion.k5, impl_->distortion.k6, impl_->distortion.p1, impl_->distortion.p2,
-    };
-    return inverseProjectBrownPixel(u, v, profile, intrinsic, distortion);
+PixelRayDiagnostics OrbbecCamera::pixelToUnitRay(const double u,
+                                                  const double v,
+                                                  const CalibrationData& calibration) const {
+    return inverseProjectBrownPixel(u, v, calibration.profile, calibration.intrinsic,
+                                    calibration.distortion);
 }
 
 std::vector<std::string> OrbbecCamera::diagnosticLines() const {
@@ -302,12 +278,12 @@ std::vector<std::string> OrbbecCamera::diagnosticLines() const {
                     + std::to_string(impl_->selectedProfile->fps()) + " FPS");
     lines.push_back("[CAMERA] actual_color_frame=" + std::to_string(impl_->actualProfile.width) + "x"
                     + std::to_string(impl_->actualProfile.height) + " format=" + impl_->actualProfile.format);
-    lines.push_back("[RGB_INTRINSIC]");
+    lines.push_back("[SDK FACTORY RGB INTRINSIC / DIAGNOSTIC ONLY]");
     lines.push_back("fx=" + std::to_string(impl_->intrinsic.fx));
     lines.push_back("fy=" + std::to_string(impl_->intrinsic.fy));
     lines.push_back("cx=" + std::to_string(impl_->intrinsic.cx));
     lines.push_back("cy=" + std::to_string(impl_->intrinsic.cy));
-    lines.push_back("[RGB_DISTORTION]");
+    lines.push_back("[SDK FACTORY RGB DISTORTION / DIAGNOSTIC ONLY]");
     lines.push_back("k1=" + std::to_string(impl_->distortion.k1));
     lines.push_back("k2=" + std::to_string(impl_->distortion.k2));
     lines.push_back("k3=" + std::to_string(impl_->distortion.k3));

@@ -184,7 +184,20 @@ int main(const int argc, char** argv) {
                      + std::to_string(rgb_base0::kBallRadiusMm));
 
         rgb_base0::CalibrationData calibration;
+        const rgb_base0::CalibrationData fixedCalibration = rgb_base0::readCalibration(currentJson);
+        rgb_base0::validateCalibration(fixedCalibration);
         calibration.createdUtc = rgb_base0::utcIsoTimestamp();
+        calibration.intrinsic = fixedCalibration.intrinsic;
+        calibration.distortion = fixedCalibration.distortion;
+        calibration.distortionFamily = fixedCalibration.distortionFamily;
+        calibration.distortionVariant = fixedCalibration.distortionVariant;
+        calibration.distortionHandling = fixedCalibration.distortionHandling;
+        calibration.distortionModelAssumption = fixedCalibration.distortionModelAssumption;
+        calibration.distortionCoefficientMapping = fixedCalibration.distortionCoefficientMapping;
+        calibration.inverseProjectionVersion = fixedCalibration.inverseProjectionVersion;
+        calibration.inverseMaxIterations = fixedCalibration.inverseMaxIterations;
+        calibration.inverseConvergenceTolerance = fixedCalibration.inverseConvergenceTolerance;
+        calibration.inverseReprojectionTolerancePx = fixedCalibration.inverseReprojectionTolerancePx;
         calibration.robotIp = options.robotIp;
         calibration.zTableMm = options.zTableMm;
         calibration.tTool3ToRgb = options.tTool3ToRgb;
@@ -198,6 +211,8 @@ int main(const int argc, char** argv) {
         }
         logger->line("[WARNING] Physical Tool3/RGB axis alignment still requires validation.");
         logger->line("[WARNING] Table is currently modeled as constant Base0 Z.");
+        logger->line("[FIXED K/D] source=" + currentJson.string()
+                     + "; manual calibration values are retained for geometry.");
 
         robot = std::make_unique<rgb_base0::RobotPoseReader>(options.robotIp);
         logger->line("[ROBOT] connected; original Tool=" + std::to_string(robot->originalToolNumber())
@@ -221,7 +236,7 @@ int main(const int argc, char** argv) {
             for(const std::string& line : camera.diagnosticLines()) {
                 logger->line(line);
             }
-            camera.copyCameraFieldsTo(calibration);
+            camera.copyLiveCameraMetadataTo(calibration);
             const auto frames = camera.captureMjpgFrames(options.outputDirectory / "raw_frames", 1);
             logger->line("[CAMERA] saved unmodified raw MJPG " + frames.front().path.string()
                          + " frame_index=" + std::to_string(frames.front().frameIndex));

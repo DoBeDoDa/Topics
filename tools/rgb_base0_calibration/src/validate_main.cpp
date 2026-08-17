@@ -932,7 +932,8 @@ int main(const int argc, char** argv) {
 
         rgb_base0::OrbbecCamera camera;
         camera.requireMatches(calibration);
-        logger->line("[CAMERA] serial/profile/intrinsic/distortion match passed: " + camera.profileDescription());
+        logger->line("[CAMERA] serial/profile match passed; fixed JSON K/D remains the geometry source: "
+                     + camera.profileDescription());
         for(const std::string& line : camera.diagnosticLines()) {
             logger->line(line);
         }
@@ -978,7 +979,7 @@ int main(const int argc, char** argv) {
         for(const PixelInput& pixel : pixels) {
             logger->line("[PIXEL INPUT] name=" + pixel.name + " u=" + std::to_string(pixel.u)
                          + " v=" + std::to_string(pixel.v) + " source=" + pixel.source);
-            const rgb_base0::PixelRayDiagnostics ray = camera.pixelToUnitRay(pixel.u, pixel.v);
+            const rgb_base0::PixelRayDiagnostics ray = camera.pixelToUnitRay(pixel.u, pixel.v, calibration);
             const rgb_base0::Vec3 rayBase0 = rgb_base0::multiply(calibration.rBase0FromRgb, ray.unitRayRgb);
             const double rayBase0Norm = rgb_base0::norm(rayBase0);
             if(!std::isfinite(rayBase0Norm) || std::abs(rayBase0Norm - 1.0) > 1e-9) {
