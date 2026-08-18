@@ -29,6 +29,7 @@ enum class Command {
     CheckSafeLiftLin,
     MoveSafeLiftLin,
     ConfirmSafeLift,
+    FinishPneumaticAfterSafeLift,
     ReturnStandbyAfterStrike,
     ConfirmStandbyReturnStopped
 };
@@ -129,6 +130,10 @@ struct FakeCycle {
     PneumaticCompletionStatus pneumaticStatus = PneumaticCompletionStatus::PolicyAccepted;
     std::optional<PneumaticCompletionEvidence> pneumaticEvidence =
         PneumaticCompletionEvidence::OffCommandAccepted;
+    PneumaticCompletionStatus postLiftPneumaticStatus =
+        PneumaticCompletionStatus::PolicyAccepted;
+    std::optional<PneumaticCompletionEvidence> postLiftPneumaticEvidence =
+        PneumaticCompletionEvidence::OffCommandAccepted;
     std::optional<RobotPoseABC> actualPose =
         RobotPoseABC{70.0, 80.0, 55.0, 3.0, 4.0, 5.0};
     bool actualPoseUnknownUnsafe = false;
@@ -213,6 +218,11 @@ struct FakeCycle {
         s.confirmSafeLiftStopped = [this](const RobotPoseABC& lift) {
             confirmedLiftTarget = lift;
             return step(Command::ConfirmSafeLift);
+        };
+        s.finishPneumaticAfterSafeLift = [this](
+                const ExecutionPlan&) -> PneumaticCompletionResult {
+            commands.push_back(Command::FinishPneumaticAfterSafeLift);
+            return {postLiftPneumaticStatus, postLiftPneumaticEvidence};
         };
         s.returnToStandbyAfterStrike = [this](const ExecutionPlan&) {
             return step(Command::ReturnStandbyAfterStrike);
@@ -347,9 +357,12 @@ int main()
             indexOf(fake.commands, Command::MoveSafeLiftLin) <
                 indexOf(fake.commands, Command::ConfirmSafeLift) &&
             indexOf(fake.commands, Command::ConfirmSafeLift) <
+                indexOf(fake.commands, Command::FinishPneumaticAfterSafeLift) &&
+            indexOf(fake.commands, Command::FinishPneumaticAfterSafeLift) <
                 indexOf(fake.commands, Command::ReturnStandbyAfterStrike),
             "safe-lift sequence happens in the exact required order: "
-            "check LIN path -> move LIN -> confirm stopped -> return to standby");
+            "check LIN path -> move LIN -> confirm stopped -> finish Push retract "
+            "-> return to standby");
     }
 
     // ---- 成功路徑：已在standby，不含PreparationReturn ----
@@ -744,6 +757,27 @@ int main()
         tests.expectTrue(
             blocked.status == ExecutionCycleStatus::StartRejected,
             "ManualRecoveryRequired after pneumatic failure blocks next start");
+    }
+
+    // ---- Push post-lift retract failure: lift completed, Standby remains blocked ----
+    {
+        OfflineExecutionRuntime runtime;
+        FakeCycle fake;
+        fake.postLiftPneumaticStatus = PneumaticCompletionStatus::Failure;
+        fake.postLiftPneumaticEvidence = std::nullopt;
+        const ExecutionCycleResult result = run(fake, runtime);
+
+        tests.expectTrue(
+            result.status == ExecutionCycleStatus::SafeFailure &&
+                result.diagnostic && result.diagnostic->reason ==
+                    ExecutionCycleFailureReason::PneumaticFailed &&
+                runtime.state == ExecutionCycleState::ManualRecoveryRequired,
+            "Push retract failure after safe lift requires manual recovery");
+        tests.expectTrue(
+            indexOf(fake.commands, Command::ConfirmSafeLift) <
+                    indexOf(fake.commands, Command::FinishPneumaticAfterSafeLift) &&
+                !hasCommand(fake.commands, Command::ReturnStandbyAfterStrike),
+            "Push retract is attempted only after safe-lift stop and failure blocks standby");
     }
 
     // ---- Pneumatic: UnknownUnsafe ----

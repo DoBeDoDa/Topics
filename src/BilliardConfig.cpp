@@ -654,7 +654,7 @@ const std::optional<MotionPlanningConfig> MOTION_PLANNING_CONFIG = [] {
     // 本來就必須完全一致（見RobotController.cpp
     // validateRealExecutionConfiguration的timingMatches檢查）。
     config.pneumaticTimingProfile = PneumaticTimingProfileReference{
-        "pneumatic-timing-v1", 50, 50, 10};
+        "pneumatic-timing-v1", 20, 10, 10};
     config.tool1ControllerCalibrationRevision = "tool1-controller-v1";
     config.railHuggingTriggerDistanceMm = 60.0;  // [使用者2026-08-16確認] 3公分
     config.railHuggingReadyGapMm = 0.0;  // 使用者提供初始值，之後會調整
@@ -774,10 +774,10 @@ const std::optional<RealHardwareExecutionConfig>
                 "pneumatic-timing-v1",
 
                 /* pneumaticPulseMs */
-                50,
+                20,
 
                 /* directionChangeDelayMs */
-                50,
+                10,
 
                 /* mechanismCompletionWaitMs */
                 10

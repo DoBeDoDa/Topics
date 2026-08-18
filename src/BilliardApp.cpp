@@ -1106,44 +1106,16 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
             if (!pullRetractCommandCompleted) {
                 return mapRealPneumaticResult(retracted);
             }
-            const RobotAdapterResult wait =
-                robotController.waitMechanismCompletion(plan, config);
-            if (wait.status == RobotAdapterStatus::UnknownUnsafe) {
-                return {PneumaticCompletionStatus::UnknownUnsafe, std::nullopt};
-            }
-            return wait.succeeded()
-                ? mapRealPneumaticResult(retracted)
-                : PneumaticCompletionResult{
-                    PneumaticCompletionStatus::Failure, std::nullopt};
-        }
-        const RealPneumaticResult extended =
-            robotController.pulseExtend(plan, config);
-        if (extended.status != RealPneumaticStatus::Completed) {
-            return mapRealPneumaticResult(extended);
-        }
-        const RobotAdapterResult directionWait =
-            robotController.waitDirectionChangeDelay(plan, config);
-        if (directionWait.status == RobotAdapterStatus::UnknownUnsafe) {
-            return {PneumaticCompletionStatus::UnknownUnsafe, std::nullopt};
-        }
-        if (!directionWait.succeeded()) {
-            return PneumaticCompletionResult{
-                PneumaticCompletionStatus::Failure, std::nullopt};
-        }
-        const RealPneumaticResult retracted =
-            robotController.pulseRetract(plan, config);
-        if (retracted.status != RealPneumaticStatus::Completed) {
+            // DO2 is the Pull strike. Once the pulse is OFF and read back OFF,
+            // return immediately so actual-pose vertical lift can start.
             return mapRealPneumaticResult(retracted);
         }
-        const RobotAdapterResult completionWait =
-            robotController.waitMechanismCompletion(plan, config);
-        if (completionWait.status == RobotAdapterStatus::UnknownUnsafe) {
-            return {PneumaticCompletionStatus::UnknownUnsafe, std::nullopt};
-        }
-        return completionWait.succeeded()
-            ? mapRealPneumaticResult(retracted)
-            : PneumaticCompletionResult{
-                PneumaticCompletionStatus::Failure, std::nullopt};
+        // DO1 is the Push strike. Leave the mechanism extended while the arm
+        // performs its actual-pose vertical safe lift; DO2 retract happens only
+        // after the safe lift is confirmed stopped.
+        const RealPneumaticResult extended =
+            robotController.pulseExtend(plan, config);
+        return mapRealPneumaticResult(extended);
     };
     seam.readActualPose = [&]() -> RobotPoseAdapterResult {
         if (!activePlan) {
@@ -1183,6 +1155,31 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
     };
     seam.confirmSafeLiftStopped = [&](const RobotPoseABC&) {
         return step(robotController.confirmStopped());
+    };
+    seam.finishPneumaticAfterSafeLift = [&](
+            const ExecutionPlan& plan) -> PneumaticCompletionResult {
+        const RobotAdapterResult directionWait =
+            robotController.waitDirectionChangeDelay(plan, config);
+        if (directionWait.status == RobotAdapterStatus::UnknownUnsafe) {
+            return {PneumaticCompletionStatus::UnknownUnsafe, std::nullopt};
+        }
+        if (!directionWait.succeeded()) {
+            return {PneumaticCompletionStatus::Failure, std::nullopt};
+        }
+        const RealPneumaticResult retracted =
+            robotController.pulseRetract(plan, config);
+        if (retracted.status != RealPneumaticStatus::Completed) {
+            return mapRealPneumaticResult(retracted);
+        }
+        const RobotAdapterResult completionWait =
+            robotController.waitMechanismCompletion(plan, config);
+        if (completionWait.status == RobotAdapterStatus::UnknownUnsafe) {
+            return {PneumaticCompletionStatus::UnknownUnsafe, std::nullopt};
+        }
+        return completionWait.succeeded()
+            ? mapRealPneumaticResult(retracted)
+            : PneumaticCompletionResult{
+                PneumaticCompletionStatus::Failure, std::nullopt};
     };
     seam.returnToStandbyAfterStrike = [&](const ExecutionPlan& plan) {
         return step(robotController.checkedJointPtp(
