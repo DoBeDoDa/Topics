@@ -534,6 +534,18 @@ std::size_t lastIndexOf(const std::vector<std::string>& calls, const std::string
     return static_cast<std::size_t>(-1);
 }
 
+std::size_t lastIndexBefore(
+    const std::vector<std::string>& calls,
+    const std::string& name,
+    std::size_t beforeIndex)
+{
+    if (beforeIndex > calls.size()) return static_cast<std::size_t>(-1);
+    for (std::size_t i = beforeIndex; i-- > 0;) {
+        if (calls[i] == name) return i;
+    }
+    return static_cast<std::size_t>(-1);
+}
+
 bool noneCalledAfter(
     const std::vector<std::string>& calls,
     std::size_t afterIndex,
@@ -541,6 +553,25 @@ bool noneCalledAfter(
 {
     if (afterIndex == static_cast<std::size_t>(-1)) return false;
     for (std::size_t i = afterIndex + 1; i < calls.size(); ++i) {
+        for (const std::string& name : forbidden) {
+            if (calls[i] == name) return false;
+        }
+    }
+    return true;
+}
+
+bool noneCalledBetween(
+    const std::vector<std::string>& calls,
+    std::size_t afterIndex,
+    std::size_t beforeIndex,
+    std::initializer_list<std::string> forbidden)
+{
+    if (afterIndex == static_cast<std::size_t>(-1) ||
+        beforeIndex == static_cast<std::size_t>(-1) ||
+        afterIndex >= beforeIndex) {
+        return false;
+    }
+    for (std::size_t i = afterIndex + 1; i < beforeIndex; ++i) {
         for (const std::string& name : forbidden) {
             if (calls[i] == name) return false;
         }
@@ -1105,6 +1136,11 @@ int main()
         FakeRealServices fakeServices = singleCandidateSuccess(validExecutionPlan(5));
         const ExecutionCycleResult result = BilliardApp::runRealSingleCycle(
             runtime, 5, *cycleRobot, config, fakeServices.services(), deadlineFor(clock));
+        const std::size_t postStrikeRead = lastIndexOf(cycleSdk.calls, "readPose");
+        const std::size_t pushStrikeOff =
+            lastIndexBefore(cycleSdk.calls, "do1Off", postStrikeRead);
+        const std::size_t safeLiftLin = lastIndexOf(cycleSdk.calls, "lin");
+        const std::size_t pushRetractOn = lastIndexOf(cycleSdk.calls, "do2On");
         tests.expectTrue(
             result.status == ExecutionCycleStatus::Completed &&
             result.value && result.value->shotExecuted &&
@@ -1115,9 +1151,35 @@ int main()
             orderedSubsequence(cycleSdk.calls,
                 {"clearAlarm", "setTool", "setBase", "motor", "override", "ptpAxis",
                  "reachable", "reachable", "ptp", "readPose", "checkLin", "lin",
-                 "do1On", "do1Off", "do2On", "do2Off", "readPose", "checkLin", "lin",
-                 "ptpAxis"}),
-            "happy path: connected vision, one reachable candidate completes with matching cycleIdentity");
+                 "do1On", "do1Off", "readPose", "checkLin", "lin",
+                 "do2On", "do2Off",
+                 "ptpAxis"}) &&
+            noneCalledBetween(
+                cycleSdk.calls, pushStrikeOff, postStrikeRead,
+                {"sleep", "do2On"}) &&
+            safeLiftLin < pushRetractOn,
+            "Push lifts from actual pose immediately after DO1, then retracts with "
+            "DO2 at safe height before standby");
+    }
+    {
+        FakeSdk sdk;
+        sdk.doFailure = DoFailurePoint::RetractOn;
+        auto robot = connected(sdk);
+        OfflineExecutionRuntime runtime;
+        FakeClock clock;
+        FakeRealServices fake = singleCandidateSuccess(validExecutionPlan(1));
+        const ExecutionCycleResult result = BilliardApp::runRealSingleCycle(
+            runtime, 1, *robot, config, fake.services(), deadlineFor(clock));
+        const std::size_t safeLiftLin = lastIndexOf(sdk.calls, "lin");
+        const std::size_t retractFailure = lastIndexOf(sdk.calls, "do2On");
+        tests.expectTrue(
+            result.status == ExecutionCycleStatus::SafeFailure &&
+                result.diagnostic && result.diagnostic->reason ==
+                    ExecutionCycleFailureReason::PneumaticFailed &&
+                runtime.state == ExecutionCycleState::ManualRecoveryRequired &&
+                safeLiftLin < retractFailure &&
+                noneCalledAfter(sdk.calls, retractFailure, {"ptpAxis"}),
+            "Push DO2 retract failure occurs only after safe lift and blocks standby");
     }
     {
         FakeSdk sdk;
@@ -1404,6 +1466,108 @@ int main()
     }
     {
         FakeSdk sdk;
+        auto robot = connected(sdk);
+        OfflineExecutionRuntime runtime;
+        FakeClock clock;
+        FakeRealServices fake;
+        const auto resolved = BilliardPhysics::resolveTableGeometry(
+            pocketCenters(), tableConfig());
+        const ShotPlan primary = buildRealShotPlan();
+        const std::vector<ShotPlan> preGenerated =
+            BilliardAlgorithm::generateCueBallContactOnlyExecutionFallback(
+                primary.source, *resolved.value());
+        tests.expectTrue(
+            !preGenerated.empty(),
+            "fixture has pre-generated CueBallContactOnly candidates");
+        if (!preGenerated.empty()) {
+            fake.planningResult = PlanningResult::shotPlan(
+                preGenerated.front(),
+                Phase1ExecutionCandidates{{}, {}, preGenerated});
+            bool cueBallOnlyAttempted = false;
+            fake.buildPlan = [plan, &cueBallOnlyAttempted](
+                    const ShotPlan& shot, bool) {
+                cueBallOnlyAttempted =
+                    cueBallOnlyAttempted ||
+                    shot.type == ShotPlanType::CueBallContactOnly;
+                return ExecutionPlanResult::success(plan);
+            };
+            const ExecutionCycleResult result = BilliardApp::runRealSingleCycle(
+                runtime, 1, *robot, config, fake.services(), deadlineFor(clock));
+            tests.expectTrue(
+                result.status == ExecutionCycleStatus::Completed && result.value &&
+                    result.value->shotExecuted && cueBallOnlyAttempted &&
+                    !fake.resolvedGeometry.has_value() &&
+                    callCount(fake, "openCapture") == 1,
+                "pre-generated cueBallContactOnlyPlans are consumed even when "
+                "on-demand geometry is unavailable");
+        }
+    }
+    {
+        FakeSdk sdk;
+        auto robot = connected(sdk);
+        OfflineExecutionRuntime runtime;
+        FakeClock clock;
+        FakeRealServices fake;
+        const auto resolved = BilliardPhysics::resolveTableGeometry(
+            pocketCenters(), tableConfig());
+        fake.resolvedGeometry = *resolved.value();
+        fake.planningResult = PlanningResult::shotPlan(
+            buildRealShotPlan(), candidatesWith(1));
+        std::vector<ShotPlanType> attemptedTypes;
+        fake.buildPlan = [plan, &attemptedTypes](const ShotPlan& shot, bool) {
+            attemptedTypes.push_back(shot.type);
+            if (shot.type == ShotPlanType::CueBallContactOnly) {
+                return ExecutionPlanResult::success(plan);
+            }
+            return ExecutionPlanResult::rejected(
+                ExecutionPlanStatus::NoExecutablePlan,
+                ExecutionPlanFailureReason::NoAcceptedPoseCandidate);
+        };
+        const ExecutionCycleResult result = BilliardApp::runRealSingleCycle(
+            runtime, 1, *robot, config, fake.services(), deadlineFor(clock));
+        const auto cueAttempt = std::find(
+            attemptedTypes.begin(), attemptedTypes.end(),
+            ShotPlanType::CueBallContactOnly);
+        tests.expectTrue(
+            result.status == ExecutionCycleStatus::Completed && result.value &&
+                result.value->shotExecuted && cueAttempt != attemptedTypes.end() &&
+                cueAttempt != attemptedTypes.begin() &&
+                callCount(fake, "openCapture") == 1,
+            "execution-level pose exhaustion proceeds to on-demand "
+            "CueBallContactOnly without recapture");
+    }
+    {
+        FakeSdk sdk;
+        auto robot = connected(sdk);
+        OfflineExecutionRuntime runtime;
+        FakeClock clock;
+        FakeRealServices fake;
+        const auto resolved = BilliardPhysics::resolveTableGeometry(
+            pocketCenters(), tableConfig());
+        fake.resolvedGeometry = *resolved.value();
+        fake.planningResult = PlanningResult::shotPlan(
+            buildRealShotPlan(), candidatesWith(1));
+        std::size_t cueBallOnlyAttempts = 0;
+        fake.buildPlan = [&cueBallOnlyAttempts](const ShotPlan& shot, bool) {
+            if (shot.type == ShotPlanType::CueBallContactOnly) {
+                ++cueBallOnlyAttempts;
+            }
+            return ExecutionPlanResult::rejected(
+                ExecutionPlanStatus::NoExecutablePlan,
+                ExecutionPlanFailureReason::NoAcceptedPoseCandidate);
+        };
+        const ExecutionCycleResult result = BilliardApp::runRealSingleCycle(
+            runtime, 1, *robot, config, fake.services(), deadlineFor(clock));
+        tests.expectTrue(
+            result.status == ExecutionCycleStatus::SafeFailure &&
+                result.diagnostic && result.diagnostic->reason ==
+                    ExecutionCycleFailureReason::NoExecutablePlan &&
+                cueBallOnlyAttempts > 0 && callCount(fake, "openCapture") == 1,
+            "NoExecutablePlan occurs only after CueBallContactOnly directions are "
+            "also exhausted without recapture");
+    }
+    {
+        FakeSdk sdk;
         sdk.reachableResponses = {false, true, true};
         auto robot = connected(sdk);
         OfflineExecutionRuntime runtime;
@@ -1599,10 +1763,16 @@ int main()
         FakeRealServices fake = singleCandidateSuccess(pullPlan);
         const ExecutionCycleResult result = BilliardApp::runRealSingleCycle(
             runtime, 1, *robot, config, fake.services(), deadlineFor(clock));
+        const std::size_t pullStrikeOff = lastIndexOf(sdk.calls, "do2Off");
+        const std::size_t postStrikeRead = lastIndexOf(sdk.calls, "readPose");
         tests.expectTrue(
             result.status == ExecutionCycleStatus::Completed &&
-            orderedSubsequence(sdk.calls, {"do1On", "do1Off", "sleep", "do2On", "do2Off", "sleep"}),
-            "Pull mode: extend-prepare before StrikeReady, retract during Pneumatic, full success");
+            orderedSubsequence(sdk.calls,
+                {"do1On", "do1Off", "do2On", "do2Off",
+                 "readPose", "checkLin", "lin"}) &&
+            noneCalledBetween(
+                sdk.calls, pullStrikeOff, postStrikeRead, {"sleep"}),
+            "Pull mode lifts from actual pose immediately after the DO2 strike pulse");
     }
     {
         FakeSdk sdk;

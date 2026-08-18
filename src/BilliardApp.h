@@ -383,6 +383,10 @@ struct OfflineExecutionSeam {
         const RobotPoseABC&)> checkSafeLiftLinearPath;
     std::function<OfflineStepResult(const RobotPoseABC&)> moveSafeLiftLinear;
     std::function<OfflineStepResult(const RobotPoseABC&)> confirmSafeLiftStopped;
+    // Push only: retract the striker after the actual-pose vertical safe lift
+    // has reached and stopped at safeApproach Z.
+    std::function<PneumaticCompletionResult(const ExecutionPlan&)>
+        finishPneumaticAfterSafeLift;
     std::function<OfflineStepResult(const ExecutionPlan&)> returnToStandbyAfterStrike;
     std::function<OfflineStepResult()> confirmStandbyReturnStopped;
 };
@@ -419,8 +423,9 @@ struct RealExecutionCycleServices {
     std::function<VisionConnectResult()> connectVision;
     std::function<const PlanningResult*()> currentPlanningResult;
     // runRealSingleCycle是static member function、沒有this，這裡是它
-    // 讀取pendingResolvedTableGeometry（供tryCandidates的ForcedLegalContact
-    // 執行層保底做前方碰撞檢查用）的唯一管道，跟currentPlanningResult
+    // 讀取pendingResolvedTableGeometry（供ForcedLegalContact與on-demand
+    // CueBallContactOnly執行層保底做碰撞檢查用）的唯一管道，
+    // 跟currentPlanningResult
     // 同一個wiring模式。回傳nullptr代表目前沒有已解析的桌面幾何，
     // 呼叫端必須fail closed（不產生候選），不能假設沒有障礙。
     std::function<const std::optional<ResolvedTableGeometry>*()>
@@ -848,6 +853,18 @@ inline ExecutionCycleResult BilliardApp::runOfflineSingleCycle(
                 seam.confirmSafeLiftStopped(safeLift),
                 ExecutionCycleFailureReason::SafeLiftNotConfirmed)) {
             return *stop;
+        }
+        if (plan.strikeMode == StrikeMode::Push) {
+            if (!seam.finishPneumaticAfterSafeLift) return missing();
+            pneumatic = seam.finishPneumaticAfterSafeLift(plan);
+            if (!pneumatic.isValid() ||
+                pneumatic.status == PneumaticCompletionStatus::UnknownUnsafe) {
+                return unknownUnsafe(
+                    ExecutionCycleFailureReason::PneumaticStateUnknown);
+            }
+            if (pneumatic.status == PneumaticCompletionStatus::Failure) {
+                return safeFailure(ExecutionCycleFailureReason::PneumaticFailed);
+            }
         }
         postStrikeRecoveryRequired = false;
     }
