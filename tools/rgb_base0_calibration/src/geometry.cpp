@@ -263,7 +263,20 @@ PlaneIntersection intersectRayWithHorizontalPlane(const Vec3& originBase0,
        || std::abs(point.z - targetZMm) > 1e-7) {
         throw std::runtime_error("Final plane intersection is non-finite or fails the target-Z consistency check");
     }
-    return {originBase0, direction, targetZMm, lambda, point};
+
+    // Base0 XY ground-truth radial compensation, applied only after the RGB ray / Z-target intersection.
+    // Xc/Yc define the Base0-mm center; w1/w2 independently scale X/Y by radial distance in mm. Z is unchanged.
+    constexpr double Xc = -1.092;
+    constexpr double Yc = 561.828;
+    constexpr double w1 = 0.0000184465;
+    constexpr double w2 = 0.0000691568;
+    const double dx = point.x - Xc;
+    const double dy = point.y - Yc;
+    const double r = std::sqrt(dx * dx + dy * dy);
+    const Vec3 correctedPoint{Xc + dx * (1.0 + r * w1),
+                              Yc + dy * (1.0 + r * w2),
+                              point.z};
+    return {originBase0, direction, targetZMm, lambda, correctedPoint};
 }
 
 PlaneIntersection projectRgbPixelToBallCenterPlane(const CalibrationData& calibration,
