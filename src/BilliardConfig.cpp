@@ -122,7 +122,7 @@ const int PNEUMATIC_OUTPUT = 1;
 // 應使用游標卡尺量測實際球，而不是單純猜規格。
 // Phase 1 幾何真正權威應以 TableGeometryConfig 中
 // ballRadiusMm / ballDiameterMm 為準，避免出現兩套來源。
-const double BALL_DIAMETER_MM = 49.52;
+const double BALL_DIAMETER_MM = 44.5;
 
 // [需實測]
 // 機械手臂 RZ / C 軸瞄準角與實際球桿 forward direction
@@ -219,8 +219,8 @@ const std::optional<TableGeometryConfig>
     TABLE_GEOMETRY = TableGeometryConfig{
         "table-2026-08-v1",
         AxisAlignedBounds2D{-800.0, 800.0, 10.0, 1000.0},
-        24.76,  // ballRadiusMm = 49.52 / 2
-        49.52,  // ballDiameterMm
+        22.25,  // ballRadiusMm = 49.52 / 2
+        44.5,  // ballDiameterMm
         5.0,    // collisionMarginMm
         {{
             {RailId::Rail1, PocketId::Pocket1, PocketId::Pocket2, 8.0, 8.0, 3.0},
@@ -656,8 +656,8 @@ const std::optional<MotionPlanningConfig> MOTION_PLANNING_CONFIG = [] {
     config.pneumaticTimingProfile = PneumaticTimingProfileReference{
         "pneumatic-timing-v1", 50, 50, 10};
     config.tool1ControllerCalibrationRevision = "tool1-controller-v1";
-    config.railHuggingTriggerDistanceMm = 50.0;  // [使用者2026-08-16確認] 3公分
-    config.railHuggingReadyGapMm = 20.0;  // 使用者提供初始值，之後會調整
+    config.railHuggingTriggerDistanceMm = 60.0;  // [使用者2026-08-16確認] 3公分
+    config.railHuggingReadyGapMm = 0.0;  // 使用者提供初始值，之後會調整
     return config;
 }();
 const ExecutionPolicyMode PRODUCTION_RUNTIME_MODE = ExecutionPolicyMode::RealHardware;

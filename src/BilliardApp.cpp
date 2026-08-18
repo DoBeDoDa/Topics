@@ -770,10 +770,13 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
             const auto tryCandidates = [&](const std::vector<ShotPlan>& plans,
                                            bool potsExhausted,
                                            std::size_t limit,
-                                           bool recordLegalDirection) {
-                const std::size_t attemptCount = std::min(plans.size(), limit);
-                for (std::size_t index = 0; index < attemptCount; ++index) {
-                    const ShotPlan& shot = plans[index];
+                                           bool recordLegalDirection,
+                                           std::optional<ShotPlanType> requiredType) {
+                std::size_t attemptedCount = 0;
+                for (const ShotPlan& shot : plans) {
+                    if (requiredType && shot.type != *requiredType) continue;
+                    if (attemptedCount >= limit) break;
+                    ++attemptedCount;
                     if (recordLegalDirection) {
                         attemptedLegalDirections.push_back(shot.shotDirectionXY);
                     }
@@ -904,32 +907,48 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
                     return;
                 }
             };
-            cout << "[候選] rankedPotPlans（共" << candidates.rankedPotPlans.size()
+            const auto potCount = [&](ShotPlanType type) {
+                return static_cast<std::size_t>(std::count_if(
+                    candidates.rankedPotPlans.begin(),
+                    candidates.rankedPotPlans.end(),
+                    [type](const ShotPlan& plan) { return plan.type == type; }));
+            };
+            cout << "[候選] DirectPot（共"
+                 << potCount(ShotPlanType::DirectPot)
                  << "筆）..." << endl;
             tryCandidates(
-                candidates.rankedPotPlans, false, MAX_PRIMARY_CANDIDATES, false);
+                candidates.rankedPotPlans, false, MAX_PRIMARY_CANDIDATES, false,
+                ShotPlanType::DirectPot);
+            if (!found && !hardFailure && !candidateUnknownUnsafe) {
+                cout << "[候選] OneRailKickPot（共"
+                     << potCount(ShotPlanType::KickPot)
+                     << "筆）..." << endl;
+                tryCandidates(
+                    candidates.rankedPotPlans, false, MAX_PRIMARY_CANDIDATES,
+                    false, ShotPlanType::KickPot);
+            }
             if (!found && !hardFailure && !candidateUnknownUnsafe) {
                 cout << "[候選] legalContactPlans（共"
                      << candidates.legalContactPlans.size() << "筆）..." << endl;
                 tryCandidates(
                     candidates.legalContactPlans, true,
-                    MAX_PRIMARY_CANDIDATES, true);
+                    MAX_PRIMARY_CANDIDATES, true, std::nullopt);
             }
-            if (!found && !hardFailure && !candidateUnknownUnsafe) {
-                const PlanningSourceAudit* stableSource = nullptr;
-                if (const ShotPlan* stableShot =
-                        std::get_if<ShotPlan>(&phase1Result->value())) {
-                    stableSource = &stableShot->source;
-                } else if (const NoPlan* stableNoPlan =
-                               std::get_if<NoPlan>(&phase1Result->value())) {
-                    stableSource = stableNoPlan->source
-                        ? &*stableNoPlan->source
-                        : nullptr;
-                }
-                const std::optional<ResolvedTableGeometry>* resolvedGeometry =
-                    services.currentResolvedTableGeometry
-                    ? services.currentResolvedTableGeometry()
+            const PlanningSourceAudit* stableSource = nullptr;
+            if (const ShotPlan* stableShot =
+                    std::get_if<ShotPlan>(&phase1Result->value())) {
+                stableSource = &stableShot->source;
+            } else if (const NoPlan* stableNoPlan =
+                           std::get_if<NoPlan>(&phase1Result->value())) {
+                stableSource = stableNoPlan->source
+                    ? &*stableNoPlan->source
                     : nullptr;
+            }
+            const std::optional<ResolvedTableGeometry>* resolvedGeometry =
+                services.currentResolvedTableGeometry
+                ? services.currentResolvedTableGeometry()
+                : nullptr;
+            if (!found && !hardFailure && !candidateUnknownUnsafe) {
                 if (stableSource && resolvedGeometry && *resolvedGeometry) {
                     const std::vector<ShotPlan> generated =
                         BilliardAlgorithm::
@@ -950,8 +969,24 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
                     cout << "[保底] ForcedLegalContact候選（共"
                          << forcedPlans.size() << "筆）..." << endl;
                     tryCandidates(
-                        forcedPlans, true, forcedPlans.size(), false);
+                        forcedPlans, true, forcedPlans.size(), false,
+                        std::nullopt);
                 }
+            }
+            if (!found && !hardFailure && !candidateUnknownUnsafe) {
+                std::vector<ShotPlan> cueBallOnlyPlans =
+                    candidates.cueBallContactOnlyPlans;
+                if (cueBallOnlyPlans.empty() && stableSource &&
+                    resolvedGeometry && *resolvedGeometry) {
+                    cueBallOnlyPlans = BilliardAlgorithm::
+                        generateCueBallContactOnlyExecutionFallback(
+                            *stableSource, **resolvedGeometry);
+                }
+                cout << "[保底] CueBallContactOnly候選（共"
+                     << cueBallOnlyPlans.size() << "筆）..." << endl;
+                tryCandidates(
+                    cueBallOnlyPlans, true, cueBallOnlyPlans.size(), false,
+                    std::nullopt);
             }
             if (candidateUnknownUnsafe) {
                 return {PlanningPhaseStatus::UnknownUnsafe, std::nullopt};
