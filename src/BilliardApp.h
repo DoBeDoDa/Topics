@@ -246,6 +246,7 @@ enum class ExecutionCycleFailureReason {
     CameraPoseNotStopped,
     CameraSettleFailed,
     CaptureAndPlanFailed,
+    NoExecutablePlan,
     VisionReconnectManualRecoveryRequired,
     InvalidExecutionPlan,
     ExecutionPlanCycleMismatch,
@@ -418,7 +419,7 @@ struct RealExecutionCycleServices {
     std::function<VisionConnectResult()> connectVision;
     std::function<const PlanningResult*()> currentPlanningResult;
     // runRealSingleCycle是static member function、沒有this，這裡是它
-    // 讀取pendingResolvedTableGeometry（供tryCandidates的CueBallContactOnly
+    // 讀取pendingResolvedTableGeometry（供tryCandidates的ForcedLegalContact
     // 執行層保底做前方碰撞檢查用）的唯一管道，跟currentPlanningResult
     // 同一個wiring模式。回傳nullptr代表目前沒有已解析的桌面幾何，
     // 呼叫端必須fail closed（不產生候選），不能假設沒有障礙。
@@ -872,6 +873,10 @@ inline ExecutionCycleResult BilliardApp::runOfflineSingleCycle(
             seam.confirmStandbyReturnStopped(),
             ExecutionCycleFailureReason::StandbyReturnNotStopped)) {
         return *stop;
+    }
+
+    if (!planFound) {
+        return safeFailure(ExecutionCycleFailureReason::NoExecutablePlan);
     }
 
     return completed(

@@ -822,17 +822,13 @@ LegalContactSearchResult generateLegalContact(
 // 本體，不存在剛好碰到那個角度接觸點的直線路徑，物理上不可行。
 // 只補充額外候選，不取代/不排擠head-on最佳候選。
 std::vector<DirectLegalContactCandidate>
-generateGrazingDirectLegalContactCandidates(
+generateDirectLegalContactCandidatesAtOffsets(
     const StableTableState& table,
     const EligibleTarget& selectedTarget,
     const ResolvedTableGeometry& geometry,
-    double angularStepDeg)
+    const std::vector<double>& angleOffsetsDeg)
 {
     std::vector<DirectLegalContactCandidate> candidates;
-    if (!std::isfinite(angularStepDeg) || angularStepDeg <= 0.0 ||
-        angularStepDeg >= 90.0) {
-        return candidates;
-    }
     std::vector<Point> obstacles;
     obstacles.reserve(table.objectBalls.size());
     std::optional<std::size_t> selectedObstacleIndex;
@@ -861,16 +857,11 @@ generateGrazingDirectLegalContactCandidates(
         geometry.ballDiameterMm / *cueToTargetDistance);
     const double tangentLimitDeg = tangentLimitRad * (180.0 / BilliardMath::PI);
 
-    std::vector<double> angles;
-    for (double angle = angularStepDeg; angle < tangentLimitDeg;
-         angle += angularStepDeg) {
-        angles.push_back(angle);
-        angles.push_back(-angle);
-    }
-    angles.push_back(tangentLimitDeg);
-    angles.push_back(-tangentLimitDeg);
-
-    for (const double angleDeg : angles) {
+    for (const double angleDeg : angleOffsetsDeg) {
+        if (!std::isfinite(angleDeg) ||
+            std::fabs(angleDeg) > tangentLimitDeg + NUMERICAL_EPSILON) {
+            continue;
+        }
         const double angleRad = angleDeg * (BilliardMath::PI / 180.0);
         const Vector2D rotated{
             direction->x * std::cos(angleRad) -
@@ -898,6 +889,37 @@ generateGrazingDirectLegalContactCandidates(
             minimumClearance, totalDistance});
     }
     return candidates;
+}
+
+std::vector<DirectLegalContactCandidate>
+generateGrazingDirectLegalContactCandidates(
+    const StableTableState& table,
+    const EligibleTarget& selectedTarget,
+    const ResolvedTableGeometry& geometry,
+    double angularStepDeg)
+{
+    if (!std::isfinite(angularStepDeg) || angularStepDeg <= 0.0 ||
+        angularStepDeg >= 90.0) {
+        return {};
+    }
+    const auto cueTargetDistance = BilliardMath::getDistance(
+        table.cueBall, selectedTarget.center);
+    if (!cueTargetDistance || *cueTargetDistance < geometry.ballDiameterMm) {
+        return {};
+    }
+    const double tangentLimitDeg = std::asin(
+        geometry.ballDiameterMm / *cueTargetDistance) *
+        (180.0 / BilliardMath::PI);
+    std::vector<double> angles;
+    for (double angle = angularStepDeg; angle < tangentLimitDeg;
+         angle += angularStepDeg) {
+        angles.push_back(angle);
+        angles.push_back(-angle);
+    }
+    angles.push_back(tangentLimitDeg);
+    angles.push_back(-tangentLimitDeg);
+    return generateDirectLegalContactCandidatesAtOffsets(
+        table, selectedTarget, geometry, angles);
 }
 
 // Kick擦撞（grazing）角度掃描：對每個rail，head-on kick（由generateLegalContact
@@ -2005,6 +2027,60 @@ BilliardAlgorithm::generateCueBallContactOnlyExecutionFallback(
     return generateCueBallContactOnlyCandidates(
         source, placeholderTarget, geometry,
         BilliardConfig::CUE_BALL_CONTACT_ONLY_ANGULAR_STEP_DEG);
+}
+
+std::vector<ShotPlan>
+BilliardAlgorithm::generateForcedLegalContactExecutionFallback(
+    const PlanningSourceAudit& source,
+    const ResolvedTableGeometry& geometry)
+{
+    std::vector<ShotPlan> plans;
+    if (!source.isValid() || source.tableGeometryRevision != geometry.calibrationRevision ||
+        !BilliardConfig::BRAIN_CONFIG.kickGeometry) {
+        return plans;
+    }
+
+    std::optional<EligibleTarget> lowestTarget;
+    for (std::size_t index = 0; index < source.otherBallsSnapshot.size(); ++index) {
+        if (source.otherBallsSnapshot[index]) {
+            lowestTarget = EligibleTarget{
+                static_cast<int>(index + 1), *source.otherBallsSnapshot[index]};
+            break;
+        }
+    }
+    if (!lowestTarget) return plans;
+
+    std::array<Point, 6> pockets{};
+    for (std::size_t index = 0; index < geometry.pockets.size(); ++index) {
+        pockets[index] = geometry.pockets[index].center;
+    }
+    const StableTableState table{
+        source.otherBallsSnapshot,
+        source.cueBallSnapshot,
+        pockets,
+        source.planIdentity.connectionIdentity,
+        source.planIdentity.shotCycleIdentity,
+        source.sourceEvents};
+    const std::vector<double> approvedOffsetsDeg{0.0, 5.0, -5.0, 10.0, -10.0};
+    const std::vector<DirectLegalContactCandidate> forcedCandidates =
+        generateDirectLegalContactCandidatesAtOffsets(
+            table, *lowestTarget, geometry, approvedOffsetsDeg);
+    for (const DirectLegalContactCandidate& candidate : forcedCandidates) {
+        const std::optional<ShotPlan> plan = makeLegalContactShotPlan(
+            table,
+            source,
+            *lowestTarget,
+            LegalContactCandidate{candidate},
+            *BilliardConfig::BRAIN_CONFIG.kickGeometry,
+            LegalContactAuditFields::ActivationAuthority::ProductionFallbackEligible,
+            false,
+            PotSelectionStatus::Success,
+            {},
+            {},
+            {});
+        if (plan) plans.push_back(*plan);
+    }
+    return plans;
 }
 
 PlanningResult BilliardAlgorithm::planShot(

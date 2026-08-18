@@ -52,6 +52,15 @@ public:
         const PlanningSourceAudit& source,
         const ResolvedTableGeometry& geometry);
 
+    // Production exhaustion fallback: rebuilds a stable-table view from the
+    // audited snapshot, selects the real lowest-number present target, and
+    // emits only collision-cleared direct legal-contact plans in the approved
+    // deterministic offset order (0, +5, -5, +10, -10 degrees).
+    [[nodiscard]] static std::vector<ShotPlan>
+    generateForcedLegalContactExecutionFallback(
+        const PlanningSourceAudit& source,
+        const ResolvedTableGeometry& geometry);
+
 #ifdef BILLIARDS_P1_08_TEST_SEAM
     struct LegalContactTestEvaluation {
         std::optional<DirectLegalContactCandidate> direct;

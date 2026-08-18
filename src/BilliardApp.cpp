@@ -73,6 +73,8 @@ const char* executionCycleFailureReasonName(ExecutionCycleFailureReason reason)
     case ExecutionCycleFailureReason::CameraSettleFailed: return "CameraSettleFailed";
     case ExecutionCycleFailureReason::CaptureAndPlanFailed:
         return "CaptureAndPlanFailed";
+    case ExecutionCycleFailureReason::NoExecutablePlan:
+        return "NoExecutablePlan";
     case ExecutionCycleFailureReason::VisionReconnectManualRecoveryRequired:
         return "VisionReconnectManualRecoveryRequired";
     case ExecutionCycleFailureReason::InvalidExecutionPlan:
@@ -749,10 +751,9 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
                     noPlan->reason == NoPlanReason::NumericalPlanningFailure) {
                     return {PlanningPhaseStatus::Failure, std::nullopt};
                 }
-                if (pastCutoff()) {
-                    return {PlanningPhaseStatus::NoPlanSafeEnd, std::nullopt};
-                }
-                continue;
+                // NoPlan is produced only after Phase1 evaluated a stable table.
+                // Candidate exhaustion must not reopen vision in this shot cycle.
+                return {PlanningPhaseStatus::NoPlanSafeEnd, std::nullopt};
             }
 
             const PlanningResult* phase1Result = services.currentPlanningResult();
@@ -764,9 +765,18 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
             std::optional<ExecutionPlan> found;
             bool hardFailure = false;
             bool candidateUnknownUnsafe = false;
+            constexpr std::size_t MAX_PRIMARY_CANDIDATES = 3;
+            std::vector<Vector2D> attemptedLegalDirections;
             const auto tryCandidates = [&](const std::vector<ShotPlan>& plans,
-                                           bool potsExhausted) {
-                for (const ShotPlan& shot : plans) {
+                                           bool potsExhausted,
+                                           std::size_t limit,
+                                           bool recordLegalDirection) {
+                const std::size_t attemptCount = std::min(plans.size(), limit);
+                for (std::size_t index = 0; index < attemptCount; ++index) {
+                    const ShotPlan& shot = plans[index];
+                    if (recordLegalDirection) {
+                        attemptedLegalDirections.push_back(shot.shotDirectionXY);
+                    }
                     cout << "[ShotPlan] 目標球=" << shot.selectedTarget.ballNumber
                          << "  類型=" << static_cast<int>(shot.type)
                          << "  母球位置=(" << shot.source.cueBallSnapshot.x
@@ -896,51 +906,51 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
             };
             cout << "[候選] rankedPotPlans（共" << candidates.rankedPotPlans.size()
                  << "筆）..." << endl;
-            tryCandidates(candidates.rankedPotPlans, false);
+            tryCandidates(
+                candidates.rankedPotPlans, false, MAX_PRIMARY_CANDIDATES, false);
             if (!found && !hardFailure && !candidateUnknownUnsafe) {
                 cout << "[候選] legalContactPlans（共"
                      << candidates.legalContactPlans.size() << "筆）..." << endl;
-                tryCandidates(candidates.legalContactPlans, true);
+                tryCandidates(
+                    candidates.legalContactPlans, true,
+                    MAX_PRIMARY_CANDIDATES, true);
             }
             if (!found && !hardFailure && !candidateUnknownUnsafe) {
-                // Pot與LegalContact都窮盡才會有候選；立刻嘗試，不等
-                // planningRetryCutoff。
-                cout << "[候選] cueBallContactOnlyPlans（共"
-                     << candidates.cueBallContactOnlyPlans.size() << "筆）..."
-                     << endl;
-                tryCandidates(candidates.cueBallContactOnlyPlans, true);
-            }
-            if (!found && !hardFailure && !candidateUnknownUnsafe &&
-                candidates.cueBallContactOnlyPlans.empty()) {
-                // Phase1當初判定rankedPotPlans/legalContactPlans幾何可行，
-                // 所以沒有預先生成cueBallContactOnlyPlans；但它們剛剛在
-                // P2-01姿態搜尋／硬體可達性檢查全部失敗（例如母球位置在
-                // 手臂實際可達範圍邊緣）。現場用同一個PlanningSourceAudit
-                // 補生成最後一層保底，讓母球至少有安全推出的機會，不必
-                // 整輪直接失敗、回Unknown。
-                const PlanningSourceAudit* fallbackSource =
-                    !candidates.rankedPotPlans.empty()
-                    ? &candidates.rankedPotPlans.front().source
-                    : (!candidates.legalContactPlans.empty()
-                        ? &candidates.legalContactPlans.front().source
-                        : nullptr);
-                // 沒有geometry就不產生候選（fail closed）：這裡的方向
-                // 篩選需要ballDiameterMm/collisionMarginMm才能對
-                // otherBallsSnapshot做前方路徑碰撞檢查，不能在沒有這組
-                // 資料時盲目產生候選，讓母球有機會直接撞進其他球。
+                const PlanningSourceAudit* stableSource = nullptr;
+                if (const ShotPlan* stableShot =
+                        std::get_if<ShotPlan>(&phase1Result->value())) {
+                    stableSource = &stableShot->source;
+                } else if (const NoPlan* stableNoPlan =
+                               std::get_if<NoPlan>(&phase1Result->value())) {
+                    stableSource = stableNoPlan->source
+                        ? &*stableNoPlan->source
+                        : nullptr;
+                }
                 const std::optional<ResolvedTableGeometry>* resolvedGeometry =
                     services.currentResolvedTableGeometry
                     ? services.currentResolvedTableGeometry()
                     : nullptr;
-                if (fallbackSource && resolvedGeometry && *resolvedGeometry) {
-                    const std::vector<ShotPlan> onDemandFallback =
+                if (stableSource && resolvedGeometry && *resolvedGeometry) {
+                    const std::vector<ShotPlan> generated =
                         BilliardAlgorithm::
-                            generateCueBallContactOnlyExecutionFallback(
-                                *fallbackSource, **resolvedGeometry);
-                    cout << "[保底] rankedPotPlans/legalContactPlans全部失敗，"
-                         << "現場補生成CueBallContactOnly候選（共"
-                         << onDemandFallback.size() << "筆）重試..." << endl;
-                    tryCandidates(onDemandFallback, true);
+                            generateForcedLegalContactExecutionFallback(
+                                *stableSource, **resolvedGeometry);
+                    std::vector<ShotPlan> forcedPlans;
+                    for (const ShotPlan& plan : generated) {
+                        const bool alreadyTried = std::any_of(
+                            attemptedLegalDirections.begin(),
+                            attemptedLegalDirections.end(),
+                            [&](const Vector2D& direction) {
+                                return std::hypot(
+                                    direction.x - plan.shotDirectionXY.x,
+                                    direction.y - plan.shotDirectionXY.y) <= 1e-9;
+                            });
+                        if (!alreadyTried) forcedPlans.push_back(plan);
+                    }
+                    cout << "[保底] ForcedLegalContact候選（共"
+                         << forcedPlans.size() << "筆）..." << endl;
+                    tryCandidates(
+                        forcedPlans, true, forcedPlans.size(), false);
                 }
             }
             if (candidateUnknownUnsafe) {
@@ -950,10 +960,9 @@ ExecutionCycleResult BilliardApp::runRealSingleCycle(
                 return {PlanningPhaseStatus::Failure, std::nullopt};
             }
             if (!found) {
-                if (pastCutoff()) {
-                    return {PlanningPhaseStatus::NoPlanSafeEnd, std::nullopt};
-                }
-                continue;
+                // StableTableState已取得；候選耗盡是本shot cycle的終點，
+                // 不得重新開啟capture window。
+                return {PlanningPhaseStatus::NoPlanSafeEnd, std::nullopt};
             }
             if (deadline.remainingMs(BilliardConfig::SHOT_CYCLE_TIMING.shotDeadlineMs)
                     .count() <

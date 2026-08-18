@@ -580,6 +580,7 @@ struct FakeRealServices {
     std::optional<OfflinePhase1FailureKind> phase1FailureKind;
     PlanningResult planningResult = PlanningResult::shotPlan(buildRealShotPlan(), candidatesWith(1));
     std::function<ExecutionPlanResult(const ShotPlan&, bool)> buildPlan;
+    std::optional<ResolvedTableGeometry> resolvedGeometry;
     std::size_t phase1CallCount = 0;
     std::optional<ShotCycleIdentity> openedWindowFor;
     FakeClock* clock = nullptr;
@@ -624,6 +625,9 @@ struct FakeRealServices {
         };
         s.currentPlanningResult = [this]() -> const PlanningResult* {
             return &planningResult;
+        };
+        s.currentResolvedTableGeometry = [this]() {
+            return &resolvedGeometry;
         };
         s.buildExecutionPlanForShot = [this](
             const ShotPlan& shot,
@@ -1138,6 +1142,32 @@ int main()
         OfflineExecutionRuntime runtime;
         FakeClock clock;
         FakeRealServices fake = singleCandidateSuccess(plan);
+        bool transportFailed = false;
+        RealExecutionCycleServices services = fake.services();
+        services.runPhase1 = [&]() -> OfflinePhase1Result {
+            fake.calls.push_back("phase1");
+            ++fake.phase1CallCount;
+            if (!transportFailed) {
+                transportFailed = true;
+                return {OfflinePhase1Status::PipelineFailure,
+                    OfflinePhase1FailureKind::TransportDisruption};
+            }
+            return {OfflinePhase1Status::ShotPlanReady};
+        };
+        const ExecutionCycleResult result = BilliardApp::runRealSingleCycle(
+            runtime, 1, *robot, config, services, deadlineFor(clock));
+        tests.expectTrue(
+            result.status == ExecutionCycleStatus::Completed && result.value &&
+                result.value->shotExecuted && fake.phase1CallCount == 2 &&
+                callCount(fake, "openCapture") == 2,
+            "transport disruption before StableTableState may reopen capture and retry");
+    }
+    {
+        FakeSdk sdk;
+        auto robot = connected(sdk);
+        OfflineExecutionRuntime runtime;
+        FakeClock clock;
+        FakeRealServices fake = singleCandidateSuccess(plan);
         fake.visionConnected = false;
         fake.connectResponses = {{VisionConnectStatus::NonRetriable, 99}};
         const ExecutionCycleResult result = BilliardApp::runRealSingleCycle(
@@ -1161,8 +1191,9 @@ int main()
         const ExecutionCycleResult result = BilliardApp::runRealSingleCycle(
             runtime, 1, *robot, config, fake.services(), deadlineFor(clock));
         tests.expectTrue(
-            result.status == ExecutionCycleStatus::Completed &&
-            result.value && !result.value->shotExecuted,
+            result.status == ExecutionCycleStatus::SafeFailure &&
+            result.diagnostic && result.diagnostic->reason ==
+                ExecutionCycleFailureReason::NoExecutablePlan,
             "vision never connects and retry cutoff already elapsed: safe no-plan end, "
             "not an infinite retry loop");
     }
@@ -1203,8 +1234,9 @@ int main()
         const ExecutionCycleResult result = BilliardApp::runRealSingleCycle(
             runtime, 1, *robot, config, fake.services(), deadlineFor(clock));
         tests.expectTrue(
-            result.status == ExecutionCycleStatus::Completed &&
-            result.value && !result.value->shotExecuted,
+            result.status == ExecutionCycleStatus::SafeFailure &&
+            result.diagnostic && result.diagnostic->reason ==
+                ExecutionCycleFailureReason::NoExecutablePlan,
             "NoEligibleTarget is a safe, immediate no-plan end (not a hard failure)");
     }
     {
@@ -1242,18 +1274,11 @@ int main()
         noPotCandidate.selectedTarget = EligibleTarget{1, {200.0, 200.0}};
         noPotCandidate.diagnostic.selectionStatus = PotSelectionStatus::Success;
         fake.planningResult = PlanningResult::noPlan(noPotCandidate);
-        bool firstPhase1Call = true;
         RealExecutionCycleServices services = fake.services();
         services.runPhase1 = [&]() -> OfflinePhase1Result {
             fake.calls.push_back("phase1");
             ++fake.phase1CallCount;
-            if (firstPhase1Call) {
-                firstPhase1Call = false;
-                return {OfflinePhase1Status::NoPlan};
-            }
-            fake.planningResult = PlanningResult::shotPlan(
-                buildRealShotPlan(), candidatesWith(1));
-            return {OfflinePhase1Status::ShotPlanReady};
+            return {OfflinePhase1Status::NoPlan};
         };
         services.currentPlanningResult = [&]() -> const PlanningResult* {
             return &fake.planningResult;
@@ -1266,10 +1291,116 @@ int main()
         const ExecutionCycleResult result = BilliardApp::runRealSingleCycle(
             runtime, 1, *robot, config, services, deadlineFor(clock));
         tests.expectTrue(
+            result.status == ExecutionCycleStatus::SafeFailure &&
+                result.diagnostic && result.diagnostic->reason ==
+                    ExecutionCycleFailureReason::NoExecutablePlan &&
+                fake.phase1CallCount == 1 &&
+                callCount(fake, "openCapture") == 1,
+            "NoPotCandidate after a stable table safe-ends without recapture");
+    }
+    {
+        FakeSdk sdk;
+        auto robot = connected(sdk);
+        OfflineExecutionRuntime runtime;
+        FakeClock clock;
+        FakeRealServices fake;
+        Phase1ExecutionCandidates candidates = candidatesWith(5);
+        std::array<const ShotPlan*, 5> rankedPointers{};
+        for (std::size_t index = 0; index < rankedPointers.size(); ++index) {
+            rankedPointers[index] = &candidates.rankedPotPlans[index];
+        }
+        fake.planningResult = PlanningResult::shotPlan(
+            buildRealShotPlan(), std::move(candidates));
+        std::vector<int> attemptedIndices;
+        fake.buildPlan = [&rankedPointers, &attemptedIndices](const ShotPlan& shot, bool) {
+            const auto found = std::find(
+                rankedPointers.begin(), rankedPointers.end(), &shot);
+            attemptedIndices.push_back(static_cast<int>(
+                std::distance(rankedPointers.begin(), found)));
+            return ExecutionPlanResult::rejected(
+                ExecutionPlanStatus::NoExecutablePlan,
+                ExecutionPlanFailureReason::FixedForceEnvelopeRejected);
+        };
+        const ExecutionCycleResult result = BilliardApp::runRealSingleCycle(
+            runtime, 1, *robot, config, fake.services(), deadlineFor(clock));
+        tests.expectTrue(
+            result.status == ExecutionCycleStatus::SafeFailure &&
+                result.diagnostic && result.diagnostic->reason ==
+                    ExecutionCycleFailureReason::NoExecutablePlan &&
+                attemptedIndices == std::vector<int>({0, 1, 2}) &&
+                fake.phase1CallCount == 1 && callCount(fake, "openCapture") == 1,
+            "only ranked-pot indices 0, 1, 2 are attempted in order and exhaustion "
+            "safe-ends without recapture");
+    }
+    {
+        FakeSdk sdk;
+        auto robot = connected(sdk);
+        OfflineExecutionRuntime runtime;
+        FakeClock clock;
+        FakeRealServices fake;
+        const ShotPlan legal = buildRealLegalContactPlan();
+        Phase1ExecutionCandidates candidates{
+            {}, std::vector<ShotPlan>(5, legal), {}};
+        std::array<const ShotPlan*, 5> legalPointers{};
+        for (std::size_t index = 0; index < legalPointers.size(); ++index) {
+            legalPointers[index] = &candidates.legalContactPlans[index];
+        }
+        fake.planningResult = PlanningResult::shotPlan(
+            legal, std::move(candidates));
+        std::vector<int> attemptedIndices;
+        fake.buildPlan = [&legalPointers, &attemptedIndices](const ShotPlan& shot, bool) {
+            const auto found = std::find(
+                legalPointers.begin(), legalPointers.end(), &shot);
+            attemptedIndices.push_back(static_cast<int>(
+                std::distance(legalPointers.begin(), found)));
+            return ExecutionPlanResult::rejected(
+                ExecutionPlanStatus::NoExecutablePlan,
+                ExecutionPlanFailureReason::FixedForceEnvelopeRejected);
+        };
+        const ExecutionCycleResult result = BilliardApp::runRealSingleCycle(
+            runtime, 1, *robot, config, fake.services(), deadlineFor(clock));
+        tests.expectTrue(
+            result.status == ExecutionCycleStatus::SafeFailure &&
+                result.diagnostic && result.diagnostic->reason ==
+                    ExecutionCycleFailureReason::NoExecutablePlan &&
+                attemptedIndices == std::vector<int>({0, 1, 2}) &&
+                callCount(fake, "openCapture") == 1,
+            "only legal-contact indices 0, 1, 2 are attempted in order before safe end");
+    }
+    {
+        FakeSdk sdk;
+        auto robot = connected(sdk);
+        OfflineExecutionRuntime runtime;
+        FakeClock clock;
+        FakeRealServices fake;
+        const auto resolved = BilliardPhysics::resolveTableGeometry(
+            pocketCenters(), tableConfig());
+        fake.resolvedGeometry = *resolved.value();
+        const ShotPlan primary = buildRealShotPlan();
+        NoPlan stableNoPot{};
+        stableNoPot.reason = NoPlanReason::NoPotCandidate;
+        stableNoPot.source = primary.source;
+        stableNoPot.selectedTarget = primary.selectedTarget;
+        stableNoPot.diagnostic.selectionStatus = PotSelectionStatus::Success;
+        fake.planningResult = PlanningResult::noPlan(
+            stableNoPot, candidatesWith(1));
+        std::optional<int> forcedTargetNumber;
+        fake.buildPlan = [plan, &forcedTargetNumber](const ShotPlan& shot, bool) {
+            if (shot.type == ShotPlanType::DirectLegalContact) {
+                forcedTargetNumber = shot.selectedTarget.ballNumber;
+                return ExecutionPlanResult::success(plan);
+            }
+            return ExecutionPlanResult::rejected(
+                ExecutionPlanStatus::NoExecutablePlan,
+                ExecutionPlanFailureReason::FixedForceEnvelopeRejected);
+        };
+        const ExecutionCycleResult result = BilliardApp::runRealSingleCycle(
+            runtime, 1, *robot, config, fake.services(), deadlineFor(clock));
+        tests.expectTrue(
             result.status == ExecutionCycleStatus::Completed && result.value &&
-                result.value->shotExecuted && fake.phase1CallCount == 2,
-            "NoPotCandidate triggers a recollect-and-retry (runPhase1 runs a "
-            "second time), not an immediate safe end or hard failure");
+                result.value->shotExecuted && forcedTargetNumber == 1 &&
+                callCount(fake, "openCapture") == 1,
+            "ForcedLegalContact uses the real lowest target without recapture");
     }
     {
         FakeSdk sdk;
@@ -1355,8 +1486,9 @@ int main()
         const ExecutionCycleResult result = BilliardApp::runRealSingleCycle(
             runtime, 1, *robot, config, fake.services(), deadlineFor(clock));
         tests.expectTrue(
-            result.status == ExecutionCycleStatus::Completed &&
-            result.value && !result.value->shotExecuted,
+            result.status == ExecutionCycleStatus::SafeFailure &&
+            result.diagnostic && result.diagnostic->reason ==
+                ExecutionCycleFailureReason::NoExecutablePlan,
             "FixedForceEnvelopeRejected candidates are skipped, not hard failures; "
             "exhausting the candidate list past cutoff safely ends with no plan");
     }
@@ -1428,8 +1560,9 @@ int main()
         const ExecutionCycleResult result = BilliardApp::runRealSingleCycle(
             runtime, 1, *robot, config, fake.services(), deadlineFor(clock));
         tests.expectTrue(
-            result.status == ExecutionCycleStatus::Completed &&
-            result.value && !result.value->shotExecuted &&
+            result.status == ExecutionCycleStatus::SafeFailure &&
+            result.diagnostic && result.diagnostic->reason ==
+                ExecutionCycleFailureReason::NoExecutablePlan &&
             !called(sdk, "ptp"),
             "a found candidate is discarded as a safe no-plan end when too little "
             "execution reserve time remains before the shot deadline, and safeApproachPose "
@@ -1450,8 +1583,9 @@ int main()
         const ExecutionCycleResult result = BilliardApp::runRealSingleCycle(
             runtime, 1, *robot, config, fake.services(), deadlineFor(clock));
         tests.expectTrue(
-            result.status == ExecutionCycleStatus::Completed &&
-            result.value && !result.value->shotExecuted &&
+            result.status == ExecutionCycleStatus::SafeFailure &&
+            result.diagnostic && result.diagnostic->reason ==
+                ExecutionCycleFailureReason::NoExecutablePlan &&
             !called(sdk, "do1On") && !called(sdk, "ptp"),
             "Pull mode: insufficient execution reserve time is caught before any "
             "pre-extend pulse or safeApproachPose motion is ever issued");
@@ -1609,8 +1743,10 @@ int main()
         const ExecutionCycleResult result = BilliardApp::runRealSingleCycle(
             runtime, 1, *robot, config, services, deadlineFor(clock));
         tests.expectTrue(
-            result.status == ExecutionCycleStatus::Completed && result.value &&
-                !result.value->shotExecuted && connectAttempts == 2,
+            result.status == ExecutionCycleStatus::SafeFailure &&
+                result.diagnostic && result.diagnostic->reason ==
+                    ExecutionCycleFailureReason::NoExecutablePlan &&
+                connectAttempts == 2,
             "elapsed time accumulates across reconnect attempts instead of resetting per "
             "attempt: retry-cutoff safe-end triggers after 2 accumulated attempts, never "
             "reaching the 3rd attempt that would have connected");

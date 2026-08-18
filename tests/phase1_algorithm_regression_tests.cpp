@@ -338,6 +338,74 @@ int main()
         return tests.exitCode();
     }
     const auto& geometry = *geometryValue;
+
+    std::array<std::optional<Point>, 9> forcedBalls{};
+    forcedBalls[2] = Point{200.0, 250.0};
+    forcedBalls[5] = Point{600.0, 400.0};
+    const auto forcedNow = std::chrono::steady_clock::now();
+    const PlanningSourceAudit forcedSource{
+        {7, 9},
+        {{{11, forcedNow}, {12, forcedNow}, {13, forcedNow}}},
+        "forced-base0-test-v1",
+        geometry.calibrationRevision,
+        {100.0, 250.0},
+        geometry.ballRadiusMm,
+        forcedBalls};
+    const std::vector<ShotPlan> forcedLegal =
+        BilliardAlgorithm::generateForcedLegalContactExecutionFallback(
+            forcedSource, geometry);
+    tests.expectTrue(
+        !forcedLegal.empty() && std::all_of(
+            forcedLegal.begin(), forcedLegal.end(), [](const ShotPlan& plan) {
+                return plan.type == ShotPlanType::DirectLegalContact &&
+                    plan.selectedTarget.ballNumber == 3 &&
+                    plan.selectedTarget.center.x == 200.0 &&
+                    plan.selectedTarget.center.y == 250.0;
+            }),
+        "ForcedLegalContact targets the actual lowest-number present ball");
+    const std::array<double, 5> expectedForcedOffsets{{0.0, 5.0, -5.0, 10.0, -10.0}};
+    tests.expectTrue(
+        forcedLegal.size() == expectedForcedOffsets.size(),
+        "ForcedLegalContact emits only the approved five-direction set");
+    if (forcedLegal.size() == expectedForcedOffsets.size()) {
+        const Vector2D directDirection{1.0, 0.0};
+        for (std::size_t index = 0; index < forcedLegal.size(); ++index) {
+            const auto* payload = std::get_if<DirectLegalContactShotPlanPayload>(
+                &forcedLegal[index].payload);
+            if (!payload) {
+                tests.expectTrue(false, "forced fallback payload remains direct legal contact");
+                continue;
+            }
+            const Vector2D contactNormal{
+                (forcedLegal[index].selectedTarget.center.x -
+                    payload->candidate.ghostBallPoint.center.x) /
+                    geometry.ballDiameterMm,
+                (forcedLegal[index].selectedTarget.center.y -
+                    payload->candidate.ghostBallPoint.center.y) /
+                    geometry.ballDiameterMm};
+            const double signedOffsetDeg = std::atan2(
+                directDirection.x * contactNormal.y -
+                    directDirection.y * contactNormal.x,
+                directDirection.x * contactNormal.x +
+                    directDirection.y * contactNormal.y) *
+                (180.0 / BilliardMath::PI);
+            tests.expectNear(
+                signedOffsetDeg, expectedForcedOffsets[index], TOLERANCE,
+                "ForcedLegalContact preserves deterministic offset order");
+        }
+    }
+    PlanningSourceAudit blockedForcedSource = forcedSource;
+    blockedForcedSource.otherBallsSnapshot[5] = Point{150.0, 250.0};
+    tests.expectTrue(
+        BilliardAlgorithm::generateForcedLegalContactExecutionFallback(
+            blockedForcedSource, geometry).empty(),
+        "ForcedLegalContact rejects every direction blocked by another ball");
+    PlanningSourceAudit noForcedTargetSource = forcedSource;
+    noForcedTargetSource.otherBallsSnapshot = {};
+    tests.expectTrue(
+        BilliardAlgorithm::generateForcedLegalContactExecutionFallback(
+            noForcedTargetSource, geometry).empty(),
+        "ForcedLegalContact never invents a placeholder target");
     for (std::size_t pocketIndex = 0; pocketIndex < geometry.pockets.size(); ++pocketIndex) {
         const auto stable = alignedStateForPocket(geometry, pocketIndex);
         const auto target = selector.select(stable);

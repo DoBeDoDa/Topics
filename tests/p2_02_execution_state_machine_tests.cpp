@@ -578,17 +578,11 @@ int main()
         const ExecutionCycleResult result = run(fake, runtime, 5);
 
         tests.expectTrue(
-            result.status == ExecutionCycleStatus::Completed,
-            "NoPlanSafeEnd still completes the cycle safely");
-        if (result.value) {
-            tests.expectTrue(
-                !result.value->shotExecuted, "NoPlanSafeEnd cycle records shotExecuted=false");
-            tests.expectTrue(
-                !result.value->sourcePlanIdentity.has_value() &&
-                    !result.value->pneumaticEvidence.has_value(),
-                "no-plan audit omits plan identity and pneumatic evidence");
-            tests.expectTrue(result.value->isValid(), "no-plan audit trace isValid()");
-        }
+            result.status == ExecutionCycleStatus::SafeFailure &&
+                result.diagnostic &&
+                result.diagnostic->reason ==
+                    ExecutionCycleFailureReason::NoExecutablePlan,
+            "NoPlanSafeEnd reports SafeFailure after a safe standby return");
         tests.expectTrue(
             !hasCommand(fake.commands, Command::ValidateStrikeReady) &&
                 !hasCommand(fake.commands, Command::Pneumatic),
@@ -599,6 +593,9 @@ int main()
         tests.expectTrue(
             !hasCommand(fake.commands, Command::ReturnStandbyAfterStrike),
             "no-plan path does not call returnToStandbyAfterStrike");
+        tests.expectTrue(
+            runtime.state == ExecutionCycleState::WaitingForStart,
+            "NoPlanSafeEnd returns runtime to WaitingForStart");
     }
 
     // ---- Planning: Failure ----
