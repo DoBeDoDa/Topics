@@ -266,10 +266,10 @@ PlaneIntersection intersectRayWithHorizontalPlane(const Vec3& originBase0,
 
     // Base0 XY ground-truth radial compensation, applied only after the RGB ray / Z-target intersection.
     // Xc/Yc define the Base0-mm center; w1/w2 independently scale X/Y by radial distance in mm. Z is unchanged.
-    constexpr double Xc = -1.092;
-    constexpr double Yc = 561.828;
-    constexpr double w1 = 0.0000184465;
-    constexpr double w2 = 0.0000691568;
+    constexpr double Xc = 0.285;
+    constexpr double Yc = 565.348;
+    constexpr double w1 = 0.00004228;
+    constexpr double w2 = 0.00004228;
     const double dx = point.x - Xc;
     const double dy = point.y - Yc;
     const double r = std::sqrt(dx * dx + dy * dy);
