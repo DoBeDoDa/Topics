@@ -1,0 +1,5 @@
+hdl 2 cmd 0 rlt 4702 alv 0 alm 2 msts 0 op 1 t1/2 1 pl 6.40 ov 10 fo 0001 coord 0 sz 31
+hdl 2 cmd 0 rlt 4702 alv 0 alm 2 msts 0 op 0 t1/2 0 pl 6.40 ov 10 fo 0001 coord 0 sz 31
+hdl 2 cmd 0 rlt 4702 alv 0 alm 2 msts 0 op 0 t1/2 1 pl 6.40 ov 10 fo 0001 coord 0 sz 31
+2 set log level 2
+192.168.0.1 2

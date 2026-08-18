@@ -258,6 +258,9 @@ extern const int NORMAL_SPEED_RATIO;
 extern const std::optional<int> ACC_DEC_RATIO;
 extern const std::optional<int> PTP_SPEED;
 extern const std::optional<double> LIN_SPEED;
+// set_speed_limit：只有setter沒有getter，猜測是速度限制模式開關，
+// 可能跟ptp_speed/override_ratio是獨立的上限。nullopt＝不主動設定。
+extern const std::optional<bool> SPEED_LIMIT_ENABLED;
 extern const int TOOL_NUMBER;
 extern const int BASE_NUMBER;
 extern const int START_BUTTON_DI_INDEX;

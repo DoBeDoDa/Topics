@@ -851,6 +851,52 @@ ExecutionPlanResult MotionPlanner::createExecutionPlan(
             ExecutionPlanFailureReason::MissingMotionCalibration);
     }
     if (!validConfig(*config)) {
+        // [使用者2026-08-17要求的診斷] validConfig()是靜態設定的合取檢查，
+        // 光看status/reason看不出哪個欄位沒過，這裡印出關鍵欄位方便對照
+        // validConfig()（本檔案約line 303）手動抓出是哪個條件失敗。
+        std::cout << std::setprecision(12)
+            << "[validConfig失敗診斷] strikeZMm=" << *config->strikeZMm
+            << " safeApproachZMm=" << *config->safeApproachZMm
+            << " readyGapMm=" << *config->readyGapMm
+            << " strikePositionBiasMm=" << *config->strikePositionBiasMm
+            << " pullModeMinBottomDistanceMm="
+            << *config->pullModeMinBottomDistanceMm << "\n"
+            << "  a0Deg=" << *config->a0Deg << " b0Deg=" << *config->b0Deg
+            << " deltaADeg=" << *config->deltaADeg
+            << " deltaBDeg=" << *config->deltaBDeg
+            << " stepADeg=" << *config->stepADeg
+            << " stepBDeg=" << *config->stepBDeg << "\n"
+            << "  cToolOffsetDeg=" << *config->cToolOffsetDeg
+            << " maxCueDirectionErrorDeg=" << *config->maxCueDirectionErrorDeg
+            << " directionUnitTolerance=" << *config->directionUnitTolerance
+            << "\n"
+            << "  cueForwardAxisTool=(" << (*config->cueForwardAxisTool)[0]
+            << "," << (*config->cueForwardAxisTool)[1] << ","
+            << (*config->cueForwardAxisTool)[2] << ")"
+            << " tableDownDirectionBase0XY=("
+            << config->tableDownDirectionBase0XY->x << ","
+            << config->tableDownDirectionBase0XY->y << ")\n"
+            << "  searchOrder=" << static_cast<int>(*config->searchOrder)
+            << " axisOffsetOrder="
+            << static_cast<int>(*config->axisOffsetOrder)
+            << " tieBreak=" << static_cast<int>(*config->tieBreak)
+            << " policyMode=" << static_cast<int>(*config->policyMode)
+            << "\n"
+            << "  pneumaticTimingProfile=("
+            << config->pneumaticTimingProfile->pneumaticPulseMs << ","
+            << config->pneumaticTimingProfile->directionChangeDelayMs << ","
+            << config->pneumaticTimingProfile->mechanismCompletionWaitMs
+            << ") calibrationRevision=\""
+            << config->pneumaticTimingProfile->calibrationRevision << "\"\n"
+            << "  calibrationRevision=\"" << *config->calibrationRevision
+            << "\" base0PlanarCalibrationRevision=\""
+            << *config->base0PlanarCalibrationRevision
+            << "\" cueForwardAxisCalibrationRevision=\""
+            << *config->cueForwardAxisCalibrationRevision
+            << "\" tool1ControllerCalibrationRevision=\""
+            << *config->tool1ControllerCalibrationRevision
+            << "\" executionPolicyRevision=\""
+            << *config->executionPolicyRevision << "\"" << std::endl;
         return reject(
             ExecutionPlanStatus::InvalidConfiguration,
             ExecutionPlanFailureReason::InvalidMotionCalibration);

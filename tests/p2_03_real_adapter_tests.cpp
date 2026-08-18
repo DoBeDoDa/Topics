@@ -352,6 +352,9 @@ struct FakeSdk {
     unsigned long tickStep = 1;
     int openCode = 7;
     int clearAlarmCode = 0;
+    // 預設回Expert(1)：既有測試不驗證連線等級，不應因新增這個查詢而改變
+    // 行為。個別測試要模擬被降級成Operator時再覆寫成0。
+    int connectionLevel = 1;
     int digitalInputValue = 0;
     // 供「deadline在執行中途過期不得中止已開始的執行」測試使用：模擬
     // pulse/wait期間deadline真的走過期限。
@@ -480,9 +483,13 @@ struct FakeSdk {
             [&](int, int) { calls.push_back("setAccDecRatio"); return 0; },
             [&](int, int) { calls.push_back("setPtpSpeed"); return 0; },
             [&](int, double) { calls.push_back("setLinSpeed"); return 0; },
+            [&](int, int) { calls.push_back("setOperationMode"); return 0; },
             [&](int) { calls.push_back("getAccDecRatio"); return 0; },
             [&](int) { calls.push_back("getPtpSpeed"); return 0; },
-            [&](int) { calls.push_back("getLinSpeed"); return 0.0; }};
+            [&](int) { calls.push_back("getLinSpeed"); return 0.0; },
+            [&](int) { calls.push_back("getOperationMode"); return 0; },
+            [&](int, bool) { calls.push_back("setSpeedLimit"); return 0; },
+            [&](int) { calls.push_back("getConnectionLevel"); return connectionLevel; }};
     }
 };
 

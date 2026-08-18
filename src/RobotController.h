@@ -48,9 +48,17 @@ struct HrSdkApi {
     std::function<int(int, int)> setAccDecRatio;
     std::function<int(int, int)> setPtpSpeed;
     std::function<int(int, double)> setLinSpeed;
+    std::function<int(int, int)> setOperationMode;
     std::function<int(int)> getAccDecRatio;
     std::function<int(int)> getPtpSpeed;
     std::function<double(int)> getLinSpeed;
+    std::function<int(int)> getOperationMode;
+    // 只有setter沒有getter（HRSDK.h沒有宣告get_speed_limit_state）。
+    std::function<int(int, bool)> setSpeedLimit;
+    // 2026-08-17新增：用官方文件化的get_connection_level(4.1.4節)直接查
+    // 連線等級（0=Operator,1=Expert），取代靠operationMode猜測連線是否
+    // 被HRSS降級成Operator。
+    std::function<int(int)> getConnectionLevel;
 };
 
 enum class RobotAdapterStatus {
@@ -205,10 +213,18 @@ public:
     RobotAdapterResult setAccDecRatio(int ratio);
     RobotAdapterResult setPtpSpeed(int speed);
     RobotAdapterResult setLinSpeed(double speed);
+    // 0=safety mode（override_ratio／ptp_speed只能在這個mode下設定），
+    // 1=running mode（acc_dec_ratio只能在這個mode下設定）。見HRSDK官方
+    // SetParameterExample範例。
+    RobotAdapterResult setOperationMode(int mode);
     // 唯讀查詢：連線失敗或SDK未注入時回nullopt，不代表數值真的是那樣。
     std::optional<int> getCurrentAccDecRatio() const;
     std::optional<int> getCurrentPtpSpeed() const;
     std::optional<double> getCurrentLinSpeed() const;
+    std::optional<int> getCurrentOperationMode() const;
+    // 官方4.1.4節：0=Operator,1=Expert。nullopt代表未連線或SDK未注入。
+    std::optional<int> getCurrentConnectionLevel() const;
+    RobotAdapterResult setSpeedLimit(bool enabled);
     RobotAdapterResult setToolNumber(int toolNumber);
     RobotAdapterResult setBaseNumber(int baseNumber);
     int getCurrentToolNumber() const;

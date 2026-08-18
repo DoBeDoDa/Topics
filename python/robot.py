@@ -167,9 +167,23 @@ class BilliardVisionServer:
         self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.server_socket.bind((self.host, self.port))
         self.server_socket.listen(1)
+        self._accept()
+
+    def _accept(self):
         print(f"[TCP] Waiting for the existing C++ client on port {self.port}...")
         self.connection, self.address = self.server_socket.accept()
         print(f"[TCP] C++ client connected: {self.address}")
+
+    def reaccept(self):
+        """C++端receiveFrame() timeout後會自己關掉socket再重新connect；
+        server_socket本身沒斷（一直listen(1)），但舊accept()只做一次，
+        run()迴圈原本會一直對著舊connection送資料、永遠等不到C++的新
+        connect()。這裡關掉舊connection、重新accept一次，讓C++重連能夠
+        真的接上，而不是卡死等待。"""
+        if self.connection is not None:
+            self.connection.close()
+            self.connection = None
+        self._accept()
 
     def send_coords(self, coordinates):
         if self.connection is None:
@@ -280,7 +294,8 @@ class BilliardVisionApp:
                 if coordinates is not None:
                     _print_dashboard(coordinates)
                     if not self.server.send_coords(coordinates):
-                        break
+                        print("[TCP] C++端連線已斷，等待重新connect...")
+                        self.server.reaccept()
                     accumulator.reset()
                 elif accumulator.timed_out():
                     print(

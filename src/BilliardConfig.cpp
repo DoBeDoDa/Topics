@@ -79,13 +79,19 @@ const int NORMAL_SPEED_RATIO = 100;
 // [使用者2026-08-17要求新增] 加減速比／PTP速度／LIN速度：HRSDK
 // （set_acc_dec_ratio／set_ptp_speed／set_lin_speed）可設定但過去從未被
 // 呼叫過，手臂目前沿用出廠或教導器上次手動設定值，跟override_ratio是
-// 各自獨立的兩層——override_ratio只是「目前已編程速度」的百分比倍率，
+// 各自獨立的兩層——override_ratio只是「目前已編程速度」的是ㄕ百分比倍率，
 // 如果這三個底數本身偏保守，override_ratio開到100%也不會變快。
 // nullopt＝不主動設定（維持現狀，不改變行為）；要啟用請填入實測後確認
 // 安全的數值再重新編譯。
 const std::optional<int> ACC_DEC_RATIO = std::nullopt;
-const std::optional<int> PTP_SPEED = std::nullopt;
-const std::optional<double> LIN_SPEED = std::nullopt;
+const std::optional<int> PTP_SPEED = 10;
+const std::optional<double> LIN_SPEED = 200;
+// [使用者2026-08-17測試結論] true/false都試過，setPtpSpeed仍然
+// sdkCode=4000沒有改變；這個HRSDK.h版本的set_speed_limit很可能不是
+// 2018手冊講的speed_limit_off()/speed_limit_on()對應函式，已排除。
+// 放棄這條路，回到nullopt（不主動呼叫，維持機器原本可正常運作的狀態）。
+const std::optional<bool> SPEED_LIMIT_ENABLED = std::nullopt;
+
 
 // [人工設定 / 實機確認]
 // 使用控制器中的 Tool 編號。
@@ -154,7 +160,7 @@ const std::optional<std::size_t> VISION_MAX_FRAME_BYTES = 2048;
 // C++ 等待一筆完整 newline frame 的最長時間，單位 ms。
 // 需要根據 Python 實際 frame 傳送頻率及網路狀況測試後決定。
 // 太短會誤判 timeout；太長會讓失效連線反應太慢。
-const std::optional<unsigned long> VISION_RECEIVE_TIMEOUT_MS = 10000;
+const std::optional<unsigned long> VISION_RECEIVE_TIMEOUT_MS = 100000;
 
 // [需實測 / 標定]
 // Python 傳入 Robot Base0 XY 時允許的合法觀測範圍。
@@ -198,7 +204,7 @@ const std::optional<double>
 // 原本1000ms會讓ThreeEventStability一直TimedOut重置、永遠湊不滿三幀。
 // 超過此值代表三筆資料時間距離太遠，不應被視為同一次穩定觀測。
 const std::optional<unsigned long>
-    MAX_INTER_FRAME_INTERVAL_MS = 5000;
+    MAX_INTER_FRAME_INTERVAL_MS = 10000;
 
 
 // ============================================================
@@ -399,11 +405,11 @@ const BrainConfig BRAIN_CONFIG = {
 // Robot 到達 CameraPose 並停止後，等待相機與畫面穩定的時間。
 // 800 ms 應透過實際影像測試確認：
 // 手臂停止後相機震動、曝光、自動對焦等是否已穩定。
-const unsigned long CAMERA_SETTLE_MS = 1000;
+const unsigned long CAMERA_SETTLE_MS = 500;
 
 // [人工設定 / 安全參數]
 // Robot motion命令送出後，確認控制器離開停止狀態的最長等待時間。
-const unsigned long MOTION_START_CONFIRMATION_TIMEOUT_MS = 1000;
+const unsigned long MOTION_START_CONFIRMATION_TIMEOUT_MS = 500;
 
 // [人工設定 / 安全參數]
 // 單次 Robot motion 最長允許等待時間。
@@ -602,17 +608,17 @@ const std::optional<MotionPlanningConfig> MOTION_PLANNING_CONFIG = [] {
     config.strikeZMm = -225.0;
     config.safeApproachZMm = -170.0;
     config.readyGapMm = 0.0;
-    config.strikePositionBiasMm = 20.0;
+    config.strikePositionBiasMm = 10.0; 
     config.pullModeMinBottomDistanceMm = 300.0;
     config.a0Deg = -179.0;
     config.b0Deg = -2.0;
     // [使用者2026-08核准放寬] A軸搜尋窗5°->10°：原窗口在部分shot方向下
     // 找不到可用姿態（NoAcceptedPoseCandidate）。41*13=533候選，未超過
     // MAX_TOTAL_POSE_CANDIDATES=1000。
-    config.deltaADeg = 15.0;
-    config.deltaBDeg = 3.0;
-    config.stepADeg = 0.5;
-    config.stepBDeg = 0.5;
+    config.deltaADeg = 1.0;
+    config.deltaBDeg = 1.0;
+    config.stepADeg = 1;
+    config.stepBDeg = 1;
     config.searchOrder = PoseSearchOrder::AThenB;
     config.axisOffsetOrder = AxisOffsetOrder::LowerThenHigher;
     config.tieBreak = PoseTieBreak::FirstInApprovedSearchOrder;
@@ -648,10 +654,10 @@ const std::optional<MotionPlanningConfig> MOTION_PLANNING_CONFIG = [] {
     // 本來就必須完全一致（見RobotController.cpp
     // validateRealExecutionConfiguration的timingMatches檢查）。
     config.pneumaticTimingProfile = PneumaticTimingProfileReference{
-        "pneumatic-timing-v1", 100, 300, 0};
+        "pneumatic-timing-v1", 50, 50, 10};
     config.tool1ControllerCalibrationRevision = "tool1-controller-v1";
-    config.railHuggingTriggerDistanceMm = 45.0;  // [使用者2026-08-16確認] 3公分
-    config.railHuggingReadyGapMm = 60.0;  // 使用者提供初始值，之後會調整
+    config.railHuggingTriggerDistanceMm = 50.0;  // [使用者2026-08-16確認] 3公分
+    config.railHuggingReadyGapMm = 20.0;  // 使用者提供初始值，之後會調整
     return config;
 }();
 const ExecutionPolicyMode PRODUCTION_RUNTIME_MODE = ExecutionPolicyMode::RealHardware;
@@ -768,13 +774,13 @@ const std::optional<RealHardwareExecutionConfig>
                 "pneumatic-timing-v1",
 
                 /* pneumaticPulseMs */
-                500,
+                50,
 
                 /* directionChangeDelayMs */
-                500,
+                50,
 
                 /* mechanismCompletionWaitMs */
-                500
+                10
             },
 
             // 16. 競賽用實體Start按鈕DI index

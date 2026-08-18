@@ -92,9 +92,13 @@ HrSdkApi RobotController::productionApi()
         [](int robot, int ratio) { return set_acc_dec_ratio(robot, ratio); },
         [](int robot, int speed) { return set_ptp_speed(robot, speed); },
         [](int robot, double speed) { return set_lin_speed(robot, speed); },
+        [](int robot, int mode) { return set_operation_mode(robot, mode); },
         [](int robot) { return get_acc_dec_ratio(robot); },
         [](int robot) { return get_ptp_speed(robot); },
-        [](int robot) { return get_lin_speed(robot); }};
+        [](int robot) { return get_lin_speed(robot); },
+        [](int robot) { return get_operation_mode(robot); },
+        [](int robot, bool enabled) { return set_speed_limit(robot, enabled); },
+        [](int robot) { return get_connection_level(robot); }};
 #endif
 }
 
@@ -232,6 +236,24 @@ RobotAdapterResult RobotController::setAccDecRatio(int ratio) {
 RobotAdapterResult RobotController::setPtpSpeed(int speed) {
     if (!connected) return {RobotAdapterStatus::NotConnected, -1};
     if (!api.setPtpSpeed) return {RobotAdapterStatus::SdkFailure, -1};
+#ifndef BILLIARDS_P2_03_TEST_SEAM
+    // [使用者2026-08-17要求的診斷] 不透過我們自己的setOperationMode()
+    // 回傳碼判斷，直接在呼叫set_ptp_speed()前重新查詢一次真實SDK狀態，
+    // 確認operationMode/motorState當下實際是什麼，排除「我們的
+    // setOperationMode()回傳成功但其實沒真的切換」這個可能性。
+    // 2026-08-17再補：手冊2.6節「Command Queue」明確把set_ptp_speed列在
+    // 會進入controller端指令佇列、依FIFO執行的指令清單裡，不是單純的
+    // 同步setter。connectionLevel／motorState都已確認正常後還是4000，
+    // 加印get_command_count／get_motion_state，排除「佇列裡還卡著上一輪
+    // 沒清乾淨的指令，導致controller拒絕新指令排入佇列」這個可能性。
+    std::cout << "[PTP DEBUG] operationMode=" << get_operation_mode(id)
+              << " motorState=" << get_motor_state(id)
+              << " connectionLevel=" << get_connection_level(id)
+              << " commandCount=" << get_command_count(id)
+              << " motionState=" << get_motion_state(id)
+              << " currentPtp=" << get_ptp_speed(id)
+              << " requestedPtp=" << speed << std::endl;
+#endif
     const int sdkCode = api.setPtpSpeed(id, speed);
     return {sdkCode == 0 ? RobotAdapterStatus::Success : RobotAdapterStatus::SdkFailure,
         sdkCode};
@@ -241,6 +263,14 @@ RobotAdapterResult RobotController::setLinSpeed(double speed) {
     if (!connected) return {RobotAdapterStatus::NotConnected, -1};
     if (!api.setLinSpeed) return {RobotAdapterStatus::SdkFailure, -1};
     const int sdkCode = api.setLinSpeed(id, speed);
+    return {sdkCode == 0 ? RobotAdapterStatus::Success : RobotAdapterStatus::SdkFailure,
+        sdkCode};
+}
+
+RobotAdapterResult RobotController::setOperationMode(int mode) {
+    if (!connected) return {RobotAdapterStatus::NotConnected, -1};
+    if (!api.setOperationMode) return {RobotAdapterStatus::SdkFailure, -1};
+    const int sdkCode = api.setOperationMode(id, mode);
     return {sdkCode == 0 ? RobotAdapterStatus::Success : RobotAdapterStatus::SdkFailure,
         sdkCode};
 }
@@ -258,6 +288,24 @@ std::optional<int> RobotController::getCurrentPtpSpeed() const {
 std::optional<double> RobotController::getCurrentLinSpeed() const {
     if (!connected || !api.getLinSpeed) return std::nullopt;
     return api.getLinSpeed(id);
+}
+
+std::optional<int> RobotController::getCurrentOperationMode() const {
+    if (!connected || !api.getOperationMode) return std::nullopt;
+    return api.getOperationMode(id);
+}
+
+std::optional<int> RobotController::getCurrentConnectionLevel() const {
+    if (!connected || !api.getConnectionLevel) return std::nullopt;
+    return api.getConnectionLevel(id);
+}
+
+RobotAdapterResult RobotController::setSpeedLimit(bool enabled) {
+    if (!connected) return {RobotAdapterStatus::NotConnected, -1};
+    if (!api.setSpeedLimit) return {RobotAdapterStatus::SdkFailure, -1};
+    const int sdkCode = api.setSpeedLimit(id, enabled);
+    return {sdkCode == 0 ? RobotAdapterStatus::Success : RobotAdapterStatus::SdkFailure,
+        sdkCode};
 }
 
 RobotAdapterResult RobotController::setToolNumber(int toolNumber) {

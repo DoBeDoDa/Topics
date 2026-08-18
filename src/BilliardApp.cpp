@@ -383,10 +383,47 @@ OfflineStepResult BilliardApp::prepareRobotHardwareForMotion(
             requireRobotAdapterSuccess(robot.activateConfiguredToolAndBase(config))) {
         return {*bad};
     }
+    // [使用者2026-08-17依實機log確認] setPtpSpeed失敗當下motorState=0，
+    // 而官方4.6.2節範例永遠是先set_motor_state(1)開伺服、等開成功，才做
+    // 後續設定與動作指令。原本的setMotorState(1)排在所有速度設定之後，
+    // 改成搬到這裡：先開伺服，官方4.7.1節註明開伺服後約需100ms才能執行
+    // 其他命令，所以加一段delay再繼續設速度。
     if (const auto bad = requireRobotAdapterSuccess(robot.setMotorState(1))) return {*bad};
-    if (const auto bad = requireRobotAdapterSuccess(
-            robot.setOverrideRatio(BilliardConfig::NORMAL_SPEED_RATIO))) {
+    Sleep(150);
+    // [使用者2026-08-17依中文版手冊2.5節確認並口頭確認安全防護已到位]
+    // 手動模式（operationMode=0）點對點速度比例會依機型強制鎖定、不接受
+    // 外部覆寫（跟一路觀察到的setPtpSpeed sdkCode=4000完全吻合）；要覆寫
+    // set_acc_dec_ratio／set_ptp_speed／set_lin_speed必須先切到自動模式
+    // （operationMode=1）。自動模式的安全前提（防護裝置已測試安裝、
+    // 操作區內無人員、緊急停止可隨時介入）由使用者現場確認，不是程式碼
+    // 能保證的事。手冊2.5節第(6)點：自動模式才能讓動作繼續執行，所以這裡
+    // 切過去之後就不切回手動模式，直接沿用到後續動作執行。
+    if (const auto bad = requireRobotAdapterSuccess(robot.setOperationMode(1))) {
+        cout << "[prepareRobotHardwareForMotion] setOperationMode(1)"
+                "失敗（切自動模式）" << endl;
         return {*bad};
+    }
+    Sleep(50);
+    if (BilliardConfig::SPEED_LIMIT_ENABLED) {
+        // [使用者2026-08-17依HRSDK官方手冊2.4節確認] 用expert level(1)
+        // connect時，controller會自動開啟safety speed limit function，
+        // 這個function開啟時「Accelerate ratio cannot be set」、
+        // 「PTP speed ratio will be set as 10%」——這才是accDecRatio/
+        // ptpSpeed一直setCode=4000或設了沒用的真正原因。官方4.3.1範例
+        // 是呼叫沒有參數的speed_limit_off()，我們這個HRSDK.h版本只有
+        // set_speed_limit(id, bool)這個合併版本，bool語意未經官方文件
+        // 證實，用cout印出來after的結果，讓使用者確認true/false哪個
+        // 才是真的關閉。
+        const RobotAdapterResult speedLimit =
+            robot.setSpeedLimit(*BilliardConfig::SPEED_LIMIT_ENABLED);
+        cout << "[prepareRobotHardwareForMotion] setSpeedLimit("
+             << *BilliardConfig::SPEED_LIMIT_ENABLED << ")結果，status="
+             << static_cast<int>(speedLimit.status)
+             << " sdkCode=" << speedLimit.sdkCode << endl;
+        if (const auto bad = requireRobotAdapterSuccess(speedLimit)) {
+            return {*bad};
+        }
+        Sleep(50);
     }
     // 唯讀查詢目前的加減速比／PTP速度／LIN速度，不管有沒有要設定新值都
     // 印出來，讓使用者知道機器現在實際的基準值量級（不代表這是SDK允許的
@@ -403,7 +440,24 @@ OfflineStepResult BilliardApp::prepareRobotHardwareForMotion(
          << (robot.getCurrentLinSpeed()
                  ? std::to_string(*robot.getCurrentLinSpeed())
                  : std::string("查詢失敗"))
-         << endl;
+         << " operationMode="
+         << (robot.getCurrentOperationMode()
+                 ? std::to_string(*robot.getCurrentOperationMode())
+                 : std::string("查詢失敗"))
+         << "（0=kManual, 1=kAuto）" << endl;
+    // [使用者2026-08-17要求的診斷] 用官方文件化的get_connection_level
+    // （4.1.4節，0=Operator,1=Expert）直接確認連線等級，取代靠
+    // operationMode猜測連線是否被HRSS降級成Operator——2.5節：expert
+    // 等級只有在connect時的HRSS操作模式為EXT時才會生效，否則自動降回
+    // Operator，而3.3節set_ptp_speed_ratio等對Operator是X（不允許）。
+    cout << "[連線等級] connectionLevel="
+         << (robot.getCurrentConnectionLevel()
+                 ? std::to_string(*robot.getCurrentConnectionLevel())
+                 : std::string("查詢失敗"))
+         << "（0=Operator, 1=Expert；非1時set_ptp_speed等指令會sdkCode="
+            "4000）" << endl;
+    // set_acc_dec_ratio／set_ptp_speed／set_lin_speed都已經在上面切到自動
+    // 模式後才呼叫，這裡不用再各自切換operationMode。
     if (BilliardConfig::ACC_DEC_RATIO) {
         const RobotAdapterResult accDec =
             robot.setAccDecRatio(*BilliardConfig::ACC_DEC_RATIO);
@@ -436,6 +490,10 @@ OfflineStepResult BilliardApp::prepareRobotHardwareForMotion(
                  << " sdkCode=" << linSpeed.sdkCode << endl;
             return {*bad};
         }
+    }
+    if (const auto bad = requireRobotAdapterSuccess(
+            robot.setOverrideRatio(BilliardConfig::NORMAL_SPEED_RATIO))) {
+        return {*bad};
     }
     return {OfflineStepStatus::Success};
 }

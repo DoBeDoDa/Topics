@@ -1,0 +1,5 @@
+2026-8-16_0:31:54 set_mode 0  0 
+hdl 2 cmd 0 rlt 4702 alv 0 alm 0 msts 0 op 1 t1/2 1 pl 6.40 ov 10 fo 0000 coord 0 sz 31
+hdl 2 cmd 0 rlt 4702 alv 0 alm 0 msts 0 op 0 t1/2 0 pl 6.40 ov 10 fo 0000 coord 0 sz 31
+2 set log level 2
+192.168.0.1 2

@@ -1,10 +1,9 @@
-2026-8-16_19:12:9 set_mode 0  0 
-hdl 2 cmd 0 rlt 4702 alv 0 alm 0 msts 0 op 1 t1/2 1 pl 6.40 ov 10 fo 0000 coord 0 sz 31
-hdl 2 cmd 0 rlt 4702 alv 0 alm 0 msts 0 op 0 t1/2 0 pl 6.40 ov 10 fo 0000 coord 0 sz 31
-2026-8-16_19:12:10 set_motor_state 0  0 
+hdl 2 cmd 0 rlt 4702 alv 0 alm 2 msts 0 op 1 t1/2 1 pl 6.40 ov 10 fo 0001 coord 0 sz 31
+hdl 2 cmd 0 rlt 4702 alv 0 alm 2 msts 0 op 0 t1/2 0 pl 6.40 ov 10 fo 0001 coord 0 sz 31
+2026-8-17_19:42:3 set_motor_state 0  0 
 Network disconnected !SDK handle fun close connection !
-ShutdownAndColse socket= 000001AD0709CC28
-ShutdownAndColse socket= 000001AD0709CC30
-ShutdownAndColse socket= 000001AD0709CC38
-2026-8-16_19:12:10 Close connection !
+ShutdownAndColse socket= 000002BF13D8E158
+ShutdownAndColse socket= 000002BF13D8E160
+ShutdownAndColse socket= 000002BF13D8E168
+2026-8-17_19:42:3 Close connection !
 192.168.0.1 2
